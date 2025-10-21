@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: process-chain-generator
+
+# Elasticsearch配置
+elasticsearch:
+  hosts: localhost:9200  # ES集群地址，多个用逗号分隔，如: host1:9200,host2:9200
+  username:  # ES用户名（如果有认证）
+  password:  # ES密码（如果有认证）
+  connection-timeout: 5000  # 连接超时时间(ms)
+  socket-timeout: 60000  # Socket超时时间(ms)
+  connection-request-timeout: 5000  # 连接请求超时时间(ms)
+  max-retry-timeout: 60000  # 最大重试超时时间(ms)
+
+# 进程链配置
+process-chain:
+  # 告警索引名称
+  alarm-index: alarm_index
+  # 日志索引名称
+  log-index: log_index
+  # 最大遍历深度
+  max-traversal-depth: 50
+  # 最大节点数
+  max-node-count: 400
+  # 批量查询大小
+  batch-query-size: 100
+  # ES查询最大返回数
+  max-query-size: 10000
+
+logging:
+  level:
+    com.security.processchain: INFO
+    org.elasticsearch: WARN
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n'
+

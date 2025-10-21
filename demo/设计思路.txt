@@ -1,0 +1,1313 @@
+
+
+你是一个资深的安全开发工程师，有丰富的开发经验和网络安全经验；你需要设计以下的代码程序；
+
+1、前置条件
+  现在有原始告警和原始日志的 两个概念； 原始告警是原始日志生成的；
+  原始告警的各个字段如下sql创建的：
+  -- securityAlarm.ailpha_security_alarm definition
+
+CREATE TABLE securityAlarm.ailpha_security_alarm
+(
+
+    `alarmSource` String COMMENT '字段名：告警来源',
+
+    `attributeCompanyName` String COMMENT '字段名：归属单位名称',
+
+    `attributeCompanyPath` String COMMENT '字段名：归属单位架构路径',
+
+    `attributeRegion` String COMMENT '字段名：归属区域',
+
+    `attributeIndustry` String COMMENT '字段名：归属行业',
+
+    `sha256` String COMMENT '字段名：文件哈希256；描述：文件哈希256',
+
+    `groupByFields` String COMMENT '字段名：聚合字段名称；描述：聚合字段名称',
+
+    `alarmTag` Array(String) COMMENT '字段名：告警标签；描述：告警标签。',
+
+    `attacker` Array(String) COMMENT '字段名：攻击者；描述：攻击者。',
+
+    `attackerSecurityZone` Array(String) COMMENT '字段名：攻击者安全域；描述：通过攻击者IP及安全域配置判断来源安全域，可以根据攻击者安全域及受害者安全域判断访问是否违规。',
+
+    `tag` Array(String) COMMENT '字段名：告警标签；描述：告警标签。',
+
+    `victim` Array(String) COMMENT '字段名：受害者；描述：受害者。',
+
+    `victimSecurityZone` Array(String) COMMENT '字段名：受害者安全域；描述：通过受害者IP及安全域配置判断目的安全域，可以根据攻击者安全域及受害者安全域判断访问是否违规。',
+
+    `endTime` DateTime DEFAULT now() COMMENT '字段名：结束时间；描述：事件的结束时间。',
+
+    `startTime` DateTime DEFAULT now() COMMENT '字段名：起始时间；描述：事件的开始时间。',
+
+    `collectorReceiptTime` DateTime COMMENT '字段名：采集器接收时间；描述：采集器接收到此事件的时间。',
+
+    `deviceReceiptTime` DateTime COMMENT '字段名：设备接收时间；描述：采集器接触到此事件的时间。',
+
+    `attackSpeed` Nullable(Float64) COMMENT '字段名：攻击流量速率；描述：攻击流量速率。',
+
+    `requestTime` Nullable(Float64) COMMENT '字段名：请求响应时间；描述：请求响应时间。',
+
+    `responseTime` Nullable(Float64) COMMENT '字段名：响应时间；描述：响应时间。',
+
+    `destPort` Nullable(Int32) COMMENT '字段名：目的端口；描述：与网络通信目的设备关联的网络端口，0~65535。',
+
+    `destTransPort` Nullable(Int32) COMMENT '字段名：NAT后目的端口；描述：经过NAT后的目的端口，0~65535。',
+
+    `durationTime` Nullable(Int32) COMMENT '字段名：持续时间；描述：事件会话持续时间，单位（秒）。',
+
+    `gid` Nullable(Int32) COMMENT '字段名：告警置信度；描述：告警置信度。',
+
+    `pktsIn` Nullable(Int32) COMMENT '字段名：流进数据包数；描述：接收数据包数，单位（个）。',
+
+    `pktsInAndOut` Nullable(Int32) COMMENT '字段名：总数据包数；描述：总数据包数，pktsIn+pktsOut，单位（个）。',
+
+    `pktsOut` Nullable(Int32) COMMENT '字段名：流出数据包数；描述：发送数据包数，单位（个）。',
+
+    `ruleLevel` Nullable(Int32) COMMENT '字段名：APT设备告警等级；描述：APT设备告警等级。',
+
+    `srcPort` Nullable(Int32) COMMENT '字段名：来源端口；描述：与网络通信源关联的网络端口。',
+
+    `srcTransPort` Nullable(Int32) COMMENT '字段名：NAT后来源端口；描述：经过NAT后的来源端口。',
+
+    `bytesIn` Nullable(Int64) COMMENT '字段名：请求流量；描述：事件源地址所请求发送的字节数，单位（字节）。',
+
+    `bytesInAndOut` Nullable(Int64) COMMENT '字段名：总流量；描述：总流量，bytesIn+bytesOut，单位（字节）。',
+
+    `bytesOut` Nullable(Int64) COMMENT '字段名：响应流量；描述：事件目的地址响应所发送的字节数，单位（字节）。',
+
+    `effectRow` Nullable(Int64) COMMENT '字段名：影响行数；描述：数据库审计SQL执行影响行数。',
+
+    `eventCount` Nullable(Int64) COMMENT '字段名：事件数量；描述：基于事件的计数，对于动作事件，始终为“1”。对于关联事件，此技术等于关联链中的事件数。对于聚合事件，则显示聚合的事件数。。',
+
+    `fileSize` Nullable(Int64) COMMENT '字段名：文件大小；描述：文件大小，单位（字节）。',
+
+    `icmpBytes` Nullable(Int64) COMMENT '字段名：Icmp流量；描述：Icmp流量，bytesIn+bytesOut，单位（字节）。',
+
+    `oldFileSize` Nullable(Int64) COMMENT '字段名：旧文件大小；描述：旧文件大小，单位（字节）。',
+
+    `tcpBytes` Nullable(Int64) COMMENT '字段名：Tcp流量；描述：Tcp流量，bytesIn+bytesOut，单位（字节）。',
+
+    `udpBytes` Nullable(Int64) COMMENT '字段名：Udp流量；描述：Udp流量，bytesIn+bytesOut，单位（字节）。',
+
+    `accessAgent` String COMMENT '字段名：客户端UserAgent；描述：请求客户Agent，内包含客户请求浏览器类型、客户操作系统类型等信息。',
+
+    `accessList` String COMMENT '字段名：访问列表；描述：访问权限的详细列表。',
+
+    `accessMask` String COMMENT '字段名：访问掩码；描述：访问权限的掩码。',
+
+    `affectProduct` String COMMENT '字段名：影响的产品；描述：攻击所影响的产品。',
+
+    `alarmDescription` String COMMENT '字段名：告警描述；描述：告警详细描述。',
+
+    `alarmName` String COMMENT '字段名：告警名称；描述：大数据平台告警名称。',
+
+    `alarmResults` String COMMENT '字段名：告警结果；描述：告警结果。',
+
+    `alarmType` String COMMENT '字段名：探针设备告警类型；描述：探针设备告警类别。',
+
+    `alertType` String COMMENT '字段名：明御APT告警类型；描述：明御APT告警类型，如：webshell。',
+
+    `appProtocol` String COMMENT '字段名：应用协议；描述：从应用层角度看，与事件关联的传输数据格式（如 http、ftp）。',
+
+    `attackIntent` String COMMENT '字段名：攻击意图；描述：攻击意图的分类，同一种攻击意图由不同种攻击策略组成。',
+
+    `attackMethod` String COMMENT '字段名：攻击方法；描述：攻击方法的分类。',
+
+    `attackSignature` String COMMENT '字段名：攻击特征串；描述：原始事件中代表攻击的相关数据串。',
+
+    `attackSource` String COMMENT '字段名：攻击来源；描述：攻击者是"来源IP"还是"目的IP"。',
+
+    `attackStrategy` String COMMENT '字段名：攻击策略；描述：攻击策略的分类，同一种攻击策略由不同种攻击方法组成。',
+
+    `attackTarget` String COMMENT '字段名：攻击目标；描述：攻击的目标是客户端还是服务器。',
+
+    `authPackageName` String COMMENT '字段名：认证程序；描述：用于认证的程序。',
+
+    `bccUserName` String COMMENT '字段名：密送人；描述：密送人邮箱列表。',
+
+    `catBehavior` String COMMENT '字段名：事件行为分类；描述：产生事件的行为特定描述。',
+
+    `category` String COMMENT '字段名：告警类型；描述：告警类型。',
+
+    `catObject` String COMMENT '字段名：事件对象分类；描述：产生事件的对象特定描述。',
+
+    `catOutcome` String COMMENT '字段名：事件结果分类；描述：产生事件的结果特定描述，取以下值：OK、FAIL、Attempt。',
+
+    `catSignificance` String COMMENT '字段名：事件特征分类；描述：产生事件的特征特定描述。',
+
+    `catTechnique` String COMMENT '字段名：事件技术分类；描述：产生事件的技术手段特定描述。',
+
+    `ccUserName` String COMMENT '字段名：抄送人；描述：抄送人邮箱列表。',
+
+    `chineseModelName` String COMMENT '字段名：模型名称；描述：模型名称的中文名。',
+
+    `clientOperatingSystem` String COMMENT '字段名：客户端操作系统；描述：操作系统名称，如：Windows7，redhat，centos。',
+
+    `clientToolName` String COMMENT '字段名：告警工具；描述：告警工具。',
+
+    `cmdContent` String COMMENT '字段名：命令行；描述：请求命令行。',
+
+    `cmdContentData` String COMMENT '字段名：命令请求参数；描述：请求命令参数。',
+
+    `commandLine` String COMMENT '字段名：进程命令行；描述：CommandLine。',
+
+    `company` String COMMENT '字段名：公司；描述：Company。',
+
+    `confidence` String COMMENT '字段名：告警置信度；描述：产生告警的置信度。',
+
+    `confidenceLevel` String COMMENT '字段名：规则置信度；描述：Confidence_Level。',
+
+    `creationUtcTime` String COMMENT '字段名：创建时间；描述：CreationUtcTime。',
+
+    `credibility` String COMMENT '字段名：信誉度；描述：信誉度。',
+
+    `currentDirectory` String COMMENT '字段名：当前目录；描述：CurrentDirectory。',
+
+    `customerId` String COMMENT '字段名：设备组ID；描述：设备组标识符。',
+
+    `cve` String COMMENT '字段名：cve编号；描述：cve编号。',
+
+    `databaseName` String COMMENT '字段名：数据库名称；描述：数据库名称。',
+
+    `dataSource` String COMMENT '字段名：数据源；描述：模型的输入数据源。',
+
+    `dataSubType` String COMMENT '字段名：数据子类；描述：数据子类：HTTP通信、FTP通信、邮件通信等。',
+
+    `dataType` String COMMENT '字段名：数据类型；描述：数据大类：服务通信、流量通信等。',
+
+    `deployment` String COMMENT '字段名：发生位置；描述：攻击所发生的位置，外围还是内部。',
+
+    `describe` String COMMENT '字段名：描述；描述：告警描述。',
+
+    `description` String COMMENT '字段名：模型描述；描述：事件的简要描述内容。',
+
+    `destDnsDomain` String COMMENT '字段名：目的DNS域；描述：与目的设备的用户相关的域名。',
+
+    `destGeoAddress` String COMMENT '字段名：目的地理详细地址；描述：事件目的地址的具体地理详细地址。',
+
+    `destGeoCity` String COMMENT '字段名：目的城市；描述：事件目的地址的具体城市。',
+
+    `destGeoCountry` String COMMENT '字段名：目的国家；描述：事件目的地址的具体国家。',
+
+    `destGeoCountryCode` String COMMENT '字段名：目的国家编码；描述：事件目的地址的具体国家编码。',
+
+    `destGeoCounty` String COMMENT '字段名：目的县市；描述：事件目的地址的具体县市。',
+
+    `destGeoId` String COMMENT '字段名：目的地理信息ID；描述：代表作为网络通信的目的资产地理信息。',
+
+    `destGeoIsp` String COMMENT '字段名：目的互联网接入商；描述：事件目的地址的具体互联网接入商。',
+
+    `destGeoLatitude` String COMMENT '字段名：目的纬度；描述：事件目的地址的具体地理纬度。',
+
+    `destGeoLongitude` String COMMENT '字段名：目的经度；描述：事件目的地址的具体地理经度。',
+
+    `destGeoPostalCode` String COMMENT '字段名：目的邮政编码；描述：事件目的地址的具体邮政编码。',
+
+    `destGeoRegion` String COMMENT '字段名：目的地区；描述：事件目的地址的具体地区。',
+
+    `destGeoRegionCode` String COMMENT '字段名：目的地区编码；描述：事件目的地址的具体地区编码。',
+
+    `destGroupName` String COMMENT '字段名：目的组名；描述：事件目的设备的组名。',
+
+    `destHostName` String COMMENT '字段名：目的主机名；描述：事件目的设备的主机名。',
+
+    `destIsIpv6` String COMMENT '字段名：目的IP是否为Ipv6；描述：DestinationIsIpv6。',
+
+    `destLoginId` String COMMENT '字段名：目的登录ID；描述：目的用户的登录ID。',
+
+    `destMacAddress` String COMMENT '字段名：目的MAC地址；描述：事件目的设备的MAC地址。',
+
+    `destNtDomain` String COMMENT '字段名：目的NT域；描述：与目的设备相关的Windows NT域。',
+
+    `destProcessGUID` String COMMENT '字段名：目标进程GUID；描述：TargetProcessGUID。',
+
+    `destProcessId` String COMMENT '字段名：目的进程ID；描述：与网络通信目的设备关联的进程标识符。',
+
+    `destProcessName` String COMMENT '字段名：目的进程名称；描述：与网络通信目的设备关联的进程名称。',
+
+    `destSecurityZone` String COMMENT '字段名：目的安全域；描述：通过目的IP及安全域配置判断目的安全域，可以根据来源安全域及目的安全域判断访问是否违规。',
+
+    `destServiceName` String COMMENT '字段名：目的服务名称；描述：与网络通信目的设备关联的服务名称。',
+
+    `destTransAddress` String COMMENT '字段名：NAT后目的地址；描述：经过NAT后的目的地址。',
+
+    `destTransZone` String COMMENT '字段名：NAT后目的区域；描述：经过NAT后的目的区域。',
+
+    `destUserGroupId` String COMMENT '字段名：目的用户组ID；描述：与网络通信目的用户组关联的标识符。',
+
+    `destUserGroupName` String COMMENT '字段名：目的用户组名；描述：与网络通信目的用户组关联的标名称。',
+
+    `destUserId` String COMMENT '字段名：目的用户ID；描述：与网络通信目的用户关联的标识符。',
+
+    `destUserName` String COMMENT '字段名：目的用户名；描述：与网络通信目的用户关联的名称。',
+
+    `destUserPrivileges` String COMMENT '字段名：目的用户权限；描述：提供给网络通信目的用户的特权（admin/user）。',
+
+    `destVlanId` String COMMENT '字段名：目的Vlan标识；描述：与网络通信目的Vlan的标识符。',
+
+    `destVlanName` String COMMENT '字段名：目的Vlan名称；描述：与网络通信目的Vlan的名称。',
+
+    `destZone` String COMMENT '字段名：目的区域；描述：目的设备所在的网络区域。',
+
+    `deviceAddress` String COMMENT '字段名：设备IP地址；描述：设备的IP地址。',
+
+    `deviceAssetSubType` String COMMENT '字段名：设备类型；描述：添加时选定的资产设备类型。',
+
+    `deviceAssetSubTypeId` String COMMENT '字段名：设备类型ID；描述：设备分类小类标识符。',
+
+    `deviceAssetType` String COMMENT '字段名：设备分类；描述：添加时选定的资产设备分类。',
+
+    `deviceAssetTypeId` String COMMENT '字段名：设备分类ID；描述：设备分类大类标识符。',
+
+    `deviceCat` String COMMENT '字段名：事件设备分类；描述：产生事件的设备特定描述。',
+
+    `deviceHostname` String COMMENT '字段名：设备主机名；描述：设备主机名称。',
+
+    `deviceId` String COMMENT '字段名：设备ID；描述：接入设备标识符。',
+
+    `deviceModel` String COMMENT '字段名：设备产品型号；描述：设备产品型号。',
+
+    `deviceName` String COMMENT '字段名：设备名称；描述：设备资产名称。',
+
+    `deviceProductType` String COMMENT '字段名：解析产品类型；描述：解析规则解析事件的产品类型。',
+
+    `deviceProtocol` String COMMENT '字段名：事件发送接收协议；描述：接入设备发送接收协议。',
+
+    `deviceSendProductName` String COMMENT '字段名：解析产品名称；描述：解析规则解析事件的产品名称。',
+
+    `deviceVendor` String COMMENT '字段名：设备产品厂商；描述：设备产品厂商。',
+
+    `deviceVersion` String COMMENT '字段名：设备产品版本；描述：设备产品版本。',
+
+    `direction` String COMMENT '字段名：数据流方向；描述：通过来源IP、目的IP及内部IP配置判断数据流方向，取值：00、01、10、11，分别对应（内访问内、内访问外、外访问内、外访问外）。',
+
+    `dirName` String COMMENT '字段名：文件路径；描述：文件路径。',
+
+    `dnsType` String COMMENT '字段名：DNS操作类型；描述：DNS操作类型：query/answer。',
+
+    `DPIAlertType` String COMMENT '字段名：DPI告警类型；描述：DPI数据告警类型。',
+
+    `driveDevice` String COMMENT '字段名：设备；描述：Device。',
+
+    `dvcAction` String COMMENT '字段名：设备处理动作；描述：与事件关联的一些设备活动特定的描述。',
+
+    `dvcDirection` String COMMENT '字段名：设备端事件流向；描述：表示事件的流向，通信为入站还是出站，如：inbound、outbound。',
+
+    `dvcDomain` String COMMENT '字段名：设备域名；描述：包含事件关联的采集器设备的特定域。',
+
+    `dvcInInterface` String COMMENT '字段名：流量入接口；描述：接收与事件关联的网络通信数据的设备接口。',
+
+    `dvcOutInterface` String COMMENT '字段名：流量出接口；描述：发送与事件关联的网络通信数据的设备接口。',
+
+    `elevatedToken` String COMMENT '字段名：提升令牌；描述：Windows登录会话具备管理员权限。',
+
+    `errorCode` String COMMENT '字段名：错误码；描述：事件相关的错误码。',
+
+    `errorMessage` String COMMENT '字段名：错误内容；描述：事件相关的错误内容。',
+
+    `eventIDs` String COMMENT '字段名：源日志ID列表；描述：源日志ID列表，用于溯源。',
+
+    `eventNum` String COMMENT '字段名：Windows事件Id；描述：eventNum。',
+
+    `evidence` String COMMENT '字段名：取证；描述：安全事件及告警分析取证。',
+
+    `execProcessId` String COMMENT '字段名：执行进程ID；描述：任务的初始父进程信息。',
+
+    `externalId` String COMMENT '字段名：事件外部规则ID；描述：与事件关联的外部标识符。',
+
+    `failReason` String COMMENT '字段名：失败原因；描述：事件失败的原因。',
+
+    `fileHash` String COMMENT '字段名：文件哈希；描述：文件哈希值。',
+
+    `fileList` String COMMENT '字段名：文件名列表；描述：文件列表。',
+
+    `fileMd5` String COMMENT '字段名：文件MD5；描述：文件MD5值，用于确保文件传输完整一致。',
+
+    `fileName` String COMMENT '字段名：文件名；描述：文件名称。',
+
+    `fileType` String COMMENT '字段名：文件类型；描述：文件类型，如：文本文件、注册表文件。',
+
+    `fileVersion` String COMMENT '字段名：文件版本；描述：FileVersion。',
+
+    `flowReason` String COMMENT '字段名：流结束原因；描述：数据流结束原因。',
+
+    `flowSource` String COMMENT '字段名：数据流来源；描述：数据流来源：["from_Sever"]/[from_client]。',
+
+    `flowState` String COMMENT '字段名：流状态；描述：数据流状态：new/established/closed。',
+
+    `grantedAccess` String COMMENT '字段名：访问标识；描述：GrantedAccess。',
+
+    `HLShift` String COMMENT '字段名：报文高亮范围；描述：报文高亮范围。',
+
+    `hostName` String COMMENT '字段名：主机名；描述：发送日志主机名。',
+
+    `httpReferer` String COMMENT '字段名：请求Referer；描述：请求Referer，告诉服务器是从哪个页面链接过来的。',
+
+    `httpRefererDnsDomain` String COMMENT '字段名：请求Referer域名；描述：请求Referer域名，告诉服务器是从哪个域名站点链接过来的。',
+
+    `httpVersion` String COMMENT '字段名：http协议版本；描述：http协议版本，如：HTTP/0.9，HTTP/1.0，HTTP/1.1。',
+
+    `image` String COMMENT '字段名：进程路径；描述：Image。',
+
+    `imageLoaded` String COMMENT '字段名：加载项；描述：ImageLoaded。',
+
+    `initiated` String COMMENT '字段名：主动发起；描述：Initiated。',
+
+    `instanceId` String COMMENT '字段名：实例ID；描述：实例标识符。',
+
+    `instanceName` String COMMENT '字段名：实例名称；描述：实例名称，如数据库实例，采集器实例。',
+
+    `integrityLevel` String COMMENT '字段名：完整性级别；描述：IntegrityLevel。',
+
+    `interfaceId` String COMMENT '字段名：接口Id；描述：接口标识符。',
+
+    `interfaceName` String COMMENT '字段名：接口名称；描述：接口名称。',
+
+    `IoC` String COMMENT '字段名：情报IoC；描述：情报库中IoC内容列表中的内容，日志与情报库IoC内容列表进行匹配，匹配上生成此字段。',
+
+    `keyLength` String COMMENT '字段名：密钥长度；描述：密钥的长度。',
+
+    `killChain` String COMMENT '字段名：攻击链；描述：攻击链。',
+
+    `lmPackageName` String COMMENT '字段名：NTML程序；描述：NTML程序版本。',
+
+    `locality` String COMMENT '字段名：事件来源类型；描述：事件来源的类型，如：本地（Local），转发（Forwarded），远程（Remote）。',
+
+    `loginId` String COMMENT '字段名：登录ID；描述：登录标识符。',
+
+    `loginType` String COMMENT '字段名：登录方式；描述：登录方式，如：本地（Local），远程（Remote）。',
+
+    `logname` String COMMENT '字段名：原始日志事件名称；描述：告警中保留原始日志事件名称。',
+
+    `logonGuid` String COMMENT '字段名：登录Guid；描述：LogonGuid。',
+
+    `logonId` String COMMENT '字段名：登录Id；描述：LogonId。',
+
+    `logonProcessName` String COMMENT '字段名：登录进程名；描述：发起登录行为的进程名。',
+
+    `logSessionId` String COMMENT '字段名：会话ID；描述：数据流会话ID。',
+
+    `logType` String COMMENT '字段名：原始数据类型；描述：设备日志原始类型。',
+
+    `logTypeId` String COMMENT '字段名：EDR告警类型；描述：EDR告警类型。',
+
+    `logVersion` String COMMENT '字段名：日志版本；描述：日志版本号。',
+
+    `mailContent` String COMMENT '字段名：邮件内容；描述：邮件内容。',
+
+    `mailFromDomain` String COMMENT '字段名：邮件来源域名；描述：邮件头中的邮件服务器域名。',
+
+    `mailHead` String COMMENT '字段名：邮件头；描述：其他邮件头信息。',
+
+    `mailSubject` String COMMENT '字段名：邮件内容；描述：邮件内容。',
+
+    `mailTitle` String COMMENT '字段名：邮件标题；描述：邮件的标题正文。',
+
+    `mailType` String COMMENT '字段名：邮件格式；描述：邮件格式，Text/HTML。',
+
+    `mclass` String COMMENT '字段名：情报类型；描述：情报类型。',
+
+    `message` String COMMENT '字段名：事件消息；描述：事件详细描述。',
+
+    `messageNumber` String COMMENT '字段名：信息段数；描述：信息被分段后的总段数。',
+
+    `messageTotal` String COMMENT '字段名：信息总段数；描述：信息被分段后的编号顺序。',
+
+    `modelName` String COMMENT '字段名：模型ID；描述：模型的英文短名，可以理解为识别ID，需要唯一。',
+
+    `modelType` String COMMENT '字段名：模型类型；描述：模型的类型，主要指不同引擎产生的模型。',
+
+    `ntlmsspDomain` String COMMENT '字段名：NTLMSSP域名；描述：NTLMSSP域名，如：SMB请求的NTLMSSP域名。',
+
+    `nxAlertLevel` String COMMENT '字段名：终端日志告警级别；描述：Nxlog日志的告警级别。',
+
+    `nxAlertStatus` String COMMENT '字段名：终端日志告警状态；描述：Nxlog日志的告警状态。',
+
+    `objectDN` String COMMENT '字段名：对象DN属性；描述：Windows域内对象的DN属性。',
+
+    `objectType` String COMMENT '字段名：对象类型；描述：访问对象的类型：文件、程序等。',
+
+    `oldFileExtension` String COMMENT '字段名：旧文件后缀名；描述：旧文件后缀名，如txt、zip、html等。',
+
+    `oldFileHash` String COMMENT '字段名：旧文件哈希；描述：旧文件哈希值。',
+
+    `oldFileList` String COMMENT '字段名：旧文件名列表；描述：旧文件列表。',
+
+    `oldFileName` String COMMENT '字段名：旧文件名；描述：旧文件名称。',
+
+    `oldFilePath` String COMMENT '字段名：旧文件路径；描述：旧文件路径。',
+
+    `oldFileType` String COMMENT '字段名：旧文件类型；描述：旧文件类型，如：文本文件、注册表文件。',
+
+    `operation` String COMMENT '字段名：操作；描述：Operation。',
+
+    `opType` String COMMENT '字段名：操作类型；描述：操作类型，如：文件操作类型：read、write等。',
+
+    `origin` String COMMENT '字段名：重识别资产；描述：重识别资产。',
+
+    `parentCommandLine` String COMMENT '字段名：父进程命令行；描述：ParentCommandLine。',
+
+    `parentImage` String COMMENT '字段名：父进程路径；描述：ParentImage。',
+
+    `parentProcessGuid` String COMMENT '字段名：父进程Guid；描述：ParentProcessGuid。',
+
+    `parentProcessId` String COMMENT '字段名：父进程Id；描述：ParentProcessId。',
+
+    `passwd` String COMMENT '字段名：密码；描述：WEB用户登陆密码。',
+
+    `payload` String COMMENT '字段名：攻击报文；描述：设备获取到的报文内容。',
+
+    `pipeName` String COMMENT '字段名：管道名称；描述：管道名称，如SMB管道名称。',
+
+    `pnpDeviceName` String COMMENT '字段名：即插即用设备名；描述：即插即用的设备名称。',
+
+    `privilegeList` String COMMENT '字段名：权限列表；描述：Windows申请到的特权列表。',
+
+    `processGuid` String COMMENT '字段名：进程Guid；描述：ProcessGuid。',
+
+    `processId` String COMMENT '字段名：进程Id；描述：ProcessId。',
+
+    `product` String COMMENT '字段名：产品；描述：Product。',
+
+    `productVendorName` String COMMENT '字段名：解析厂商名称；描述：解析规则解析事件的厂商名称。',
+
+    `protocolType` String COMMENT '字段名：协议类型；描述：协议类型。',
+
+    `queryResults` String COMMENT '字段名：查询结果；描述：QueryResults。',
+
+    `queryStatus` String COMMENT '字段名：查询状态；描述：QueryStatus。',
+
+    `queryType` String COMMENT '字段名：查询类型；描述：DNS域名请求类型。',
+
+    `rawEvent` String COMMENT '字段名：原始事件；描述：采集器接受到报告的原始日志条目。',
+
+    `rawPayload` String COMMENT '字段名：原始报文；描述：设备获取到的原始报文。',
+
+    `registrationCodeNodeId` String COMMENT '字段名：平台节点id；描述：registrationCodeNodeId。',
+
+    `regValue` String COMMENT '字段名：事件详情；描述：Details。',
+
+    `requestBody` String COMMENT '字段名：请求Body；描述：请求Body。',
+
+    `requestClientApplication` String COMMENT '字段名：请求客户端程序；描述：用来发出请求的客户端应用程序，如：web浏览器，google浏览器等。',
+
+    `requestContentType` String COMMENT '字段名：HTTP请求ContentType；描述：来自HTTP请求头，请求内容类型。',
+
+    `requestContext` String COMMENT '字段名：请求上下文；描述：收集的与请求相关的大量信息。',
+
+    `requestCookies` String COMMENT '字段名：请求Cookie；描述：与请求关联的属性。',
+
+    `requestDomain` String COMMENT '字段名：dns请求域名；描述：dns请求域名。',
+
+    `requestHeader` String COMMENT '字段名：请求头；描述：请求头。',
+
+    `requestLM` String COMMENT '字段名：客户端LM；描述：客户端LM。',
+
+    `requestMethod` String COMMENT '字段名：请求方法；描述：请求的类型，如：对于HTTP请求，方法可以为PUT或GET。',
+
+    `requestOS` String COMMENT '字段名：客户端操作系统；描述：客户端操作系统。',
+
+    `requestParameters` String COMMENT '字段名：请求参数；描述：FTP请求参数。',
+
+    `requestUrl` String COMMENT '字段名：URL；描述：访问请求的相关URL。',
+
+    `requestUrlQuery` String COMMENT '字段名：URI；描述：访问请求的相关URL加参数。',
+
+    `responseAddress` String COMMENT '字段名：返回的IP地址；描述：dns查询返回的IP地址。',
+
+    `responseCode` String COMMENT '字段名：请求响应码；描述：请求后返回的响应码，表示请求的结果。',
+
+    `responseContentType` String COMMENT '字段名：HTTP响应ContentType；描述：来自HTTP响应头，请求内容类型。',
+
+    `responseHeader` String COMMENT '字段名：响应头；描述：响应头。',
+
+    `responseLM` String COMMENT '字段名：服务端LM；描述：服务端LM。',
+
+    `responseMsg` String COMMENT '字段名：响应内容；描述：响应内容。',
+
+    `responseOS` String COMMENT '字段名：服务端操作系统；描述：服务端操作系统。',
+
+    `routerId` String COMMENT '字段名：路由ID；描述：路由标识符。',
+
+    `routerName` String COMMENT '字段名：路由名称；描述：路由名称。',
+
+    `ruleId` String COMMENT '字段名：规则ID；描述：设备日志原始规则ID。',
+
+    `ruleName` String COMMENT '字段名：规则名称；描述：设备日志原始规则名称。',
+
+    `ruleType` String COMMENT '字段名：探针设备告警类型；描述：探针设备告警类别。',
+
+    `sandboxReportId` String COMMENT '字段名：沙箱报告ID；描述：沙箱报告ID。',
+
+    `sclass` String COMMENT '字段名：情报子类型；描述：情报类型。',
+
+    `scriptContent` String COMMENT '字段名：脚本内容；描述：脚本文件的具体内容。',
+
+    `scriptId` String COMMENT '字段名：脚本ID；描述：脚本文件的ID号。',
+
+    `securityEyeLogType` String COMMENT '字段名：模块类型；描述：模块类型。',
+
+    `sendHostAddress` String COMMENT '字段名：节点IP地址；描述：探针节点IP地址。',
+
+    `serviceAccount` String COMMENT '字段名：服务账号；描述：启动服务的账号名。',
+
+    `serviceBinPath` String COMMENT '字段名：服务路径；描述：服务指定程序的路径。',
+
+    `serviceStartType` String COMMENT '字段名：服务启动类型；描述：服务启动类型一般为自动、手动、关闭。',
+
+    `serviceType` String COMMENT '字段名：服务类型；描述：服务类型。',
+
+    `sessionId` String COMMENT '字段名：会话ID；描述：由关联模拟创建事件的标记，它是特定模拟的一部分。',
+
+    `shareLocalPath` String COMMENT '字段名：共享本地路径；描述：共享目录的本地路径。',
+
+    `shareName` String COMMENT '字段名：共享目录；描述：共享目录路径。',
+
+    `sidHistory` String COMMENT '字段名：对象SIDHistory属性；描述：Windows域内对象SIDHistory属性。',
+
+    `signature` String COMMENT '字段名：签名信息；描述：Signature。',
+
+    `signatureStatus` String COMMENT '字段名：签名状态；描述：SignatureStatus。',
+
+    `signed` String COMMENT '字段名：是否签名；描述：Signed。',
+
+    `smbClientVersion` String COMMENT '字段名：SMB客户端版本；描述：SMB客户端版本。',
+
+    `smbServerVersion` String COMMENT '字段名：SMB服务器版本；描述：SMB服务器版本。',
+
+    `srcAssetId` String COMMENT '字段名：来源设备ID；描述：代表作为网络通信来源设备。',
+
+    `srcChannel` String COMMENT '字段名：日志来源通道；描述：Windows日志来源通道。',
+
+    `srcDnsDomain` String COMMENT '字段名：来源DNS域；描述：与源设备的用户相关的域名。',
+
+    `srcGeoAddress` String COMMENT '字段名：来源地理详细地址；描述：事件来源地址的具体地理详细地址。',
+
+    `srcGeoCity` String COMMENT '字段名：来源城市；描述：事件来源地址的具体城市。',
+
+    `srcGeoCountry` String COMMENT '字段名：来源国家；描述：事件来源地址的具体国家。',
+
+    `srcGeoCountryCode` String COMMENT '字段名：来源国家编码；描述：事件来源地址的具体国家编码。',
+
+    `srcGeoCounty` String COMMENT '字段名：来源县市；描述：事件来源地址的具体县市。',
+
+    `srcGeoId` String COMMENT '字段名：来源地理信息ID；描述：代表作为网络通信的来源资产地理信息。',
+
+    `srcGeoIsp` String COMMENT '字段名：来源互联网接入商；描述：事件来源地址的具体互联网接入商。',
+
+    `srcGeoLatitude` String COMMENT '字段名：来源纬度；描述：事件来源地址的具体地理纬度。',
+
+    `srcGeoLongitude` String COMMENT '字段名：来源经度；描述：事件来源地址的具体地理经度。',
+
+    `srcGeoPostalCode` String COMMENT '字段名：来源邮政编码；描述：事件来源地址的具体邮政编码。',
+
+    `srcGeoRegion` String COMMENT '字段名：来源地区；描述：事件来源地址的具体地区。',
+
+    `srcGeoRegionCode` String COMMENT '字段名：来源地区编码；描述：事件来源地址的具体地区编码。',
+
+    `srcHostName` String COMMENT '字段名：来源主机名；描述：事件来源设备的主机名。',
+
+    `srcIsIpv6` String COMMENT '字段名：源IP是否为Ipv6；描述：SourceIsIpv6。',
+
+    `srcLoginId` String COMMENT '字段名：来源登录ID；描述：来源用户的登录ID。',
+
+    `srcMacAddress` String COMMENT '字段名：来源MAC地址；描述：事件来源设备的MAC地址。',
+
+    `srcNtDomain` String COMMENT '字段名：来源NT域；描述：与源设备相关的Windows NT域。',
+
+    `srcProcessGUID` String COMMENT '字段名：源进程GUID；描述：SourceProcessGUID。',
+
+    `srcProcessId` String COMMENT '字段名：来源进程ID；描述：与网络通信来源设备关联的进程标识符。',
+
+    `srcProcessName` String COMMENT '字段名：来源进程名称；描述：与网络通信源关联的进程名称。',
+
+    `srcSecurityZone` String COMMENT '字段名：来源安全域；描述：通过来源IP及安全域配置判断来源安全域，可以根据来源安全域及目的安全域判断访问是否违规。',
+
+    `srcServiceName` String COMMENT '字段名：来源服务名称；描述：与网络通信源关联的服务名称。',
+
+    `srcThreadId` String COMMENT '字段名：源线程Id；描述：SourceThreadId。',
+
+    `srcTransAddress` String COMMENT '字段名：NAT后来源地址；描述：经过NAT后的来源地址。',
+
+    `srcTransZone` String COMMENT '字段名：NAT后来源区域；描述：经过NAT后的来源区域。',
+
+    `srcUserGroupId` String COMMENT '字段名：来源用户组ID；描述：与网络通信来源用户组关联的标识符。',
+
+    `srcUserGroupName` String COMMENT '字段名：来源用户组名；描述：与网络通信来源用户组关联的标名称。',
+
+    `srcUserId` String COMMENT '字段名：来源用户ID；描述：与网络通信源用户关联的标识符。',
+
+    `srcUserName` String COMMENT '字段名：来源用户名；描述：与网络通信源用户关联的名称。',
+
+    `srcUserPrivileges` String COMMENT '字段名：来源用户权限；描述：提供给网络通信源用户的特权。',
+
+    `srcVlanId` String COMMENT '字段名：来源Vlan标识；描述：与网络通信目的Vlan的标识符。',
+
+    `srcVlanName` String COMMENT '字段名：来源Vlan名称；描述：与网络通信目的Vlan的名称。',
+
+    `srcZone` String COMMENT '字段名：来源区域；描述：源设备所在的网络区域。',
+
+    `sshClientSWInfo` String COMMENT '字段名：SSH客户端软件版本；描述：SSH客户端软件版本。',
+
+    `sshClientVersion` String COMMENT '字段名：SSH客户端协议版本；描述：SSH客户端协议版本。',
+
+    `sshServerSWInfo` String COMMENT '字段名：SSH服务器软件版本；描述：SSH服务器软件版本。',
+
+    `sshServerVersion` String COMMENT '字段名：SSH服务器协议版本；描述：SSH服务器协议版本。',
+
+    `status` String COMMENT '字段名：状态；描述：请求状态。',
+
+    `subCategory` String COMMENT '字段名：告警子类型；描述：告警子类型。',
+
+    `subStatus` String COMMENT '字段名：子状态；描述：用于描述更详细的原因。',
+
+    `suffix` String COMMENT '字段名：文件后缀名；描述：文件后缀名，如txt、zip、html等。',
+
+    `suggestion` String COMMENT '字段名：处置建议；描述：告警处置建议。',
+
+    `tacticName` String COMMENT '字段名：ATT&CK战术名称；描述：ATT&CK战术名称。',
+
+    `targetFilename` String COMMENT '字段名：目标文件名；描述：TargetFilename。',
+
+    `targetObject` String COMMENT '字段名：操作对象；描述：TargetObject。',
+
+    `taskContent` String COMMENT '字段名：任务内容；描述：任务内容。',
+
+    `taskName` String COMMENT '字段名：任务名称；描述：任务名称。',
+
+    `tcpAck` String COMMENT '字段名：TCP应答标记；描述：TCP应答标记。',
+
+    `tcpFlags` String COMMENT '字段名：TCP标志位；描述：TCP标志位。',
+
+    `tcpFlagsTc` String COMMENT '字段名：TCP标志位TC；描述：TCP标志位TC。',
+
+    `tcpFlagsTs` String COMMENT '字段名：TCP标志位TS；描述：TCP标志位TS。',
+
+    `tcpRst` String COMMENT '字段名：TCP重置标记；描述：TCP重置标记。',
+
+    `tcpState` String COMMENT '字段名：TCP握手状态；描述：TCP握手状态。',
+
+    `tcpSyn` String COMMENT '字段名：TCP同步标记；描述：TCP同步标记。',
+
+    `techniquesId` String COMMENT '字段名：ATT&CK技术ID；描述：ATT&CK技术ID。',
+
+    `techniquesName` String COMMENT '字段名：ATT&CK技术名称；描述：ATT&CK技术名称。',
+
+    `terminalSessionId` String COMMENT '字段名：终端会话Id；描述：TerminalSessionId。',
+
+    `threadId` String COMMENT '字段名：线程ID；描述：线程的ID号。',
+
+    `threatSeverity` String COMMENT '字段名：安全告警威胁等级；描述：攻击威胁严重程度，分为高、中、低三级。',
+
+    `TIMatchField` String COMMENT '字段名：情报匹配字段；描述：与情报库中IoC匹配上的字段名称，如srcAddress、destAddress等。',
+
+    `TIName` String COMMENT '字段名：匹配情报库；描述：情报名称，默认出厂或用户添加的情报名称，接收到的日志字段信息与该情报库的IoC相匹配。',
+
+    `TIType` String COMMENT '字段名：情报分类；描述：情报分类，情报库的分类，如：恶意IP、DoS IP、恶意邮箱域名、C&C域名等。',
+
+    `tlsFIngerPrint` String COMMENT '字段名：TLS证书指纹；描述：TLS证书指纹。',
+
+    `tlsIssuer` String COMMENT '字段名：TLS证书颁发者；描述：证书的颁发者信息。',
+
+    `tlsIssuerDn` String COMMENT '字段名：TLS证书持有人唯一标识符；描述：TLS证书持有人唯一标识符。',
+
+    `tlsSerial` String COMMENT '字段名：TLS证书序列号；描述：TLS证书序列号。',
+
+    `tlsSni` String COMMENT '字段名：TLS证书标记；描述：TLS证书标记。',
+
+    `tlsSubject` String COMMENT '字段名：TLS证书主题；描述：TLS证书主题。',
+
+    `tlsVersion` String COMMENT '字段名：TLS版本；描述：TLS版本。',
+
+    `tokenElevationType` String COMMENT '字段名：令牌提升类型；描述：Windows令牌提升的类型。',
+
+    `transMode` String COMMENT '字段名：传输模式；描述：传输模式，如：TFTP传输模式：netascii。',
+
+    `transProtocol` String COMMENT '字段名：传输协议；描述：从网络传输角度看，与事件关联的传输数据格式（如 TCP、UDP）。',
+
+    `txId` String COMMENT '字段名：协议通信ID；描述：协议通信ID，代表数据流中第几个数据包。',
+
+    `utcTime` String COMMENT '字段名：Utc时间；描述：UtcTime。',
+
+    `virusFamily` String COMMENT '字段名：病毒家族；描述：病毒家族：有相同的特征和根源的并被杀毒软件归为一类的恶意代码。',
+
+    `virusName` String COMMENT '字段名：病毒名称；描述：病毒名称。',
+
+    `virusType` String COMMENT '字段名：病毒类型；描述：病毒类型。',
+
+    `virusVesion` String COMMENT '字段名：病毒版本；描述：病毒版本。',
+
+    `vlanId` String COMMENT '字段名：Vlan标识；描述：Vlan标识符。',
+
+    `vlanName` String COMMENT '字段名：Vlan名称；描述：Vlan名称。',
+
+    `vulnerability` String COMMENT '字段名：漏洞；描述：漏洞资源，它代表可能被此事件利用的漏洞或弱点，出现在与网络模型相应的目标设备上。',
+
+    `wmiConsumer` String COMMENT '字段名：Wmi消费者；描述：Consumer。',
+
+    `wmiDestination` String COMMENT '字段名：Wmi目标；描述：Destination。',
+
+    `wmiEventNamespace` String COMMENT '字段名：事件名称空间；描述：EventNamespace。',
+
+    `wmiFilter` String COMMENT '字段名：Wmi条件；描述：Filter。',
+
+    `wmiName` String COMMENT '字段名：Wmi条件名称；描述：Name。',
+
+    `wmiQuery` String COMMENT '字段名：Wmi查询条件；描述：Query。',
+
+    `wmiType` String COMMENT '字段名：Wmi类型；描述：Type。',
+
+    `XFF` String COMMENT '字段名：XFF头；描述：requestHeader中的X-forwarded-for中的IP信息。',
+
+    `accountLocked` Nullable(UInt8) COMMENT '字段名：帐户是否锁定；描述：帐户是否被锁定。',
+
+    `ailphaIDSAlertLog` Nullable(UInt8) COMMENT '字段名：是否是AilphaIDS告警；描述：是否是AilphaIDS告警。',
+
+    `ailphaWebAlertLog` Nullable(UInt8) COMMENT '字段名：是否是AilphaWeb告警；描述：是否是AilphaWeb告警。',
+
+    `dbappWafAlertLog` Nullable(UInt8) COMMENT '字段名：是否是安恒WAF告警；描述：是否是安恒WAF告警。',
+
+    `fromCustomStrategy` Nullable(UInt8) COMMENT '字段名：是否定制模型告警；描述：数据是否来自定制模型。',
+
+    `loginOutTrue` Nullable(UInt8) COMMENT '字段名：帐号是否退出；描述：帐号是否退出。',
+
+    `originator` Nullable(UInt8) COMMENT '字段名：来源IP是否是攻击源；描述：来源IP是否是攻击源。',
+
+    `pcapRecord` Nullable(UInt8) COMMENT '字段名：取证PCAP；描述：确定告警是否有pcap包下载。',
+
+    `restartTure` Nullable(UInt8) COMMENT '字段名：是否是重启事件；描述：是否是重启事件。',
+
+    `shutdownTrue` Nullable(UInt8) COMMENT '字段名：是否是关闭事件；描述：是否是关闭事件。',
+
+    `toAlarm` Nullable(UInt8) COMMENT '字段名：是否进入安全告警；描述：是否进入安全告警。',
+
+    `webAccess` Nullable(UInt8) COMMENT '字段名：是否是web访问日志；描述：是否是web访问日志。',
+
+    `destAddress` String COMMENT '字段名：目的IP；描述：事件目的设备的IP地址。',
+
+    `eventId` String COMMENT '字段名：事件ID；描述：采集器设定接收到的事件的标识符。',
+
+    `name` String COMMENT '字段名：事件名称；描述：事件或事件类型的简短描述。',
+
+    `attributeCompanyId` String COMMENT '字段名：组织单位ID；描述：组织单位ID。',
+
+    `srcAddress` String COMMENT '字段名：来源IP；描述：事件来源设备的IP地址。',
+
+    `windowId` String COMMENT '字段名：时间窗口ID；描述：根据时间字段计算出告警所属归并窗口。',
+
+    `aggCondition` String COMMENT '字段名：归并条件；描述：根据归并条件取字段拼接的md5值。',
+
+    `isAPT` Nullable(UInt8) COMMENT '是否为APT攻击',
+
+    `machineCode` String COMMENT '机器码',
+
+    `IoCLevel` String COMMENT '情报危害等级，Critical/High/Medium/Low/Info',
+
+    `IoCThreatName` String COMMENT '碰撞产生的威胁告警名称',
+
+    `IoCType` String COMMENT 'IOC类型，ip/domain/file/email',
+
+    `IoCHash` String COMMENT '安恒威胁情报中心情报特有，对IoC进行md5处理',
+
+    `rawKillChain` String COMMENT '原始告警攻击链',
+
+    `attackerAddress` String COMMENT '第三方设备传入攻击者IP',
+
+    `victimAddress` String COMMENT '第三方设备传入受害者IP',
+
+    `nfsStatus` String COMMENT 'NFS状态',
+
+    `PcapFileName` String COMMENT '回放包名',
+
+    `sRealm` String COMMENT 'kerberos服务认证管理域',
+
+    `rpcAuthType` String COMMENT 'RPC认证类型',
+
+    `rdpChannels` String COMMENT 'RDP通信隧道',
+
+    `tls_x509Serials` String COMMENT 'TLSx509序列号',
+
+    `saslMechanism` String COMMENT 'sasl机制',
+
+    `nfsType` String COMMENT 'NFS通讯类型',
+
+    `ldapSearchScope` String COMMENT 'LDAP搜索范围',
+
+    `DN` String COMMENT '活动目录唯一标识',
+
+    `clientCapabilities` String COMMENT '客户端能力',
+
+    `ldapVersion` String COMMENT 'LDAP版本',
+
+    `clientKBFunctionKeys` String COMMENT '客户端输入功能键数',
+
+    `rdpServerSupports` String COMMENT 'RDP服务器支持类型',
+
+    `clientProductId` String COMMENT '客户端产品ID',
+
+    `clientProductIdString` String COMMENT '客户端产品ID串',
+
+    `clientKBLayout` String COMMENT '客户端输入语言',
+
+    `flowAlerted` String COMMENT '是否触发过告警',
+
+    `rpcStatus` String COMMENT 'RPC状态',
+
+    `cNameType` String COMMENT 'kerberos cnt',
+
+    `clientConnectionHint` String COMMENT '客户端连接示意',
+
+    `cNames` String COMMENT 'kerberos cnc',
+
+    `timesFrom` String COMMENT 'kerberos ticket起始时间',
+
+    `bruteSrcIPCout` String COMMENT '暴破源IP个数',
+
+    `rdpProtocol` String COMMENT 'RDP安全协议',
+
+    `ldapOpCode` String COMMENT 'LDAP操作类型码',
+
+    `rpcXid` String COMMENT 'RPC请求XID',
+
+    `rdpTrafficType` String COMMENT 'RDP通信类型',
+
+    `PcapFileUniqueId` String COMMENT '回放包ID',
+
+    `kerberosMsgType` String COMMENT 'kerberos请求类型',
+
+    `nfsServerVersion` String COMMENT 'NFS服务器版本',
+
+    `sNameType` String COMMENT 'kerberos snt',
+
+    `nfsProcedure` String COMMENT 'NFS传输步骤',
+
+    `ldapSearch` String COMMENT 'LDAP搜索过滤条件',
+
+    `bindDN` String COMMENT '客户端期待绑定DN',
+
+    `ticketHash` String COMMENT 'kerberos凭证Hash',
+
+    `timesTill` String COMMENT 'kerberos ticket过期时间',
+
+    `rdpClientVersion` String COMMENT 'RDP客户端协议版本',
+
+    `clientPrincipalName` String COMMENT 'kerberos客户用户名cpn',
+
+    `serverPrincipalName` String COMMENT 'kerberos服务用户名cpn',
+
+    `cRealm` String COMMENT 'kerberos客户认证管理域',
+
+    `clientKBType` String COMMENT '客户端输入模式',
+
+    `ldapOpType` String COMMENT 'LDAP操作描述',
+
+    `sNames` String COMMENT 'kerberos snc',
+
+    `scanPortList` String COMMENT '扫描主机列表',
+
+    `scanArpMacList` String COMMENT 'ARP扫描MAC地址列表',
+
+    `incidentName` String COMMENT '安全事件名称',
+
+    `incidentClue` Nullable(Int32) COMMENT '安全事件线头',
+
+    `incidentRuleType` String COMMENT '需要归到安全事件中的告警类型',
+
+    `incidentCond` String COMMENT '安全事件的元祖条件',
+
+    `subTechniquesId` String COMMENT 'ATT&CK攻击子技术ID',
+
+    `familyId` String COMMENT '恶意家族ID',
+
+    `organizationId` String COMMENT '恶意组织团伙ID',
+
+    `tacticId` String COMMENT 'ATT&CK战术Id',
+
+    `tagContent` String COMMENT '字段名：规则标签详细信息；类型：String',
+
+    `tagSearch` Array(String) COMMENT '字段名：规则标签类型；类型：array',
+
+    `minerStage` String COMMENT '字段名：挖矿阶段；类型：String',
+
+    `attackDirection` String COMMENT '字段名：攻击方向；类型：String',
+
+    `traceId` String COMMENT '字段名：溯源ID；类型：String',
+
+    `attackerCountry` Array(String) COMMENT '字段名：攻击者国家；类型：array',
+
+    `attackerCity` Array(String) COMMENT '字段名：攻击者城市；类型：array',
+
+    `attackerRegion` Array(String) COMMENT '字段名：攻击者地区；类型：array',
+
+    `victimCountry` Array(String) COMMENT '字段名：受害者国家；类型：array',
+
+    `victimCity` Array(String) COMMENT '字段名：受害者城市；类型：array',
+
+    `victimRegion` Array(String) COMMENT '字段名：受害者地区；类型：array',
+
+    `domainFamilyName` String COMMENT '字段名：域名家族信息；类型：String',
+
+    `subTechniquesName` String COMMENT 'ATT&CK攻击子技术名称',
+
+    `scanIpList` String COMMENT '扫描端口列表',
+
+    `srcHostAssetId` String COMMENT '字段名：来源主机资产；类型：String',
+
+    `destHostAssetId` String COMMENT '字段名：目的主机资产；类型：String',
+
+    `victimAssetId` Array(String) COMMENT '字段名：受害资产；类型：array',
+
+    `attackerAssetId` Array(String) COMMENT '字段名：攻击资产；类型：array',
+
+    `toolsName` String COMMENT '字段名：工具名称；类型：String',
+
+    `dataMessage` String COMMENT '字段名：数据信息；类型：String',
+
+    `dataMessageType` String COMMENT '字段名：数据类型；类型：String',
+
+    `tlsCertCheck` String COMMENT '字段名：加密流量证书校验状态；类型：String',
+
+    `tlsCertErrorMessage` String COMMENT '字段名：加密流量证书错误信息；类型：String',
+
+    `tlsCertVersion` String COMMENT '字段名：TLS证书版本号；类型：String',
+
+    `tlsSignatureAlgorithm` String COMMENT '字段名：TLS签名算法；类型：String',
+
+    `tlsNotBeforeTime` String COMMENT '字段名：TLS证书生效起始时间；类型：String',
+
+    `tlsNotAfterTime` String COMMENT '字段名：TLS证书生效终止时间；类型：String',
+
+    `tlsCipherSuiteCount` String COMMENT '字段名：TLS客户端支持的加密套件数；类型：String',
+
+    `tlsUseCipherSuite` String COMMENT '字段名：协商使用的加密套件；类型：String',
+
+    `minerCoin` String COMMENT '字段名：挖矿货币；类型：String',
+
+    `ransomStage` String COMMENT '字段名：勒索阶段；类型：String',
+
+    `tlsRemotectrlScore` Nullable(Int32) COMMENT '字段名：加密流量检测模型远程控制分数；类型：Int32',
+
+    `tlsInfoleakScore` Nullable(Int32) COMMENT '字段名：加密流量检测模型数据泄露分数；类型：Int32',
+
+    `tlsSusptrafficScore` Nullable(Int32) COMMENT '字段名：加密流量检测模型可疑通信分数；类型：Int32',
+
+    `tags` Array(String) COMMENT '字段名：情报标签；类型：array',
+
+    `loginEntry` String DEFAULT '' COMMENT '字段名：登录接口；类型：string'
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMMDD(endTime)
+ORDER BY (endTime,
+ windowId,
+ aggCondition,
+ srcAddress,
+ destAddress,
+ threatSeverity,
+ modelName,
+ destHostName,
+ appProtocol,
+ name)
+SETTINGS index_granularity = 8192;
+
+原始日志的例子（ES查的）：
+{
+        "_index" : "ailpha-baas-log-20251003-000001",
+        "_type" : "_doc",
+        "_id" : "G_1drZkBeLSXt6r0-wK6",
+        "_score" : 1.0,
+        "_routing" : "5",
+        "_source" : {
+          "eventId" : "7f295aa3cac1482cad9589d4fd1dfece",
+          "commandLine" : "ps -aux",
+          "hostName" : "localhost.localdomain",
+          "parentProcessUserName" : "root",
+          "processGuid" : "D342B5C05615F5D2",
+          "name" : "进程枚举（linux）",
+          "parentProcessName" : "bash",
+          "deviceAddress" : "10.50.86.32",
+          "suggestion" : "1、核实该信息收集行为是否为恶意收集行为。\n2、分析进程及终端的其他行为，识别异常信息收集模式，如频繁访问系统日志或网络配置。\n3、实施严格的访问控制策略，确保只有授权用户和进程能够访问或修改关键系统资源。",
+          "parentProcessGuid" : "BF99D1A6D9B150C",
+          "deviceSendProductName" : "安恒明御终端安全及管理系统",
+          "loginId" : "7",
+          "parentCommandLine" : "bash -c ps -aux|grep hdcommand",
+          "opType" : "create",
+          "deviceReceiptTime" : "2025-10-04 11:56:16",
+          "deviceName" : "安恒明御终端安全及管理系统",
+          "processChain" : "systemd(root[1]) -> screen(root[477857]) -> bash(root[477858]) -> hdpeer(root[477859]) -> bash(root[2305258]) -> ps(root[2305259])",
+          "tacticId" : "TA0007",
+          "parentImage" : "/usr/bin/bash",
+          "srcAddress" : "192.168.27.241",
+          "tacticName" : "发现",
+          "endTime" : "2025-10-03 23:57:10",
+          "processStartTime" : "2025-10-04 02:00:42",
+          "confidenceScore" : 5,
+          "hostAddress" : "192.168.27.241",
+          "catOutcome" : "OK",
+          "startTime" : "2025-10-03 23:57:10",
+          "destAddress" : "192.168.27.241",
+          "parentProcessStartTime" : "2025-10-04 02:00:42",
+          "techniquesId" : "T1057",
+          "deviceVersion" : "3.13.21.0",
+          "processId" : 2305259,
+          "message" : "进程枚举（linux）",
+          "processName" : "ps",
+          "status" : "0",
+          "techniquesName" : "进程发现",
+          "logType" : "alert",
+          "processMd5" : "8ae99b476a809a00a1629bb8d5a75d1d",
+          "deviceAssetSubTypeId" : 56,
+          "image" : "/usr/bin/ps",
+          "traceId" : "BF99D1A6D9B150C",
+          "eventType" : "processCreate",
+          "parentProcessId" : 2305258,
+          "currentDirectory" : "/hd/peer",
+          "ruleType" : "/SuspEndpoint/InformationGathering",
+          "eventTime" : "2025-10-04",
+          "collectorReceiptTime" : "2025-10-03 23:57:10",
+          "processUserName" : "root",
+          "deviceAssetSubType" : "主机安全管理系统(EDR)",
+          "severity" : 1,
+          "parentProcessMd5" : "bbd4b2630bd8f8a151d4c49c3dcfddb5",
+          "productVendorName" : "安恒信息技术股份有限公司",
+          "ruleId" : "SD000642",
+          "utcTime" : "2025-10-04 03:57:10",
+          "machineCode" : "B8EA767978B4674C5300ED47C5B8378D412F2F71EDFDFDC409EB009A859EB4BEC4823BB4",
+          "dvcAction" : "pass",
+          "rawLogNum" : 60202,
+          "sendHostAddress" : "10.50.86.32",
+          "otherFields" : "{\"systemFile\":\"0\",\"appVersion\":\"\\\"3.13.21.0\\\"\",\"metaDnames\":\"[\\\"commandLine\\\",\\\"image\\\"]\",\"assetAddress\":\"\\\"192.168.27.241,\\\"\",\"canBlock\":\"1\",\"lessUser\":\"\\\"jxq\\\"\",\"mac\":\"\\\"00-0C-29-04-F3-B9\\\"\",\"metaActionType\":\"\\\"1\\\"\",\"riskType\":\"\\\"SuspEndpoint\\\"\",\"tenantName\":\"\\\"jxq\\\"\",\"osType\":\"\\\"1\\\"\",\"threatObjectType\":\"4\",\"attckWarningId\":\"\\\"8e4ce735-d326-4bbb-93dc-362d7395cef8\\\"\",\"subRiskType\":\"\\\"InformationGathering\\\"\",\"threatObject\":\"\\\"/usr/bin/ps\\\"\",\"timestamp\":\"1759550230829\",\"indexTime\":\"\\\"2025-10\\\"\",\"deny\":\"0\",\"metaRuleVersion\":\"\\\"\\\"\",\"filePath\":\"\\\"\\\"\",\"srcLocation\":\"\\\"\\\"\",\"hostId\":\"\\\"caab2db614281c5e1d6b6002530d51537049b97df5169ee3f0f316c16ecac5b4\\\"\",\"updateTime\":\"1759550230829\",\"alarmName\":\"\\\"进程枚举（linux）\\\"\",\"metaStatus\":\"\\\"SECLAB-test\\\"\",\"localTime\":\"\\\"2025-10-03 23:57:10\\\"\",\"groupName\":\"\\\"系统默认组\\\"\",\"newName\":\"\\\"localhost.localdomain\\\"\",\"machineId\":\"\\\"caab2db614281c5e1d6b6002530d51537049b97df5169ee3f0f316c16ecac5b4\\\"\",\"unixTime\":\"\\\"1759535830\\\"\",\"createTime\":\"1759550176164\",\"ruleVersion\":\"\\\"26.09.23.16\\\"\",\"relateAddress\":\"\\\"\\\"\",\"destLocation\":\"\\\"\\\"\"}",
+          "@timestamp" : "2025-10-03T15:57:10.000Z",
+          "baas_sink_process_time" : 1759550231716,
+          "baas_engineInfo" : "info:172.24.0.127,flink-ailpha-etl-taskmanager-1-1",
+          "netId" : "7effcbb7-0c7a-4da9-bde1-32d06166acae",
+          "direction" : "00",
+          "deviceHostAssetId" : "asset_b8a37315-7563-4d69-a738-bd7032aa655a_1758691313575",
+          "srcSecurityZone" : "inner_886da035-c033-46b8-8ce8-b31e03db7ab2_1537173568979",
+          "destSecurityZone" : "inner_886da035-c033-46b8-8ce8-b31e03db7ab2_1537173568979",
+          "srcOrgId" : "7effcbb7-0c7a-4da9-bde1-32d06166acae",
+          "destOrgId" : "7effcbb7-0c7a-4da9-bde1-32d06166acae",
+          "baas_srcDestAddress" : "192.168.27.241#7effcbb7-0c7a-4da9-bde1-32d06166acae#192.168.27.241#7effcbb7-0c7a-4da9-bde1-32d06166acae",
+          "srcGeoCountry" : "局域网",
+          "srcGeoRegion" : "局域网",
+          "baas_internal_ip_geo" : "match",
+          "destGeoCountry" : "局域网",
+          "destGeoRegion" : "局域网"
+        }
+      },
+      {
+        "_index" : "ailpha-baas-log-20251003-000001",
+        "_type" : "_doc",
+        "_id" : "t-lNrZkBgs_sSAFqaS-T",
+        "_score" : 1.0,
+        "_routing" : "5",
+        "_source" : {
+          "ruleType" : "/SuspEndpoint/SuspCommand",
+          "eventType" : "processCreate",
+          "tacticName" : "防御规避",
+          "techniquesName" : "签名的二进制代理执行",
+          "deviceAssetSubType" : "主机安全管理系统(EDR)",
+          "hostAddress" : "192.168.27.241",
+          "name" : "滥用anacron",
+          "parentProcessGuid" : "1DA8FF80EEA393D7",
+          "catOutcome" : "OK",
+          "parentImage" : "/usr/lib/systemd/systemd",
+          "processStartTime" : "2025-10-04 01:42:36",
+          "subTechniquesId" : "T1218.011",
+          "endTime" : "2025-10-03 23:39:04",
+          "confidenceScore" : 5,
+          "message" : "滥用anacron",
+          "destAddress" : "192.168.27.241",
+          "eventTime" : "2025-10-04",
+          "tacticId" : "TA0005",
+          "loginId" : "-1",
+          "parentProcessStartTime" : "2025-09-16 09:13:24",
+          "utcTime" : "2025-10-04 03:39:04",
+          "productVendorName" : "安恒信息技术股份有限公司",
+          "deviceName" : "安恒明御终端安全及管理系统",
+          "opType" : "create",
+          "deviceVersion" : "3.13.21.0",
+          "deviceReceiptTime" : "2025-10-04 11:38:10",
+          "collectorReceiptTime" : "2025-10-03 23:39:04",
+          "image" : "/usr/bin/bash",
+          "processName" : "bash",
+          "eventId" : "843f01fd016642bcbed9c2c7b5375115",
+          "processUserName" : "root",
+          "processChain" : "systemd(root[1]) -> bash(root[2304461])",
+          "deviceAssetSubTypeId" : 56,
+          "hostName" : "localhost.localdomain",
+          "startTime" : "2025-10-03 23:39:04",
+          "techniquesId" : "T1218",
+          "status" : "0",
+          "parentProcessName" : "systemd",
+          "currentDirectory" : "/",
+          "machineCode" : "B8EA767978B4674C5300ED47C5B8378D412F2F71EDFDFDC409EB009A859EB4BEC4823BB4",
+          "subTechniquesName" : "Rundll32",
+          "deviceAddress" : "10.50.86.32",
+          "srcAddress" : "192.168.27.241",
+          "suggestion" : "1、检查执行的命令及其参数，确定其来源和目的。\n2、如果命令被确定为恶意，通过响应管理能力终止恶意进程、隔离受感染的系统，以防止潜在的横向移动或进一步的恶意活动。",
+          "traceId" : "D81325E2ACD3D6E8",
+          "parentProcessUserName" : "root",
+          "ruleId" : "SY005269",
+          "parentProcessId" : 1,
+          "processGuid" : "D81325E2ACD3D6E8",
+          "deviceSendProductName" : "安恒明御终端安全及管理系统",
+          "processId" : 2304461,
+          "parentCommandLine" : "/usr/lib/systemd/systemd --switched-root --system --deserialize 17 ",
+          "commandLine" : "/bin/sh -c echo \"$(date) $(whoami)\" >>/tmp/T1053.006_st_03_log",
+          "processMd5" : "bbd4b2630bd8f8a151d4c49c3dcfddb5",
+          "logType" : "alert",
+          "severity" : 5,
+          "parentProcessMd5" : "549dd2b3fa5f9c1ad7ac9f00a117557a",
+          "dvcAction" : "pass",
+          "rawLogNum" : 60202,
+          "sendHostAddress" : "10.50.86.32",
+          "otherFields" : "{\"systemFile\":\"0\",\"appVersion\":\"\\\"3.13.21.0\\\"\",\"metaDnames\":\"[\\\"commandLine\\\"]\",\"assetAddress\":\"\\\"192.168.27.241,\\\"\",\"canBlock\":\"1\",\"lessUser\":\"\\\"jxq\\\"\",\"mac\":\"\\\"00-0C-29-04-F3-B9\\\"\",\"metaActionType\":\"\\\"1\\\"\",\"riskType\":\"\\\"SuspEndpoint\\\"\",\"tenantName\":\"\\\"jxq\\\"\",\"osType\":\"\\\"1\\\"\",\"threatObjectType\":\"4\",\"attckWarningId\":\"\\\"79a1933f-4d51-42d1-8a3d-f4b5274e70cc\\\"\",\"subRiskType\":\"\\\"SuspCommand\\\"\",\"threatObject\":\"\\\"/usr/bin/bash\\\"\",\"timestamp\":\"1759549144682\",\"indexTime\":\"\\\"2025-10\\\"\",\"deny\":\"0\",\"metaRuleVersion\":\"\\\"\\\"\",\"filePath\":\"\\\"\\\"\",\"srcLocation\":\"\\\"\\\"\",\"hostId\":\"\\\"caab2db614281c5e1d6b6002530d51537049b97df5169ee3f0f316c16ecac5b4\\\"\",\"updateTime\":\"1759549144682\",\"alarmName\":\"\\\"滥用anacron\\\"\",\"metaStatus\":\"\\\"SECLAB-test\\\"\",\"localTime\":\"\\\"2025-10-03 23:39:04\\\"\",\"groupName\":\"\\\"系统默认组\\\"\",\"machineId\":\"\\\"caab2db614281c5e1d6b6002530d51537049b97df5169ee3f0f316c16ecac5b4\\\"\",\"unixTime\":\"\\\"1759534744\\\"\",\"newName\":\"\\\"localhost.localdomain\\\"\",\"createTime\":\"1759549090027\",\"ruleVersion\":\"\\\"26.09.23.16\\\"\",\"relateAddress\":\"\\\"\\\"\",\"destLocation\":\"\\\"\\\"\"}",
+          "@timestamp" : "2025-10-03T15:39:04.000Z",
+          "baas_sink_process_time" : 1759549145720,
+          "baas_engineInfo" : "info:172.24.0.127,flink-ailpha-etl-taskmanager-1-1",
+          "netId" : "7effcbb7-0c7a-4da9-bde1-32d06166acae",
+          "direction" : "00",
+          "deviceHostAssetId" : "asset_b8a37315-7563-4d69-a738-bd7032aa655a_1758691313575",
+          "srcSecurityZone" : "inner_886da035-c033-46b8-8ce8-b31e03db7ab2_1537173568979",
+          "destSecurityZone" : "inner_886da035-c033-46b8-8ce8-b31e03db7ab2_1537173568979",
+          "srcOrgId" : "7effcbb7-0c7a-4da9-bde1-32d06166acae",
+          "destOrgId" : "7effcbb7-0c7a-4da9-bde1-32d06166acae",
+          "baas_srcDestAddress" : "192.168.27.241#7effcbb7-0c7a-4da9-bde1-32d06166acae#192.168.27.241#7effcbb7-0c7a-4da9-bde1-32d06166acae",
+          "srcGeoCountry" : "局域网",
+          "srcGeoRegion" : "局域网",
+          "baas_internal_ip_geo" : "match",
+          "destGeoCountry" : "局域网",
+          "destGeoRegion" : "局域网"
+        }
+      }
+    ]
+  }
+}
+
+
+前置条件2：数据结构已经在项目中生成了；
+
+
+## 2.1 整体流程
+
+1.获取安全事件关注ip，进行遍历
+
+- 判断网端关联是否成功
+  - 网端关联成功  执行强关联逻辑，执行四大场景的判定条件，**找到最符合的那个节点**（约束多）
+  - 以此为基础，进行上下溯源；
+- 网端关联失败，执行通用逻辑（下面是通用逻辑）
+- 筛选终端告警，要求安全事件受害者ipaddress=终端告警hostAddress；要求基于当前时间去找，时间跨度为最长为一天，但是不跨天；要求是终端 EDR告警
+- 如果有终端的告警，获取告警的tracelD，并按照相同的tracelD的告警进行分组，每个分组全是tracelD相同的告警（原始告警）
+
+- 多个组中选举出（选举算法）一个严重的告警最多的组alarm_group，以此为基础构建进程链
+
+- 遍历alarm_group(可能有多个告警)
+
+  - if 告警是高危的告警
+
+    - 获取EDR告警的 $processGuid、告警源ld：$traceld，获取时间字段：最新的startTime
+
+    - 原始日志数据集搜索：条件1：(startTime-10分钟）<time<（startTime + 10分钟）;条件2：与告警的traceld+hostAddress 相同的所有终端原始日志
+
+      - 得到的原始日志需要遍历，已达到拼接的目的，高危告警一个是向上遍历，一个是向下遍历,后面的LogTypeList：["process",file"."network","domain"] 
+
+      - 向下递归逐层遍历：
+
+        - 找到上方节点：logType（下方节点）in LogTypeList &&parentProcessGuid(下方节点的父进程)=$processGUiD（当前节点的进程ID）
+
+        - 找到告警对应的同级节点：logType（告警对应的原始日志） in LogTypeList&&processGUID(原始日志)=$processGUID(当前向上遍历的告警）
+        - 组装进程链信息，组装实体信息，然后继续找
+
+      - 向上递归逐层遍历：
+
+        - 找到下方节点：logType（上方节点）in LogTypeList&&processGUID(上方的节点的进程ID)=$parentProcessGUID（当前节点的进程ID)
+        - 找到告警对应的同级节点：logType（告警对应的原始日志） in LogTypeList &&processGUID(原始日志)=$processGUID(当前向下遍历的告警)
+        - 组装进程链信息，组装实体信息，然后继续找
+
+      - 向上遍历结束条件：1.遍历到源节点;当logType in **LogTypeList**＆&processGUID=$traceld时，停止遍历；2.遍历完没找到对应头部节点
+      - 向下遍历结束条件：当不存在 parentProcessGuid(下方节点的父进程)=$processGUID（当前节点的进程ID）时，停止遍历 
+      - 如果在捞取所有的原始日志的时候没捞到源节点，则给一个explore节点表示，进程链头部节点给个标志位虚线连接到explore
+
+  - if 告警是中危/低危的告警
+
+    - 获取EDR告警的 $processGuid、告警源ld：$traceld，获取时间字段：最新的startTime
+
+    - 原始日志数据集搜索：条件1：(startTime-10分钟）<time<（startTime + 10分钟）;条件2：与告警的traceld+hostAddress 相同的所有终端原始日志
+
+    - 向上递归逐层遍历
+
+      - 找到上放节点：logType（上方节点） in LogTypeList&&processGUID(上方的节点的进程ID)=$parentProcessGUID（当前节点的进程ID）
+
+      - 找到告警对应的同级节点：logType（告警对应的原始日志） in LogTypeList &&processGUID(日志)=$processGUID(当前向下遍历的告警) 
+      - 组装进程链信息，组装实体信息，然后继续递归
+
+    - 向上遍历结束条件：1.遍历到源节点;当logType in LogTypeList &&processGUiD=$traceld时，停止遍历；2. 遍历完没找到对应头部节点
+    - 如果在捞取所有的原始日志的时候没捞到源节点，则给一个explore节点表示，进程链头部节点给个标志位虚线连接到explore
+
+- 合并，若有每次遍历都有进程链生成，合并上述单链组成树，遍历所有实体的processGUID，将相同processGUID中对应的实体进行合并
+
+2.遍历结束。获取所有关注ip进程链信息 
+
+3.返回给前端
+
+
+
+
+
+## 2.2 选举算法如下：
+
+类似一个选举的策略，最重要的无论如何也要选举出　
+
+**优先级定义：** 高（HIGH）>中（(MEDIUM）>低（LOW)　 比较时先看最高威肋等级的存在情况，再依次向下比较
+
+
+
+**比较规则：** 第一优先级：比较「高」威胁的数量。如果一组有「高」而另一组没有，则有「高」的组胜出；如果都有「高」，则数量多的胜出；如果数量相同，则进入下一级比较。 第二优先级：如果都没有「高」，则比较「中」威胁的数量。规则类似：有「中」的胜出，数量多的胜出，相同则进入下一级。
+
+第三优先级：如果都没有「中」，则比较「低」威胁的数量。数量多的胜出。 平局处理：如果所有等级数量完全相同，则视为平局，可以按组名排序或随机选择；这里就按组排名来选（待定) 
+
+
+
+**示例场景：** 
+
+场景1：组A有一个「高」，组B有三个「中」→组A胜出（因为「高」>「中」）。 
+
+场景2：组A有一个「高」，组D有一个「高」和一个「中」→组D胜出（因为「高」数量相同，但组D有更多「中」）。 
+
+场景3：组B有三个「中」，组C有一个「中」和一个「低」一→组B胜出（因为「中」数量更多）。
+
+场景4：组A有一个「高」，组B有一个「高」；平局，选择第一个组 
+
+场景5：组A有一个「高」和一个「中」，组B有一个「高」和一个「中」；平局，选择第一个组　
+
+场景6：组A有一个「高」和一个「中」，组B有一个「高」和一个「中」和一个「低」；组B胜出　
+
+
+
+
+
+## 2.3 双向遍历算法详细流程
+
+向上遍历的终止条件是：所找不到父节点或者上面是根节点
+
+向下遍历目前是一层，向下递归遍历不知性能如何，是否需要做！
+
+
+
+
+条件：
+0、这里的数据结构是点边关系，在项目中已经写好了
+1、我先在已经获得了一个List<String> ips  ,中间存的都是要取查询原始告警的ip;
+2、无论是原始告警还是原始日志都去ES中去查询
+3、我已经拿到网端关联成功时候，ip对应原始告警的eventId
+4、无论网端关联成功与否都需要按照2.1 中体流程中的通用流程去获取所有的原始告警；不同的是，网端关联成功的告警是有一个例子的，我们直接基于其的traceId的值去在所有的原始告警中去找对应的其他告警；通用的话就需要用选举算法去做；
+5、确定完告警之后，基于告警要去ES查询原始日志，条件2.1中都有写
+6、告警是有其对应的原始日志的，条件是processGUID(日志)=$processGUID(原始告警)
+7、由于有很多条告警，每条告警都要向上/向下溯源，然后这些溯源后的告警又要拼在一起，很复杂，希望设计一套合理的算法；
+8、实现函数尽量写的清晰一点，不要过度包装或者各种炫技；由于要查大量数据处理，所以，性能稍微好一点，也不需要到极致那种；
+9、告警的表中有网络侧告警和端侧告警，hostAddress是端侧独有的；traceid是溯源id;
+10、可能在一段时间内找到的告警/日志 没有根节点，断链也是很正常的现象；
+
+11、如果有什么疑惑或者不清楚的地方，要停下来问我做，我来回答或者补充条件；
+
