@@ -55,25 +55,25 @@ public class ProcessChainBuilder {
      * 
      * @param alarms 选举出的告警组
      * @param logs 查询到的原始日志
-     * @param traceId 溯源ID
+     * @param traceIds 溯源ID集合（支持多个 traceId）
      * @param associatedEventId 网端关联成功的eventId(可为null)
      * @return 构建结果
      */
     public ProcessChainResult buildProcessChain(List<RawAlarm> alarms, List<RawLog> logs, 
-                                                String traceId, String associatedEventId) {
+                                                Set<String> traceIds, String associatedEventId) {
         if (alarms == null || alarms.isEmpty()) {
-            log.warn("警告: 告警列表为空,返回空进程链");
+            log.warn("【进程链生成】-> 警告: 告警列表为空,返回空进程链");
             return new ProcessChainResult();
         }
         
-        if (traceId == null || traceId.trim().isEmpty()) {
-            log.error("错误: traceId为空,无法构建进程链");
+        if (traceIds == null || traceIds.isEmpty()) {
+            log.error("【进程链生成】-> 错误: traceIds为空,无法构建进程链");
             return new ProcessChainResult();
         }
         
         try {
-            log.info("开始构建进程链: traceId={}, 告警数={}, 日志数={}", 
-                    traceId, alarms.size(), (logs != null ? logs.size() : 0));
+            log.info("【进程链生成】-> 开始构建进程链: traceIds={}, 告警数={}, 日志数={}", 
+                    traceIds, alarms.size(), (logs != null ? logs.size() : 0));
             
             // 记录网端关联的eventId
             if (associatedEventId != null && !associatedEventId.trim().isEmpty()) {
@@ -111,14 +111,14 @@ public class ProcessChainBuilder {
                     
                     if (isHighSeverity(severity)) {
                         // 高危告警: 双向遍历
-                        buildBidirectionalChain(alarm, logsByProcessGuid, logsByParentProcessGuid, traceId);
+                        buildBidirectionalChain(alarm, logsByProcessGuid, logsByParentProcessGuid, traceIds);
                     } else {
                         // 中低危告警: 向上遍历
-                        buildUpwardChain(alarm, logsByProcessGuid, traceId);
+                        buildUpwardChain(alarm, logsByProcessGuid, traceIds);
                     }
                     processedCount++;
                 } catch (Exception e) {
-                    log.warn("处理告警失败: eventId={}, 错误: {}", alarm.getEventId(), e.getMessage());
+                    log.warn("【进程链生成】-> 处理告警失败: eventId={}, 错误: {}", alarm.getEventId(), e.getMessage());
                     failedCount++;
                 }
             }
@@ -163,20 +163,20 @@ public class ProcessChainBuilder {
     private void buildBidirectionalChain(RawAlarm alarm, 
                                         Map<String, List<RawLog>> logsByProcessGuid,
                                         Map<String, List<RawLog>> logsByParentProcessGuid,
-                                        String traceId) {
+                                        Set<String> traceIds) {
         if (alarm == null) {
-            log.warn("告警为空,跳过双向遍历");
+            log.warn("【进程链生成】-> 告警为空,跳过双向遍历");
             return;
         }
         
         String processGuid = alarm.getProcessGuid();
         if (processGuid == null || processGuid.trim().isEmpty()) {
-            log.warn("告警processGuid为空,跳过双向遍历: eventId={}", alarm.getEventId());
+            log.warn("【进程链生成】-> 告警processGuid为空,跳过双向遍历: eventId={}", alarm.getEventId());
             return;
         }
         
         if (logsByProcessGuid == null || logsByParentProcessGuid == null) {
-            log.warn("日志索引为空,跳过双向遍历");
+            log.warn("【进程链生成】-> 日志索引为空,跳过双向遍历");
             return;
         }
         
@@ -184,10 +184,10 @@ public class ProcessChainBuilder {
         addAlarmNode(alarm);
         
         // 检查告警节点本身是否是根节点
-        if (processGuid.equals(traceId)) {
+        if (traceIds.contains(processGuid)) {
             foundRootNode = true;
             rootNodes.add(processGuid);
-            log.info("告警节点本身就是根节点: processGuid={} (等于traceId)", processGuid);
+            log.info("【进程链生成】-> 告警节点本身就是根节点: processGuid={} (匹配traceIds)", processGuid);
         }
         
         // 添加告警对应的同级日志节点
@@ -198,19 +198,19 @@ public class ProcessChainBuilder {
                     addLogNode(rawLog, true);
                     // 检查日志节点是否是根节点
                     String logProcessGuid = rawLog.getProcessGuid();
-                    if (logProcessGuid != null && logProcessGuid.equals(traceId)) {
+                    if (logProcessGuid != null && traceIds.contains(logProcessGuid)) {
                         foundRootNode = true;
                         rootNodes.add(logProcessGuid);
-                        log.info("日志节点是根节点: processGuid={} (等于traceId)", logProcessGuid);
+                        log.info("【进程链生成】-> 日志节点是根节点: processGuid={} (匹配traceIds)", logProcessGuid);
                     }
                 }
             }
         }
         
         // 向上遍历（如果告警节点不是根节点）
-        if (!processGuid.equals(traceId)) {
+        if (!traceIds.contains(processGuid)) {
             visitedNodesInPath.clear();
-            traverseUpward(processGuid, logsByProcessGuid, traceId, 0);
+            traverseUpward(processGuid, logsByProcessGuid, traceIds, 0);
         }
         
         // 向下遍历
@@ -223,20 +223,20 @@ public class ProcessChainBuilder {
      */
     private void buildUpwardChain(RawAlarm alarm, 
                                    Map<String, List<RawLog>> logsByProcessGuid,
-                                   String traceId) {
+                                   Set<String> traceIds) {
         if (alarm == null) {
-            log.warn("告警为空,跳过向上遍历");
+            log.warn("【进程链生成】-> 告警为空,跳过向上遍历");
             return;
         }
         
         String processGuid = alarm.getProcessGuid();
         if (processGuid == null || processGuid.trim().isEmpty()) {
-            log.warn("告警processGuid为空,跳过向上遍历: eventId={}", alarm.getEventId());
+            log.warn("【进程链生成】-> 告警processGuid为空,跳过向上遍历: eventId={}", alarm.getEventId());
             return;
         }
         
         if (logsByProcessGuid == null) {
-            log.warn("日志索引为空,跳过向上遍历");
+            log.warn("【进程链生成】-> 日志索引为空,跳过向上遍历");
             return;
         }
         
@@ -244,10 +244,10 @@ public class ProcessChainBuilder {
         addAlarmNode(alarm);
         
         // 检查告警节点本身是否是根节点
-        if (processGuid.equals(traceId)) {
+        if (traceIds.contains(processGuid)) {
             foundRootNode = true;
             rootNodes.add(processGuid);
-            log.info("告警节点本身就是根节点: processGuid={} (等于traceId)", processGuid);
+            log.info("【进程链生成】-> 告警节点本身就是根节点: processGuid={} (匹配traceIds)", processGuid);
         }
         
         // 添加告警对应的同级日志节点
@@ -258,19 +258,19 @@ public class ProcessChainBuilder {
                     addLogNode(rawLog, false);
                     // 检查日志节点是否是根节点
                     String logProcessGuid = rawLog.getProcessGuid();
-                    if (logProcessGuid != null && logProcessGuid.equals(traceId)) {
+                    if (logProcessGuid != null && traceIds.contains(logProcessGuid)) {
                         foundRootNode = true;
                         rootNodes.add(logProcessGuid);
-                        log.info("日志节点是根节点: processGuid={} (等于traceId)", logProcessGuid);
+                        log.info("【进程链生成】-> 日志节点是根节点: processGuid={} (匹配traceIds)", logProcessGuid);
                     }
                 }
             }
         }
         
         // 向上遍历（如果告警节点不是根节点）
-        if (!processGuid.equals(traceId)) {
+        if (!traceIds.contains(processGuid)) {
             visitedNodesInPath.clear();
-            traverseUpward(processGuid, logsByProcessGuid, traceId, 0);
+            traverseUpward(processGuid, logsByProcessGuid, traceIds, 0);
         }
     }
     
@@ -281,17 +281,17 @@ public class ProcessChainBuilder {
      */
     private void traverseUpward(String currentProcessGuid, 
                                Map<String, List<RawLog>> logsByProcessGuid,
-                               String traceId,
+                               Set<String> traceIds,
                                int depth) {
         // 检查深度限制
         if (depth >= MAX_TRAVERSE_DEPTH) {
-            log.warn("向上遍历达到最大深度限制({}),停止遍历: {}", MAX_TRAVERSE_DEPTH, currentProcessGuid);
+            log.warn("【进程链生成】-> 向上遍历达到最大深度限制({}),停止遍历: {}", MAX_TRAVERSE_DEPTH, currentProcessGuid);
             return;
         }
         
         // 检查是否已访问(检测环)
         if (visitedNodesInPath.contains(currentProcessGuid)) {
-            log.warn("检测到环,停止遍历: {}", currentProcessGuid);
+            log.warn("【进程链生成】-> 检测到环,停止遍历: {}", currentProcessGuid);
             return;
         }
         visitedNodesInPath.add(currentProcessGuid);
@@ -303,11 +303,11 @@ public class ProcessChainBuilder {
             return;
         }
         
-        // 检查当前节点是否是根节点（processGuid == traceId）
-        if (currentProcessGuid.equals(traceId)) {
+        // 检查当前节点是否是根节点（processGuid 匹配任意一个 traceId）
+        if (traceIds.contains(currentProcessGuid)) {
             foundRootNode = true;
             rootNodes.add(currentProcessGuid);
-            log.info("找到根节点: processGuid={} (等于traceId)", currentProcessGuid);
+            log.info("【进程链生成】-> 找到根节点: processGuid={} (匹配traceIds)", currentProcessGuid);
             visitedNodesInPath.remove(currentProcessGuid);
             return;
         }
@@ -342,7 +342,7 @@ public class ProcessChainBuilder {
                 addEdge(parentProcessGuid, currentProcessGuid);
                 
                 // 继续向上递归
-                traverseUpward(parentProcessGuid, logsByProcessGuid, traceId, depth + 1);
+                traverseUpward(parentProcessGuid, logsByProcessGuid, traceIds, depth + 1);
                 break;
             }
         }
@@ -791,8 +791,8 @@ public class ProcessChainBuilder {
     }
     
     /**
-     * 构建进程链并直接转换为 IncidentProcessChain
-     * 这是推荐的便捷方法，避免手动转换，简化 Service 层代码
+     * 构建进程链并直接转换为 IncidentProcessChain（已废弃，保留以兼容旧代码）
+     * 推荐使用接受 Set<String> traceIds 的新版本
      * 
      * @param alarms 选举出的告警组
      * @param logs 查询到的原始日志
@@ -801,72 +801,18 @@ public class ProcessChainBuilder {
      * @param nodeMapper 节点映射器
      * @param edgeMapper 边映射器
      * @return 事件进程链
+     * @deprecated 使用 buildIncidentChain(alarms, logs, Set<String> traceIds, ...)
      */
+    @Deprecated
     public IncidentProcessChain buildIncidentChain(List<RawAlarm> alarms, List<RawLog> logs,
                                                    String traceId, String associatedEventId,
                                                    NodeMapper nodeMapper, EdgeMapper edgeMapper) {
-        // 先构建内部进程链
-        ProcessChainResult result = buildProcessChain(alarms, logs, traceId, associatedEventId);
-        
-        // 转换为最终返回模型
-        IncidentProcessChain incident = new IncidentProcessChain();
-        List<com.security.processchain.model.ProcessNode> finalNodes = new java.util.ArrayList<>();
-        List<com.security.processchain.model.ProcessEdge> finalEdges = new java.util.ArrayList<>();
-        
-        // 获取根节点和断裂节点集合
-        Set<String> rootNodeGuids = result.getRootNodes();
-        Set<String> brokenNodeGuids = result.getBrokenNodes();
-        
-        if (result.getNodes() != null) {
-            for (ChainBuilderNode node : result.getNodes()) {
-                try {
-                    // 判断当前节点是否是根节点或断裂节点
-                    boolean isRoot = rootNodeGuids != null && rootNodeGuids.contains(node.getProcessGuid());
-                    boolean isBroken = brokenNodeGuids != null && brokenNodeGuids.contains(node.getProcessGuid());
-                    
-                    // 转换节点
-                    com.security.processchain.model.ProcessNode finalNode = nodeMapper.toIncidentNode(node);
-                    
-                    // 设置 isRoot 和 isBroken 标记
-                    if (finalNode.getChainNode() != null) {
-                        finalNode.getChainNode().setIsRoot(isRoot);
-                        finalNode.getChainNode().setIsBroken(isBroken);
-                    }
-                    
-                    finalNodes.add(finalNode);
-                } catch (Exception e) {
-                    log.error("节点转换失败: processGuid={}, 错误: {}", 
-                            node.getProcessGuid(), e.getMessage(), e);
-                }
-            }
+        // 转换为新方法（使用 Set）
+        Set<String> traceIds = new HashSet<>();
+        if (traceId != null && !traceId.trim().isEmpty()) {
+            traceIds.add(traceId);
         }
-        
-        if (result.getEdges() != null) {
-            for (ChainBuilderEdge edge : result.getEdges()) {
-                try {
-                    finalEdges.add(edgeMapper.toIncidentEdge(edge));
-                } catch (Exception e) {
-                    log.error("边转换失败: source={}, target={}, 错误: {}", 
-                            edge.getSource(), edge.getTarget(), e.getMessage(), e);
-                }
-            }
-        }
-        
-        // 为断裂节点添加 explore 节点
-        if (result.getBrokenNodes() != null && !result.getBrokenNodes().isEmpty()) {
-            log.info("检测到 {} 个断裂节点，开始添加 explore 节点", result.getBrokenNodes().size());
-            addExploreNodesForBrokenChains(finalNodes, finalEdges, result.getBrokenNodes(), 
-                    result.getRootNodes());
-        }
-        
-        incident.setNodes(finalNodes);
-        incident.setEdges(finalEdges);
-        
-        log.info("进程链构建并转换完成: 节点数={}, 边数={}, 根节点数={}, 断裂节点数={}", 
-                finalNodes.size(), finalEdges.size(), 
-                result.getRootNodes().size(), result.getBrokenNodes().size());
-        
-        return incident;
+        return buildIncidentChain(alarms, logs, traceIds, associatedEventId, nodeMapper, edgeMapper);
     }
     
     /**
@@ -917,6 +863,97 @@ public class ProcessChainBuilder {
         
         public void setBrokenNodes(Set<String> brokenNodes) {
             this.brokenNodes = brokenNodes;
+        }
+    }
+    
+    /**
+     * 直接构建最终的 IncidentProcessChain（一步到位）
+     * 支持多个 traceId
+     * 
+     * @param alarms 告警列表
+     * @param logs 日志列表
+     * @param traceIds 追踪 ID 集合
+     * @param associatedEventId 关联事件 ID
+     * @param nodeMapper 节点映射器
+     * @param edgeMapper 边映射器
+     * @return 完整的 IncidentProcessChain
+     */
+    public IncidentProcessChain buildIncidentChain(
+            List<RawAlarm> alarms, 
+            List<RawLog> logs,
+            Set<String> traceIds,
+            String associatedEventId,
+            NodeMapper nodeMapper, 
+            EdgeMapper edgeMapper) {
+        
+        if (alarms == null || alarms.isEmpty()) {
+            log.warn("【进程链生成】-> 警告: 告警列表为空，返回空进程链");
+            return new IncidentProcessChain();
+        }
+        
+        if (traceIds == null || traceIds.isEmpty()) {
+            log.error("【进程链生成】-> 错误: traceIds为空，无法构建进程链");
+            return new IncidentProcessChain();
+        }
+        
+        try {
+            log.info("【进程链生成】-> 开始构建进程链: traceIds={}, 告警数={}, 日志数={}", 
+                    traceIds, alarms.size(), (logs != null ? logs.size() : 0));
+            
+            // 构建内部结果
+            ProcessChainResult result = buildProcessChain(alarms, logs, traceIds, associatedEventId);
+            
+            // 转换为最终的 IncidentProcessChain
+            IncidentProcessChain incidentChain = new IncidentProcessChain();
+            
+            List<com.security.processchain.model.ProcessNode> finalNodes = new ArrayList<>();
+            List<com.security.processchain.model.ProcessEdge> finalEdges = new ArrayList<>();
+            
+            // 转换节点
+            if (result.getNodes() != null) {
+                for (ChainBuilderNode builderNode : result.getNodes()) {
+                    com.security.processchain.model.ProcessNode finalNode = nodeMapper.toIncidentNode(builderNode);
+                    
+                    // 设置 isRoot 和 isBroken 标志
+                    if (finalNode != null && finalNode.getIsChainNode() && finalNode.getChainNode() != null) {
+                        String nodeId = finalNode.getNodeId();
+                        if (result.getRootNodes() != null && result.getRootNodes().contains(nodeId)) {
+                            finalNode.getChainNode().setIsRoot(true);
+                        }
+                        if (result.getBrokenNodes() != null && result.getBrokenNodes().contains(nodeId)) {
+                            finalNode.getChainNode().setIsBroken(true);
+                        }
+                    }
+                    
+                    finalNodes.add(finalNode);
+                }
+            }
+            
+            // 转换边
+            if (result.getEdges() != null) {
+                for (ChainBuilderEdge builderEdge : result.getEdges()) {
+                    com.security.processchain.model.ProcessEdge finalEdge = edgeMapper.toIncidentEdge(builderEdge);
+                    finalEdges.add(finalEdge);
+                }
+            }
+            
+            // 添加 Explore 节点（如果有断链）
+            if (result.getBrokenNodes() != null && !result.getBrokenNodes().isEmpty()) {
+                addExploreNodesForBrokenChains(finalNodes, finalEdges, 
+                        result.getBrokenNodes(), result.getRootNodes());
+            }
+            
+            incidentChain.setNodes(finalNodes);
+            incidentChain.setEdges(finalEdges);
+            
+            log.info("【进程链生成】-> IncidentProcessChain 构建完成: 节点数={}, 边数={}", 
+                    finalNodes.size(), finalEdges.size());
+            
+            return incidentChain;
+            
+        } catch (Exception e) {
+            log.error("【进程链生成】-> 构建 IncidentProcessChain 失败: {}", e.getMessage(), e);
+            return new IncidentProcessChain();
         }
     }
 }

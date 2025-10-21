@@ -51,6 +51,10 @@ public class ProcessChainServiceImpl {
         List<RawAlarm> allSelectedAlarms = new ArrayList<>();
         List<RawLog> allLogs = new ArrayList<>();
         
+        // 收集所有的 traceId 和 hostAddress
+        Set<String> allTraceIds = new HashSet<>();
+        Set<String> allHostAddresses = new HashSet<>();
+        
         // IP -> rootNodeId 映射（用于桥接网侧和端侧）
         Map<String, String> ipToRootNodeIdMap = new HashMap<>();
 
@@ -70,7 +74,6 @@ public class ProcessChainServiceImpl {
             int successCount = 0;
             int failureCount = 0;
             int associatedCount = 0;
-            String firstTraceId = null;
 
             // ========== 阶段1: 选择所有告警 ==========
             Map<String, String> hostToTraceId = new HashMap<>();
@@ -116,10 +119,14 @@ public class ProcessChainServiceImpl {
                     // 收集所有选中的告警
                     allSelectedAlarms.addAll(selectedAlarms);
                     
-                    // 记录第一个traceId用于构建
-                    if (firstTraceId == null) {
-                        firstTraceId = firstAlarm.getTraceId();
+                    // 收集所有 traceId 和 hostAddress
+                    if (firstAlarm.getTraceId() != null) {
+                        allTraceIds.add(firstAlarm.getTraceId());
                     }
+                    if (firstAlarm.getHostAddress() != null) {
+                        allHostAddresses.add(firstAlarm.getHostAddress());
+                    }
+                    
                     // 记录 host -> traceId 的映射（一个IP一个traceId）
                     if (firstAlarm.getHostAddress() != null && firstAlarm.getTraceId() != null) {
                         hostToTraceId.put(firstAlarm.getHostAddress(), firstAlarm.getTraceId());
@@ -151,10 +158,20 @@ public class ProcessChainServiceImpl {
             }
 
             // ========== 阶段3: 构建端侧进程链 ==========
+            log.info("【进程链生成】-> 收集到的 traceId 数量: {}, hostAddress 数量: {}", 
+                    allTraceIds.size(), allHostAddresses.size());
+            log.info("【进程链生成】-> traceIds: {}", allTraceIds);
+            
             ProcessChainBuilder builder = new ProcessChainBuilder();
             IncidentProcessChain endpointChain = builder.buildIncidentChain(
-                    allSelectedAlarms, allLogs, firstTraceId, null,
+                    allSelectedAlarms, allLogs, allTraceIds, null,
                     IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER);
+            
+            // 设置 traceIds 和 hostAddresses
+            if (endpointChain != null) {
+                endpointChain.setTraceIds(new ArrayList<>(allTraceIds));
+                endpointChain.setHostAddresses(new ArrayList<>(allHostAddresses));
+            }
             
             // ========== 阶段4: 构建 IP -> rootNodeId 映射 ==========
             if (endpointChain != null && endpointChain.getNodes() != null) {
@@ -229,19 +246,27 @@ public class ProcessChainServiceImpl {
             List<RawLog> logs = queryLogsForAlarm(firstAlarm);
 
             // 构建进程链（传入所有选中的告警）
+            Set<String> traceIds = new HashSet<>();
+            traceIds.add(firstAlarm.getTraceId());  // 单个 IP 只有一个 traceId
+            
             ProcessChainBuilder builder = new ProcessChainBuilder();
             IncidentProcessChain incidentChain = builder.buildIncidentChain(
                 selectedAlarms,  // 所有告警
                 logs, 
-                firstAlarm.getTraceId(), 
+                traceIds,  // 传入 Set
                 associatedEventId,
                 IncidentConverters.NODE_MAPPER, 
                 IncidentConverters.EDGE_MAPPER);
             
             // 设置基本信息
             if (incidentChain != null) {
-                incidentChain.setTraceId(firstAlarm.getTraceId());
-                incidentChain.setHostAddress(firstAlarm.getHostAddress());
+                List<String> traceIdList = new ArrayList<>();
+                traceIdList.add(firstAlarm.getTraceId());
+                incidentChain.setTraceIds(traceIdList);
+                
+                List<String> hostAddressList = new ArrayList<>();
+                hostAddressList.add(firstAlarm.getHostAddress());
+                incidentChain.setHostAddresses(hostAddressList);
             }
             
             return incidentChain;
@@ -475,8 +500,8 @@ public class ProcessChainServiceImpl {
             
             // 7. 设置基本信息（使用端侧的信息）
             if (endpointChain != null) {
-                mergedChain.setTraceId(endpointChain.getTraceId());
-                mergedChain.setHostAddress(endpointChain.getHostAddress());
+                mergedChain.setTraceIds(endpointChain.getTraceIds());
+                mergedChain.setHostAddresses(endpointChain.getHostAddresses());
                 mergedChain.setThreatSeverity(endpointChain.getThreatSeverity());
             }
             

@@ -6,30 +6,31 @@ import java.util.List;
 
 /**
  * 事件进程链
+ * 支持多个 IP 和多个 traceId
  */
 public class IncidentProcessChain {
-    private String traceId;
-    private String hostAddress;
+    private List<String> traceIds;        // 改为 List，支持多个 traceId
+    private List<String> hostAddresses;   // 改为 List，支持多个 IP
     private List<ProcessNode> nodes;
     private List<ProcessEdge> edges;
     private ThreatSeverity threatSeverity;
     
     public IncidentProcessChain() {}
     
-    public String getTraceId() {
-        return traceId;
+    public List<String> getTraceIds() {
+        return traceIds;
     }
     
-    public void setTraceId(String traceId) {
-        this.traceId = traceId;
+    public void setTraceIds(List<String> traceIds) {
+        this.traceIds = traceIds;
     }
     
-    public String getHostAddress() {
-        return hostAddress;
+    public List<String> getHostAddresses() {
+        return hostAddresses;
     }
     
-    public void setHostAddress(String hostAddress) {
-        this.hostAddress = hostAddress;
+    public void setHostAddresses(List<String> hostAddresses) {
+        this.hostAddresses = hostAddresses;
     }
     
     public List<ProcessNode> getNodes() {
