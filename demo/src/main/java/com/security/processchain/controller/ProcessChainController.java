@@ -1,9 +1,11 @@
 package com.security.processchain.controller;
 
 import com.security.processchain.model.IpMappingRelation;
+import com.security.processchain.model.ProcessEdge;
+import com.security.processchain.model.ProcessNode;
 import com.security.processchain.service.IncidentProcessChain;
-import com.security.processchain.service.ProcessChainBuilder;
 import com.security.processchain.service.impl.ProcessChainServiceImpl;
+import com.security.processchain.util.Pair;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -43,7 +45,7 @@ public class ProcessChainController {
     }
 
     /**
-     * 批量生成进程链（新版）
+     * 批量生成进程链（端侧）
      * 使用IpMappingRelation数据结构
      * 所有IP的进程链合并到一个IncidentProcessChain中
      * 
@@ -54,9 +56,9 @@ public class ProcessChainController {
     public IncidentProcessChain batchGenerateProcessChains(
             @RequestBody IpMappingRelation ipMappingRelation) {
         
-        log.info("收到批量进程链生成请求: {}", ipMappingRelation);
+        log.info("收到批量进程链生成请求（仅端侧）: {}", ipMappingRelation);
         
-        return processChainService.generateProcessChains(ipMappingRelation);
+        return processChainService.generateProcessChains(ipMappingRelation, null);
     }
 
     /**
@@ -71,25 +73,16 @@ public class ProcessChainController {
         
         log.info("收到合并进程链请求");
         
-        // 先生成端侧进程链
-        IncidentProcessChain endpointChain = null;
-        if (request.getIpMappingRelation() != null) {
-            endpointChain = processChainService.generateProcessChains(request.getIpMappingRelation());
+        // 封装网侧数据为 Pair
+        Pair<List<ProcessNode>, List<ProcessEdge>> networkChain = null;
+        if (request.getNetworkNodes() != null || request.getNetworkEdges() != null) {
+            networkChain = Pair.of(request.getNetworkNodes(), request.getNetworkEdges());
         }
         
-        // 提取端侧的ProcessChainResult
-        ProcessChainBuilder.ProcessChainResult endpointResult = null;
-        if (endpointChain != null) {
-            endpointResult = new ProcessChainBuilder.ProcessChainResult();
-            endpointResult.setNodes(endpointChain.getNodes());
-            endpointResult.setEdges(endpointChain.getEdges());
-        }
-        
-        // 合并网侧和端侧
-        return processChainService.mergeNetworkAndEndpointChain(
-            request.getNetworkNodes(),
-            request.getNetworkEdges(),
-            endpointResult
+        // 调用 Service 生成并合并进程链
+        return processChainService.generateProcessChains(
+            request.getIpMappingRelation(),
+            networkChain
         );
     }
     
@@ -109,23 +102,23 @@ public class ProcessChainController {
      * 合并进程链请求对象
      */
     public static class MergeChainRequest {
-        private List<ProcessChainBuilder.ChainBuilderNode> networkNodes;
-        private List<ProcessChainBuilder.ChainBuilderEdge> networkEdges;
+        private List<ProcessNode> networkNodes;
+        private List<ProcessEdge> networkEdges;
         private IpMappingRelation ipMappingRelation;
 
-        public List<ProcessChainBuilder.ChainBuilderNode> getNetworkNodes() {
+        public List<ProcessNode> getNetworkNodes() {
             return networkNodes;
         }
 
-        public void setNetworkNodes(List<ProcessChainBuilder.ChainBuilderNode> networkNodes) {
+        public void setNetworkNodes(List<ProcessNode> networkNodes) {
             this.networkNodes = networkNodes;
         }
 
-        public List<ProcessChainBuilder.ChainBuilderEdge> getNetworkEdges() {
+        public List<ProcessEdge> getNetworkEdges() {
             return networkEdges;
         }
 
-        public void setNetworkEdges(List<ProcessChainBuilder.ChainBuilderEdge> networkEdges) {
+        public void setNetworkEdges(List<ProcessEdge> networkEdges) {
             this.networkEdges = networkEdges;
         }
 

@@ -53,8 +53,14 @@ public final class IncidentConverters {
             RawLog latestLog = getLatestLog(logs);
             if (latestLog != null && latestLog.getLogType() != null) {
                 finalNode.setLogType(mapToNodeType(latestLog.getLogType()));
-                chainNode.setProcessEntity(convertToProcessEntity(latestLog));
-                chainNode.setEntity(convertToEntity(latestLog, latestLog.getLogType()));
+                
+                // 设置其他实体（文件/外联/域名/注册表）
+                Object entity = convertToEntity(latestLog, latestLog.getLogType());
+                chainNode.setEntity(entity);
+                
+                // 设置进程实体
+                // 如果是进程节点或其他类型实体能构建，则尝试设置 ProcessEntity
+                chainNode.setProcessEntity(convertToProcessEntity(latestLog, entity));
             }
         } else if (isAlarm && alarms != null && !alarms.isEmpty()) {
             RawAlarm firstAlarm = alarms.get(0);
@@ -148,27 +154,47 @@ public final class IncidentConverters {
 
     /**
      * 将原始日志转换为ProcessEntity
-     * 非null条件：eventType = processCreate 且 logType = process
+     * 
+     * 非null条件：
+     * 1. 进程节点：eventType = processCreate 且 logType = process
+     * 2. 其他节点（文件/外联/域名/注册表）：如果对应的实体能构建（entity != null），则也构建 ProcessEntity
+     *    因为这些操作都是由进程发起的
+     * 
+     * @param log 原始日志
+     * @param entity 对应类型的实体（FileEntity/NetworkEntity/DomainEntity/RegistryEntity）
+     * @return ProcessEntity，如果不满足条件返回null
      */
-    private static ProcessEntity convertToProcessEntity(RawLog log) {
+    private static ProcessEntity convertToProcessEntity(RawLog log, Object entity) {
         if (log == null) return null;
         
-        // 检查非null条件
-        if (!"process".equalsIgnoreCase(log.getLogType())) return null;
-        if (!"processCreate".equalsIgnoreCase(log.getEventType())) return null;
-        
+        // 必须至少有进程名或镜像路径
         if (log.getProcessName() == null && log.getImage() == null) return null;
+        
+        // 情况1: logType = process，需要检查 eventType = processCreate
+        if ("process".equalsIgnoreCase(log.getLogType())) {
+            if (!"processCreate".equalsIgnoreCase(log.getEventType())) {
+                return null;  // 进程节点必须是 processCreate
+            }
+        } 
+        // 情况2: 其他类型节点（文件/外联/域名/注册表）
+        // 只有当对应的实体能构建时（entity != null），才构建 ProcessEntity
+        else {
+            if (entity == null) {
+                return null;  // 如果对应实体构建失败，则不构建 ProcessEntity
+            }
+        }
+        
+        // 构建 ProcessEntity
+        ProcessEntity processEntity = new ProcessEntity();
+        processEntity.setOpType(log.getOpType());
+        processEntity.setLocaltime(log.getStartTime());
+        processEntity.setProcessId(log.getProcessId());
+        processEntity.setImage(log.getImage());
+        processEntity.setCommandline(log.getCommandLine());
+        processEntity.setProcessUserName(log.getProcessUserName());
+        processEntity.setProcessName(log.getProcessName());
 
-        ProcessEntity entity = new ProcessEntity();
-        entity.setOpType(log.getOpType());
-        entity.setLocaltime(log.getStartTime());
-        entity.setProcessId(log.getProcessId());
-        entity.setImage(log.getImage());
-        entity.setCommandline(log.getCommandLine());
-        entity.setProcessUserName(log.getProcessUserName());
-        entity.setProcessName(log.getProcessName());
-
-        return entity;
+        return processEntity;
     }
 
     /**
