@@ -86,16 +86,18 @@ public class ProcessChainServiceImpl {
                         continue;
                     }
 
-                    // 选择告警（优先使用网端关联告警，否则使用选举算法）
-                    RawAlarm selectedAlarm = selectAlarm(alarms, associatedEventId, hasAssociation);
-                    if (selectedAlarm == null) {
+                    // 选择告警（返回同一个traceId的所有告警）
+                    List<RawAlarm> selectedAlarms = selectAlarm(alarms, associatedEventId, hasAssociation);
+                    if (selectedAlarms == null || selectedAlarms.isEmpty()) {
                         log.warn("IP [{}] 无法选择有效告警，跳过", ip);
                         failureCount++;
                         continue;
                     }
 
-                    log.info("选中告警: traceId={}, eventId={}, 网端关联={}", 
-                            selectedAlarm.getTraceId(), selectedAlarm.getEventId(), hasAssociation);
+                    // 使用第一个告警获取基本信息
+                    RawAlarm firstAlarm = selectedAlarms.get(0);
+                    log.info("选中 {} 个告警: traceId={}, eventId={}, 网端关联={}", 
+                            selectedAlarms.size(), firstAlarm.getTraceId(), firstAlarm.getEventId(), hasAssociation);
 
                     // 记录日志ID（如果有）
                     String logId = ipMappingRelation.getLogId(ip);
@@ -103,16 +105,16 @@ public class ProcessChainServiceImpl {
                         log.debug("IP [{}] 有预存的日志ID: {}", ip, logId);
                     }
 
-                    // 收集选中的告警
-                    allSelectedAlarms.add(selectedAlarm);
+                    // 收集所有选中的告警
+                    allSelectedAlarms.addAll(selectedAlarms);
                     
                     // 记录第一个traceId用于构建
                     if (firstTraceId == null) {
-                        firstTraceId = selectedAlarm.getTraceId();
+                        firstTraceId = firstAlarm.getTraceId();
                     }
                     // 记录 host -> traceId 的映射（一个IP一个traceId）
-                    if (selectedAlarm.getHostAddress() != null && selectedAlarm.getTraceId() != null) {
-                        hostToTraceId.put(selectedAlarm.getHostAddress(), selectedAlarm.getTraceId());
+                    if (firstAlarm.getHostAddress() != null && firstAlarm.getTraceId() != null) {
+                        hostToTraceId.put(firstAlarm.getHostAddress(), firstAlarm.getTraceId());
                     }
                     
                     successCount++;
@@ -183,26 +185,33 @@ public class ProcessChainServiceImpl {
                 return null;
             }
 
-            // 选择告警
-            RawAlarm selectedAlarm = selectAlarm(alarms, associatedEventId, hasAssociation);
-            if (selectedAlarm == null) {
+            // 选择告警（返回同一个traceId的所有告警）
+            List<RawAlarm> selectedAlarms = selectAlarm(alarms, associatedEventId, hasAssociation);
+            if (selectedAlarms == null || selectedAlarms.isEmpty()) {
                 log.warn("IP [{}] 无法选择有效告警", ip);
                 return null;
             }
 
+            // 使用第一个告警的信息查询日志和设置基本信息
+            RawAlarm firstAlarm = selectedAlarms.get(0);
+            
             // 查询日志
-            List<RawLog> logs = queryLogsForAlarm(selectedAlarm);
+            List<RawLog> logs = queryLogsForAlarm(firstAlarm);
 
-            // 构建进程链（直接构建最终模型）
+            // 构建进程链（传入所有选中的告警）
             ProcessChainBuilder builder = new ProcessChainBuilder();
             IncidentProcessChain incidentChain = builder.buildIncidentChain(
-                Arrays.asList(selectedAlarm), logs, selectedAlarm.getTraceId(), associatedEventId,
-                IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER);
+                selectedAlarms,  // 所有告警
+                logs, 
+                firstAlarm.getTraceId(), 
+                associatedEventId,
+                IncidentConverters.NODE_MAPPER, 
+                IncidentConverters.EDGE_MAPPER);
             
             // 设置基本信息
             if (incidentChain != null) {
-                incidentChain.setTraceId(selectedAlarm.getTraceId());
-                incidentChain.setHostAddress(selectedAlarm.getHostAddress());
+                incidentChain.setTraceId(firstAlarm.getTraceId());
+                incidentChain.setHostAddress(firstAlarm.getHostAddress());
             }
             
             return incidentChain;
@@ -214,47 +223,62 @@ public class ProcessChainServiceImpl {
     }
 
     /**
-     * 选择告警（优先使用网端关联告警，否则使用选举算法）
+     * 选择告警（返回同一个traceId的所有告警）
+     * 优先使用网端关联告警的traceId，否则使用选举算法选择traceId
      * 
      * @param alarms 告警列表
      * @param associatedEventId 关联事件ID
      * @param hasAssociation 是否有网端关联
-     * @return 选中的告警
+     * @return 选中的traceId对应的所有告警
      */
-    private RawAlarm selectAlarm(List<RawAlarm> alarms, String associatedEventId, boolean hasAssociation) {
+    private List<RawAlarm> selectAlarm(List<RawAlarm> alarms, String associatedEventId, boolean hasAssociation) {
         if (alarms == null || alarms.isEmpty()) {
-            return null;
+            log.warn("告警列表为空");
+            return new ArrayList<>();
         }
 
-        // 如果有网端关联且指定了关联事件ID，优先选择匹配的告警
+        String selectedTraceId = null;
+
+        // 场景1: 有网端关联，优先选择关联的告警对应的traceId
         if (hasAssociation && associatedEventId != null && !associatedEventId.trim().isEmpty()) {
             for (RawAlarm alarm : alarms) {
                 if (associatedEventId.equals(alarm.getEventId())) {
-                    log.info("使用网端关联告警: eventId={}", associatedEventId);
-                    return alarm;
+                    selectedTraceId = alarm.getTraceId();
+                    log.info("网端关联成功，选择告警 eventId={}, traceId={}", associatedEventId, selectedTraceId);
+                    break;
                 }
             }
-            log.warn("未找到网端关联告警 [eventId={}]，降级使用选举算法", associatedEventId);
+            
+            if (selectedTraceId == null) {
+                log.warn("未找到网端关联告警 [eventId={}]，降级使用选举算法", associatedEventId);
+            }
         }
 
-        // 按traceId分组
-        Map<String, List<RawAlarm>> alarmGroups = groupAlarmsByTraceId(alarms);
-
-        // 使用选举算法选择
-        String selectedTraceId = AlarmElectionUtil.electAlarm(alarmGroups);
+        // 场景2: 没有网端关联或关联失败，使用选举算法
         if (selectedTraceId == null) {
-            log.error("告警选举失败");
-            return null;
+            // 按traceId分组
+            Map<String, List<RawAlarm>> alarmGroups = groupAlarmsByTraceId(alarms);
+
+            // 使用选举算法选择最佳traceId
+            selectedTraceId = AlarmElectionUtil.electAlarm(alarmGroups);
+            if (selectedTraceId == null) {
+                log.error("告警选举失败");
+                return new ArrayList<>();
+            }
+            
+            log.info("选举算法选中 traceId={}", selectedTraceId);
         }
 
-        List<RawAlarm> selectedGroup = alarmGroups.get(selectedTraceId);
-        RawAlarm selectedAlarm = (selectedGroup != null && !selectedGroup.isEmpty()) ? selectedGroup.get(0) : null;
-        
-        if (selectedAlarm != null) {
-            log.info("选举算法选中告警: traceId={}, eventId={}", selectedTraceId, selectedAlarm.getEventId());
+        // 返回选中traceId的所有告警
+        List<RawAlarm> selectedAlarms = new ArrayList<>();
+        for (RawAlarm alarm : alarms) {
+            if (selectedTraceId.equals(alarm.getTraceId())) {
+                selectedAlarms.add(alarm);
+            }
         }
-        
-        return selectedAlarm;
+
+        log.info("选择了 traceId={} 的 {} 个告警", selectedTraceId, selectedAlarms.size());
+        return selectedAlarms;
     }
 
     /**
