@@ -16,6 +16,7 @@ public class RawLog {
     private String startTime;
     
     // 进程相关字段
+    private String eventType;
     private String processName;
     private String processId;
     private String image;
@@ -42,6 +43,10 @@ public class RawLog {
     // 域名相关字段
     private String requestDomain;
     private String queryResults;
+    
+    // 注册表相关字段
+    private String targetObject;
+    private String regValue;
     
     // 其他字段
     private Map<String, Object> otherFields;
@@ -103,6 +108,14 @@ public class RawLog {
     
     public void setStartTime(String startTime) {
         this.startTime = startTime;
+    }
+    
+    public String getEventType() {
+        return eventType;
+    }
+    
+    public void setEventType(String eventType) {
+        this.eventType = eventType;
     }
     
     public String getProcessName() {
@@ -263,6 +276,22 @@ public class RawLog {
     
     public void setQueryResults(String queryResults) {
         this.queryResults = queryResults;
+    }
+    
+    public String getTargetObject() {
+        return targetObject;
+    }
+    
+    public void setTargetObject(String targetObject) {
+        this.targetObject = targetObject;
+    }
+    
+    public String getRegValue() {
+        return regValue;
+    }
+    
+    public void setRegValue(String regValue) {
+        this.regValue = regValue;
     }
     
     public Map<String, Object> getOtherFields() {

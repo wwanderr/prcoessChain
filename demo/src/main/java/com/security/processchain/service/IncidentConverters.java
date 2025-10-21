@@ -148,9 +148,15 @@ public final class IncidentConverters {
 
     /**
      * 将原始日志转换为ProcessEntity
+     * 非null条件：eventType = processCreate 且 logType = process
      */
     private static ProcessEntity convertToProcessEntity(RawLog log) {
         if (log == null) return null;
+        
+        // 检查非null条件
+        if (!"process".equalsIgnoreCase(log.getLogType())) return null;
+        if (!"processCreate".equalsIgnoreCase(log.getEventType())) return null;
+        
         if (log.getProcessName() == null && log.getImage() == null) return null;
 
         ProcessEntity entity = new ProcessEntity();
@@ -179,6 +185,8 @@ public final class IncidentConverters {
                 return convertToNetworkEntity(log);
             case "domain":
                 return convertToDomainEntity(log);
+            case "registry":
+                return convertToRegistryEntity(log);
             case "process":
                 return null;
             default:
@@ -188,8 +196,21 @@ public final class IncidentConverters {
 
     /**
      * 转换为FileEntity
+     * 非null条件：logType = file 且 opType 为 create/write/delete
      */
     private static FileEntity convertToFileEntity(RawLog log) {
+        if (log == null) return null;
+        
+        // 检查非null条件
+        if (!"file".equalsIgnoreCase(log.getLogType())) return null;
+        
+        String opType = log.getOpType();
+        if (opType == null) return null;
+        opType = opType.toLowerCase();
+        if (!"create".equals(opType) && !"write".equals(opType) && !"delete".equals(opType)) {
+            return null;
+        }
+        
         FileEntity entity = new FileEntity();
         entity.setFilePath(log.getFilePath());
         entity.setTargetFilename(log.getTargetFilename());
@@ -210,8 +231,15 @@ public final class IncidentConverters {
 
     /**
      * 转换为NetworkEntity
+     * 非null条件：logType = network 且 opType = connect
      */
     private static NetworkEntity convertToNetworkEntity(RawLog log) {
+        if (log == null) return null;
+        
+        // 检查非null条件
+        if (!"network".equalsIgnoreCase(log.getLogType())) return null;
+        if (!"connect".equalsIgnoreCase(log.getOpType())) return null;
+        
         NetworkEntity entity = new NetworkEntity();
         entity.setTransProtocol(log.getTransProtocol());
         entity.setSrcAddress(log.getSrcAddress());
@@ -237,11 +265,35 @@ public final class IncidentConverters {
 
     /**
      * 转换为DomainEntity
+     * 非null条件：logType = domain 且 opType = connect
      */
     private static DomainEntity convertToDomainEntity(RawLog log) {
+        if (log == null) return null;
+        
+        // 检查非null条件
+        if (!"domain".equalsIgnoreCase(log.getLogType())) return null;
+        if (!"connect".equalsIgnoreCase(log.getOpType())) return null;
+        
         DomainEntity entity = new DomainEntity();
         entity.setRequestDomain(log.getRequestDomain());
         entity.setQueryResults(log.getQueryResults());
+        return entity;
+    }
+
+    /**
+     * 转换为RegistryEntity
+     * 非null条件：logType = registry 且 opType = setValue
+     */
+    private static RegistryEntity convertToRegistryEntity(RawLog log) {
+        if (log == null) return null;
+        
+        // 检查非null条件
+        if (!"registry".equalsIgnoreCase(log.getLogType())) return null;
+        if (!"setValue".equalsIgnoreCase(log.getOpType())) return null;
+        
+        RegistryEntity entity = new RegistryEntity();
+        entity.setTargetObject(log.getTargetObject());
+        entity.setRegValue(log.getRegValue());
         return entity;
     }
 
@@ -269,6 +321,8 @@ public final class IncidentConverters {
                 return NodeType.NETWORK;
             case "domain":
                 return NodeType.DOMAIN;
+            case "registry":
+                return NodeType.REGISTRY;
             default:
                 return NodeType.UNKNOWN;
         }

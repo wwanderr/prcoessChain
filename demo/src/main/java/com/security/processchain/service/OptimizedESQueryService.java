@@ -73,6 +73,8 @@ public class OptimizedESQueryService implements ESQueryService {
         "processGuid",
         "parentProcessGuid",
         "logType",
+        "eventType",
+        "opType",
         "startTime",
         "endTime",
         "processName",
@@ -81,11 +83,18 @@ public class OptimizedESQueryService implements ESQueryService {
         "fileName",
         "filePath",
         "fileSize",
+        "targetFilename",
+        "fileMd5",
+        "fileType",
         "sourceIp",
         "sourcePort",
         "destIp",
         "destPort",
         "domainName",
+        "requestDomain",
+        "queryResults",
+        "targetObject",
+        "regValue",
         "otherFields"
     };
 

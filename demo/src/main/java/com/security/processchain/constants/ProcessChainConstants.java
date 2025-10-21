@@ -65,7 +65,7 @@ public final class ProcessChainConstants {
         
         /** Builder内部使用的日志类型列表 */
         public static final List<String> BUILDER_LOG_TYPES = Arrays.asList(
-            PROCESS, FILE, NETWORK, DOMAIN
+            PROCESS, FILE, NETWORK, DOMAIN, REGISTRY
         );
     }
 
