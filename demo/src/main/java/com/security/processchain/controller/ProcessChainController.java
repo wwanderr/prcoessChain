@@ -109,23 +109,23 @@ public class ProcessChainController {
      * 合并进程链请求对象
      */
     public static class MergeChainRequest {
-        private List<ProcessChainBuilder.ProcessNode> networkNodes;
-        private List<ProcessChainBuilder.ProcessEdge> networkEdges;
+        private List<ProcessChainBuilder.ChainBuilderNode> networkNodes;
+        private List<ProcessChainBuilder.ChainBuilderEdge> networkEdges;
         private IpMappingRelation ipMappingRelation;
 
-        public List<ProcessChainBuilder.ProcessNode> getNetworkNodes() {
+        public List<ProcessChainBuilder.ChainBuilderNode> getNetworkNodes() {
             return networkNodes;
         }
 
-        public void setNetworkNodes(List<ProcessChainBuilder.ProcessNode> networkNodes) {
+        public void setNetworkNodes(List<ProcessChainBuilder.ChainBuilderNode> networkNodes) {
             this.networkNodes = networkNodes;
         }
 
-        public List<ProcessChainBuilder.ProcessEdge> getNetworkEdges() {
+        public List<ProcessChainBuilder.ChainBuilderEdge> getNetworkEdges() {
             return networkEdges;
         }
 
-        public void setNetworkEdges(List<ProcessChainBuilder.ProcessEdge> networkEdges) {
+        public void setNetworkEdges(List<ProcessChainBuilder.ChainBuilderEdge> networkEdges) {
             this.networkEdges = networkEdges;
         }
 

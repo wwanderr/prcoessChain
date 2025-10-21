@@ -1,4 +1,4 @@
-package com.security.processchain.service;
+﻿package com.security.processchain.service;
 
 import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.RawAlarm;
@@ -20,10 +20,10 @@ public class ProcessChainBuilder {
     private static final int MAX_NODE_COUNT = ProcessChainConstants.Limits.MAX_NODE_COUNT;
     
     // 存储所有节点, key为processGuid
-    private Map<String, ProcessNode> nodeMap;
+    private Map<String, ChainBuilderNode> nodeMap;
     
     // 存储所有边
-    private List<ProcessEdge> edges;
+    private List<ChainBuilderEdge> edges;
     
     // 根节点集合
     private Set<String> rootNodes;
@@ -297,7 +297,7 @@ public class ProcessChainBuilder {
         visitedNodesInPath.add(currentProcessGuid);
         
         // 查找当前节点
-        ProcessNode currentNode = nodeMap.get(currentProcessGuid);
+        ChainBuilderNode currentNode = nodeMap.get(currentProcessGuid);
         if (currentNode == null) {
             visitedNodesInPath.remove(currentProcessGuid);
             return;
@@ -437,9 +437,9 @@ public class ProcessChainBuilder {
         
         // 移除低分节点
         int removedCount = 0;
-        Iterator<Map.Entry<String, ProcessNode>> iterator = nodeMap.entrySet().iterator();
+        Iterator<Map.Entry<String, ChainBuilderNode>> iterator = nodeMap.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<String, ProcessNode> entry = iterator.next();
+            Map.Entry<String, ChainBuilderNode> entry = iterator.next();
             if (!nodesToKeep.contains(entry.getKey())) {
                 iterator.remove();
                 removedCount++;
@@ -447,9 +447,9 @@ public class ProcessChainBuilder {
         }
         
         // 清理无效的边
-        Iterator<ProcessEdge> edgeIterator = edges.iterator();
+        Iterator<ChainBuilderEdge> edgeIterator = edges.iterator();
         while (edgeIterator.hasNext()) {
-            ProcessEdge edge = edgeIterator.next();
+            ChainBuilderEdge edge = edgeIterator.next();
             if (!nodeMap.containsKey(edge.getSource()) || !nodeMap.containsKey(edge.getTarget())) {
                 edgeIterator.remove();
             }
@@ -465,9 +465,9 @@ public class ProcessChainBuilder {
     private Map<String, Integer> calculateNodeScores() {
         Map<String, Integer> scores = new HashMap<>();
         
-        for (Map.Entry<String, ProcessNode> entry : nodeMap.entrySet()) {
+        for (Map.Entry<String, ChainBuilderNode> entry : nodeMap.entrySet()) {
             String processGuid = entry.getKey();
-            ProcessNode node = entry.getValue();
+            ChainBuilderNode node = entry.getValue();
             
             int score = 0;
             
@@ -502,7 +502,7 @@ public class ProcessChainBuilder {
             
             // 4. 根据节点的连接数加分(度中心性)
             int connectionCount = 0;
-            for (ProcessEdge edge : edges) {
+            for (ChainBuilderEdge edge : edges) {
                 if (edge.getSource().equals(processGuid) || edge.getTarget().equals(processGuid)) {
                     connectionCount++;
                 }
@@ -541,9 +541,9 @@ public class ProcessChainBuilder {
             return;
         }
         
-        ProcessNode node = nodeMap.get(processGuid);
+        ChainBuilderNode node = nodeMap.get(processGuid);
         if (node == null) {
-            node = new ProcessNode();
+            node = new ChainBuilderNode();
             node.setProcessGuid(processGuid);
             node.setParentProcessGuid(alarm.getParentProcessGuid());
             node.setIsAlarm(true);
@@ -563,9 +563,9 @@ public class ProcessChainBuilder {
             return;
         }
         
-        ProcessNode node = nodeMap.get(processGuid);
+        ChainBuilderNode node = nodeMap.get(processGuid);
         if (node == null) {
-            node = new ProcessNode();
+            node = new ChainBuilderNode();
             node.setProcessGuid(processGuid);
             node.setParentProcessGuid(log.getParentProcessGuid());
             nodeMap.put(processGuid, node);
@@ -580,13 +580,13 @@ public class ProcessChainBuilder {
      */
     private void addEdge(String source, String target) {
         // 检查边是否已存在
-        for (ProcessEdge edge : edges) {
+        for (ChainBuilderEdge edge : edges) {
             if (edge.getSource().equals(source) && edge.getTarget().equals(target)) {
                 return;
             }
         }
         
-        ProcessEdge edge = new ProcessEdge();
+        ChainBuilderEdge edge = new ChainBuilderEdge();
         edge.setSource(source);
         edge.setTarget(target);
         edges.add(edge);
@@ -660,7 +660,7 @@ public class ProcessChainBuilder {
     /**
      * 进程节点内部类
      */
-    public static class ProcessNode {
+    public static class ChainBuilderNode {
         private String processGuid;
         private String parentProcessGuid;
         private Boolean isAlarm = false;
@@ -712,7 +712,7 @@ public class ProcessChainBuilder {
     /**
      * 进程边内部类
      */
-    public static class ProcessEdge {
+    public static class ChainBuilderEdge {
         private String source;
         private String target;
         private String val;
@@ -818,7 +818,7 @@ public class ProcessChainBuilder {
         Set<String> brokenNodeGuids = result.getBrokenNodes();
         
         if (result.getNodes() != null) {
-            for (ProcessNode node : result.getNodes()) {
+            for (ChainBuilderNode node : result.getNodes()) {
                 try {
                     // 判断当前节点是否是根节点或断裂节点
                     boolean isRoot = rootNodeGuids != null && rootNodeGuids.contains(node.getProcessGuid());
@@ -842,7 +842,7 @@ public class ProcessChainBuilder {
         }
         
         if (result.getEdges() != null) {
-            for (ProcessEdge edge : result.getEdges()) {
+            for (ChainBuilderEdge edge : result.getEdges()) {
                 try {
                     finalEdges.add(edgeMapper.toIncidentEdge(edge));
                 } catch (Exception e) {
@@ -873,25 +873,25 @@ public class ProcessChainBuilder {
      * 进程链构建结果
      */
     public static class ProcessChainResult {
-        private List<ProcessNode> nodes = new ArrayList<>();
-        private List<ProcessEdge> edges = new ArrayList<>();
+        private List<ChainBuilderNode> nodes = new ArrayList<>();
+        private List<ChainBuilderEdge> edges = new ArrayList<>();
         private boolean foundRootNode = false;
         private Set<String> rootNodes = new HashSet<>();
         private Set<String> brokenNodes = new HashSet<>();
         
-        public List<ProcessNode> getNodes() {
+        public List<ChainBuilderNode> getNodes() {
             return nodes;
         }
         
-        public void setNodes(List<ProcessNode> nodes) {
+        public void setNodes(List<ChainBuilderNode> nodes) {
             this.nodes = nodes;
         }
         
-        public List<ProcessEdge> getEdges() {
+        public List<ChainBuilderEdge> getEdges() {
             return edges;
         }
         
-        public void setEdges(List<ProcessEdge> edges) {
+        public void setEdges(List<ChainBuilderEdge> edges) {
             this.edges = edges;
         }
         

@@ -217,7 +217,7 @@ public class ProcessChainServiceImpl {
             return incidentChain;
 
         } catch (Exception e) {
-            log.error("生成进程链失败: {}", e.getMessage(), e);
+            log.error("【进程链生成】-> 生成进程链失败: {}", e.getMessage(), e);
             return null;
         }
     }
@@ -233,7 +233,7 @@ public class ProcessChainServiceImpl {
      */
     private List<RawAlarm> selectAlarm(List<RawAlarm> alarms, String associatedEventId, boolean hasAssociation) {
         if (alarms == null || alarms.isEmpty()) {
-            log.warn("告警列表为空");
+            log.warn("【进程链生成】-> 告警列表为空");
             return new ArrayList<>();
         }
 
@@ -244,13 +244,13 @@ public class ProcessChainServiceImpl {
             for (RawAlarm alarm : alarms) {
                 if (associatedEventId.equals(alarm.getEventId())) {
                     selectedTraceId = alarm.getTraceId();
-                    log.info("网端关联成功，选择告警 eventId={}, traceId={}", associatedEventId, selectedTraceId);
+                    log.info("【进程链生成】-> 网端关联成功，选择告警 eventId={}, traceId={}", associatedEventId, selectedTraceId);
                     break;
                 }
             }
             
             if (selectedTraceId == null) {
-                log.warn("未找到网端关联告警 [eventId={}]，降级使用选举算法", associatedEventId);
+                log.warn("【进程链生成】-> 未找到网端关联告警 [eventId={}]，降级使用选举算法", associatedEventId);
             }
         }
 
@@ -262,11 +262,11 @@ public class ProcessChainServiceImpl {
             // 使用选举算法选择最佳traceId
             selectedTraceId = AlarmElectionUtil.electAlarm(alarmGroups);
             if (selectedTraceId == null) {
-                log.error("告警选举失败");
+                log.error("【进程链生成】-> 告警选举失败");
                 return new ArrayList<>();
             }
             
-            log.info("选举算法选中 traceId={}", selectedTraceId);
+            log.info("【进程链生成】-> 选举算法选中 traceId={}", selectedTraceId);
         }
 
         // 返回选中traceId的所有告警
@@ -277,7 +277,7 @@ public class ProcessChainServiceImpl {
             }
         }
 
-        log.info("选择了 traceId={} 的 {} 个告警", selectedTraceId, selectedAlarms.size());
+        log.info("【进程链生成】-> 选择了 traceId={} 的 {} 个告警", selectedTraceId, selectedAlarms.size());
         return selectedAlarms;
     }
 
@@ -325,7 +325,7 @@ public class ProcessChainServiceImpl {
             );
 
         } catch (Exception e) {
-            log.error("查询告警日志失败: {}", e.getMessage(), e);
+            log.error("【进程链生成】-> 查询告警日志失败: {}", e.getMessage(), e);
             return new ArrayList<>();
         }
     }
@@ -346,65 +346,65 @@ public class ProcessChainServiceImpl {
      * @return 合并后的完整进程链
      */
     public IncidentProcessChain mergeNetworkAndEndpointChain(
-            List<ProcessChainBuilder.ProcessNode> networkNodes,
-            List<ProcessChainBuilder.ProcessEdge> networkEdges,
+            List<ProcessChainBuilder.ChainBuilderNode> networkNodes,
+            List<ProcessChainBuilder.ChainBuilderEdge> networkEdges,
             ProcessChainBuilder.ProcessChainResult endpointChainResult) {
         
-        log.info("开始合并网侧和端侧进程链");
+        log.info("【进程链生成】-> 开始合并网侧和端侧进程链");
         
         if (networkNodes == null && networkEdges == null && endpointChainResult == null) {
-            log.warn("所有输入数据均为空");
+            log.warn("【进程链生成】-> 所有输入数据均为空");
             return null;
         }
         
         IncidentProcessChain mergedChain = new IncidentProcessChain();
         
         try {
-            List<ProcessChainBuilder.ProcessNode> allNodes = new ArrayList<>();
-            List<ProcessChainBuilder.ProcessEdge> allEdges = new ArrayList<>();
+            List<ProcessChainBuilder.ChainBuilderNode> allNodes = new ArrayList<>();
+            List<ProcessChainBuilder.ChainBuilderEdge> allEdges = new ArrayList<>();
             
             // 1. 添加网侧节点（storyNode）
             if (networkNodes != null && !networkNodes.isEmpty()) {
                 allNodes.addAll(networkNodes);
-                log.info("添加网侧节点数: {}", networkNodes.size());
+                log.info("【进程链生成】-> 添加网侧节点数: {}", networkNodes.size());
             }
             
             // 2. 添加端侧节点（chainNode）
             if (endpointChainResult != null && endpointChainResult.getNodes() != null) {
                 allNodes.addAll(endpointChainResult.getNodes());
-                log.info("添加端侧节点数: {}", endpointChainResult.getNodes().size());
+                log.info("【进程链生成】-> 添加端侧节点数: {}", endpointChainResult.getNodes().size());
             }
             
             // 3. 添加网侧边
             if (networkEdges != null && !networkEdges.isEmpty()) {
                 allEdges.addAll(networkEdges);
-                log.info("添加网侧边数: {}", networkEdges.size());
+                log.info("【进程链生成】-> 添加网侧边数: {}", networkEdges.size());
             }
             
             // 4. 添加端侧边
             if (endpointChainResult != null && endpointChainResult.getEdges() != null) {
                 allEdges.addAll(endpointChainResult.getEdges());
-                log.info("添加端侧边数: {}", endpointChainResult.getEdges().size());
+                log.info("【进程链生成】-> 添加端侧边数: {}", endpointChainResult.getEdges().size());
             }
             
             // 5. 设置合并后的结果（使用转换器转换为最终模型）
             List<ProcessNode> finalNodes = new ArrayList<>();
             List<ProcessEdge> finalEdges = new ArrayList<>();
             
-            for (ProcessChainBuilder.ProcessNode node : allNodes) {
+            for (ProcessChainBuilder.ChainBuilderNode node : allNodes) {
                 try {
                     finalNodes.add(IncidentConverters.NODE_MAPPER.toIncidentNode(node));
                 } catch (Exception e) {
-                    log.error("合并时节点转换失败: processGuid={}, 错误: {}", 
+                    log.error("【进程链生成】-> 合并时节点转换失败: processGuid={}, 错误: {}", 
                             node.getProcessGuid(), e.getMessage(), e);
                 }
             }
             
-            for (ProcessChainBuilder.ProcessEdge edge : allEdges) {
+            for (ProcessChainBuilder.ChainBuilderEdge edge : allEdges) {
                 try {
                     finalEdges.add(IncidentConverters.EDGE_MAPPER.toIncidentEdge(edge));
                 } catch (Exception e) {
-                    log.error("合并时边转换失败: source={}, target={}, 错误: {}", 
+                    log.error("【进程链生成】-> 合并时边转换失败: source={}, target={}, 错误: {}", 
                             edge.getSource(), edge.getTarget(), e.getMessage(), e);
                 }
             }
@@ -412,10 +412,10 @@ public class ProcessChainServiceImpl {
             mergedChain.setNodes(finalNodes);
             mergedChain.setEdges(finalEdges);
             
-            log.info("进程链合并完成: 总节点数={}, 总边数={}", finalNodes.size(), finalEdges.size());
+            log.info("【进程链生成】-> 进程链合并完成: 总节点数={}, 总边数={}", finalNodes.size(), finalEdges.size());
             
         } catch (Exception e) {
-            log.error("合并进程链失败: {}", e.getMessage(), e);
+            log.error("【进程链生成】-> 合并进程链失败: {}", e.getMessage(), e);
             return null;
         }
         
