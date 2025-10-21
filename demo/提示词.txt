@@ -1,0 +1,668 @@
+
+我们已经有端侧的节点生成了；但是同时传入generateProcessChains函数的还有两个参数： Pair<List<ProcessNode>, List<ProcessEdge>>(网侧链接端侧节点信息，内容存在storyNode中；)
+
+下面是输入的网侧的节点的点边关系；
+"edges": [
+        {
+          "source": "C414A569BC44A2F3",
+          "target": "D825B670CD55B3G4",
+          "val": ""
+        },
+        {
+          "source": "D825B670CD55B3G4",
+          "target": "E936C781DE66C4H5",
+          "val": ""
+        },
+        {
+          "source": "D825B670CD55B3G4",
+          "target": "F047D892EF77D5I6",
+          "val": ""
+        },
+        {
+          "source": "C414A569BC44A2F3",
+          "target": "E936C781DE66C4H5",
+          "val": ""
+        },
+        {
+          "source": "C414A569BC44A2F3",
+          "target": "F047D892EF77D5I6",
+          "val": ""
+        }
+		]
+		
+	"nodes":[	{
+          "nodeId": "victim",
+          "logType": "unkown",
+          "nodeThreatSeverity": "unkown",
+          "isChainNode": false,
+          "chainNode": null,
+          "storyNode": {
+              "port": "62195",
+              "isEdr": false,
+              "ip": "10.50.86.197",
+              "associated": false,
+              "type": "victim"
+          }
+        },
+        {
+          "nodeId": "attacker",
+          "logType": "unkown",
+          "nodeThreatSeverity": "unkown",
+          "isChainNode": false,
+          "chainNode": null,
+          "storyNode": {
+              "name": "攻击者",
+              "type": "attacker",
+              "ips": [
+                  "63.33.151.92",
+                  "54.220.122.8",
+                  "54.220.122.8;63.33.151.92",
+                  "63.33.151.92;54.220.122.8"
+              ]
+          }
+        },
+        {
+          "nodeId": "server",
+          "logType": "unkown",
+          "nodeThreatSeverity": "unkown",
+          "isChainNode": false,
+          "chainNode": null,
+          "storyNode": {
+              "name": "DNS服务器",
+              "type": "server"
+          }
+        }
+      ]
+	  
+	  
+我们想要最后达到的效果：
+{
+  "data":{
+      "traceId": "DNS_ATTACK_001",
+      "hostAddress": "10.50.86.197",
+      "threatSeverity": "HIGH",
+      "nodes": [
+        {
+          "nodeId": "C414A569BC44A2F3",
+          "logType": "NETWORK",
+          "nodeThreatSeverity": "MEDIUM",
+          "isChainNode": true,
+          "chainNode": {
+            "isRoot": true,
+            "isBroken": false,
+            "isAlarm": true,
+            "alarmNodeInfo": {
+              "alarmName": "恶意域名访问告警",
+              "dvcAction": "DNS_QUERY",
+              "alarmDescription": "受害主机访问恶意域名 polling.oastify.com",
+              "alarmSource": "DNS监控",
+              "threatSeverity": "MEDIUM",
+              "alarmResults": "DNS查询成功"
+            },
+            "processEntity": {
+              "opType": "DNS_QUERY",
+              "localtime": "2024-01-15 10:30:25",
+              "processId": "1284",
+              "image": "svchost.exe",
+              "commandline": "C:\\Windows\\System32\\svchost.exe -k NetworkService",
+              "processUserName": "NETWORK SERVICE",
+              "processName": "svchost.exe"
+            },
+            "entity": {
+              "transProtocol": "DNS",
+              "srcAddress": "10.50.86.197",
+              "srcPort": 62195,
+              "destAddress": null,
+              "destPort": 53,
+              "initiated": true
+            }
+          },
+          "storyNode": null
+        },
+        {
+          "nodeId": "D825B670CD55B3G4",
+          "logType": "DOMAIN",
+          "nodeThreatSeverity": "LOW",
+          "isChainNode": true,
+          "chainNode": {
+            "isRoot": false,
+            "isBroken": false,
+            "isAlarm": false,
+            "alarmNodeInfo": null,
+            "processEntity": null,
+            "entity": {
+              "requestDomain": "polling.oastify.com",
+              "queryResults": "63.33.151.92,54.220.122.8,54.220.122.8;63.33.151.92,63.33.151.92;54.220.122.8"
+            }
+          },
+          "storyNode": null
+        },
+        {
+          "nodeId": "E936C781DE66C4H5",
+          "logType": "NETWORK",
+          "nodeThreatSeverity": "HIGH",
+          "isChainNode": true,
+          "chainNode": {
+            "isRoot": false,
+            "isBroken": false,
+            "isAlarm": true,
+            "alarmNodeInfo": {
+              "alarmName": "恶意IP通信告警",
+              "dvcAction": "NETWORK_CONNECTION",
+              "alarmDescription": "与已知恶意IP 63.33.151.92建立连接",
+              "alarmSource": "网络威胁情报",
+              "threatSeverity": "HIGH",
+              "alarmResults": "连接建立成功"
+            },
+            "processEntity": {
+              "opType": "TCP_CONNECT",
+              "localtime": "2024-01-15 10:30:26",
+              "processId": "1284",
+              "image": "svchost.exe",
+              "commandline": "C:\\Windows\\System32\\svchost.exe -k NetworkService",
+              "processUserName": "NETWORK SERVICE",
+              "processName": "svchost.exe"
+            },
+            "entity": {
+              "transProtocol": "TCP",
+              "srcAddress": "10.50.86.197",
+              "srcPort": 52134,
+              "destAddress": "63.33.151.92",
+              "destPort": 443,
+              "initiated": true
+            }
+          },
+          "storyNode": null
+        },
+        {
+          "nodeId": "F047D892EF77D5I6",
+          "logType": "NETWORK",
+          "nodeThreatSeverity": "HIGH",
+          "isChainNode": true,
+          "chainNode": {
+            "isRoot": false,
+            "isBroken": false,
+            "isAlarm": false,
+            "alarmNodeInfo": null,
+            "processEntity": {
+              "opType": "TCP_CONNECT",
+              "localtime": "2024-01-15 10:30:27",
+              "processId": "1284",
+              "image": "svchost.exe",
+              "commandline": "C:\\Windows\\System32\\svchost.exe -k NetworkService",
+              "processUserName": "NETWORK SERVICE",
+              "processName": "svchost.exe"
+            },
+            "entity": {
+              "transProtocol": "TCP",
+              "srcAddress": "10.50.86.197",
+              "srcPort": 52135,
+              "destAddress": "54.220.122.8",
+              "destPort": 443,
+              "initiated": true
+            }
+          },
+          "storyNode": null
+        },
+        {
+          "nodeId": "victim",
+          "logType": "unkown",
+          "nodeThreatSeverity": "unkown",
+          "isChainNode": false,
+          "chainNode": null,
+          "storyNode": {
+              "port": "62195",
+              "isEdr": false,
+              "ip": "10.50.86.197",
+              "associated": false,
+              "type": "victim"
+          }
+        },
+        {
+          "nodeId": "attacker",
+          "logType": "unkown",
+          "nodeThreatSeverity": "unkown",
+          "isChainNode": false,
+          "chainNode": null,
+          "storyNode": {
+              "name": "攻击者",
+              "type": "attacker",
+              "ips": [
+                  "63.33.151.92",
+                  "54.220.122.8",
+                  "54.220.122.8;63.33.151.92",
+                  "63.33.151.92;54.220.122.8"
+              ]
+          }
+        },
+        {
+          "nodeId": "server",
+          "logType": "unkown",
+          "nodeThreatSeverity": "unkown",
+          "isChainNode": false,
+          "chainNode": null,
+          "storyNode": {
+              "name": "DNS服务器",
+              "type": "server"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "C414A569BC44A2F3",
+          "target": "D825B670CD55B3G4",
+          "val": ""
+        },
+        {
+          "source": "D825B670CD55B3G4",
+          "target": "E936C781DE66C4H5",
+          "val": ""
+        },
+        {
+          "source": "D825B670CD55B3G4",
+          "target": "F047D892EF77D5I6",
+          "val": ""
+        },
+        {
+          "source": "C414A569BC44A2F3",
+          "target": "E936C781DE66C4H5",
+          "val": ""
+        },
+        {
+          "source": "C414A569BC44A2F3",
+          "target": "F047D892EF77D5I6",
+          "val": ""
+        },
+        { // 这里是链接故事线的节点和进程链的源节点的边
+          "val": "",
+          "source": "victim",
+          "target": "C414A569BC44A2F3"
+          },
+        {
+          "val": "访问恶意域名：polling.oastify.com",
+          "source": "victim",
+          "target": "server"
+      },
+      {
+          "val": "返回A记录：63.33.151.92,54.220.122.8,54.220.122.8;63.33.151.92,63.33.151.92;54.220.122.8",
+          "source": "server",
+          "target": "victim"
+      },
+      {
+          "val": "通过A记录共访问4个IP地址",
+          "source": "victim",
+          "target": "attacker"
+      }
+   
+      ]
+    }
+ 
+}
+
+
+
+示例2：
+
+输入的网侧点边关系：
+"edges": [
+      {
+        "val": null,
+        "source": "10.50.86.35",
+        "target": "10.50.86.171"
+      },
+      {
+        "val": "",
+        "source": "10.50.86.35",
+        "target": "10.50.86.52"
+      },
+      {
+        "val": "",
+        "source": "10.50.86.35",
+        "target": "10.50.109.102"
+      }]
+	  
+
+"nodes": [
+	{
+        "nodeId": "10.50.86.35",
+        "logType": "unknown",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": false,
+        "chainNode": null,
+        "storyNode": {
+          "ip": "10.50.86.35",
+          "type": "attacker",
+          "isTopNode": true
+        }
+      },
+      {
+        "nodeId": "10.50.86.171",
+        "logType": "unknown",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": false,
+        "chainNode": null,
+        "storyNode": {
+          "terminalCount": 1,
+          "port": "22",
+          "isEdr": true,
+          "ip": "10.50.86.171",
+          "associated": true,
+          "logSessionId": null,
+          "type": "victim",
+          "destTargetName": ""
+        }
+      },
+      {
+        "nodeId": "10.50.86.52",
+        "logType": "unknown",
+        "nodeThreatSeverity": "MEDIUM",
+        "isChainNode": false,
+        "chainNode": null,
+        "storyNode": {
+          "terminalCount": 73,
+          "port": "32",
+          "isEdr": false,
+          "ip": "10.50.86.52",
+          "associated": false,
+          "type": "victim",
+          "destTargetName": ""
+        }
+      },
+      {
+        "nodeId": "10.50.109.102",
+        "logType": "unknown",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": false,
+        "chainNode": null,
+        "storyNode": {
+          "terminalCount": 39,
+          "port": "22",
+          "isEdr": true,
+          "ip": "10.50.109.102",
+          "associated": false,
+          "type": "victim",
+          "destTargetName": ""
+        }
+      }
+]
+
+
+
+想要最后达到的效果：
+{
+  "data": {
+    "traceId": "COMPLETE_ATTACK_STORY_001",
+    "hostAddress": "10.50.86.35",
+    "threatSeverity": "HIGH",
+    "nodes": [
+      {
+        "nodeId": "10.50.86.35",
+        "logType": "unknown",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": false,
+        "chainNode": null,
+        "storyNode": {
+          "ip": "10.50.86.35",
+          "type": "attacker",
+          "isTopNode": true
+        }
+      },
+      {
+        "nodeId": "10.50.86.171",
+        "logType": "unknown",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": false,
+        "chainNode": null,
+        "storyNode": {
+          "terminalCount": 1,
+          "port": "22",
+          "isEdr": true,
+          "ip": "10.50.86.171",
+          "associated": true,
+          "logSessionId": null,
+          "type": "victim",
+          "destTargetName": ""
+        }
+      },
+      {
+        "nodeId": "10.50.86.52",
+        "logType": "unknown",
+        "nodeThreatSeverity": "MEDIUM",
+        "isChainNode": false,
+        "chainNode": null,
+        "storyNode": {
+          "terminalCount": 73,
+          "port": "32",
+          "isEdr": false,
+          "ip": "10.50.86.52",
+          "associated": false,
+          "type": "victim",
+          "destTargetName": ""
+        }
+      },
+      {
+        "nodeId": "10.50.109.102",
+        "logType": "unknown",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": false,
+        "chainNode": null,
+        "storyNode": {
+          "terminalCount": 39,
+          "port": "22",
+          "isEdr": true,
+          "ip": "10.50.109.102",
+          "associated": false,
+          "type": "victim",
+          "destTargetName": ""
+        }
+      },
+      {
+        "nodeId": "ROOT_171_A1B2C3",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": true,
+          "isBroken": false,
+          "isAlarm": true,
+          "alarmNodeInfo": {
+            "alarmName": "恶意进程启动告警",
+            "dvcAction": "PROCESS_CREATE",
+            "alarmDescription": "检测到可疑进程启动行为",
+            "alarmSource": "EDR",
+            "threatSeverity": "HIGH",
+            "alarmResults": "进程创建成功"
+          },
+          "processEntity": {
+            "opType": "PROCESS_CREATE",
+            "localtime": "2024-01-15 10:30:25",
+            "processId": "1284",
+            "image": "svchost.exe",
+            "commandline": "C:\\Windows\\System32\\svchost.exe -k NetworkService",
+            "processUserName": "SYSTEM",
+            "processName": "svchost.exe"
+          },
+          "entity": null
+        },
+        "storyNode": null
+      },
+      {
+        "nodeId": "CHILD_171_D4E5F6",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "MEDIUM",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": false,
+          "isBroken": false,
+          "isAlarm": false,
+          "alarmNodeInfo": null,
+          "processEntity": {
+            "opType": "PROCESS_CREATE",
+            "localtime": "2024-01-15 10:30:26",
+            "processId": "2568",
+            "image": "cmd.exe",
+            "commandline": "cmd.exe /c whoami",
+            "processUserName": "SYSTEM",
+            "processName": "cmd.exe"
+          },
+          "entity": null
+        },
+        "storyNode": null
+      },
+      {
+        "nodeId": "ROOT_52_G7H8I9",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "MEDIUM",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": true,
+          "isBroken": false,
+          "isAlarm": true,
+          "alarmNodeInfo": {
+            "alarmName": "可疑网络连接告警",
+            "dvcAction": "NETWORK_CONNECTION",
+            "alarmDescription": "检测到异常外联行为",
+            "alarmSource": "EDR",
+            "threatSeverity": "MEDIUM",
+            "alarmResults": "网络连接建立"
+          },
+          "processEntity": {
+            "opType": "PROCESS_CREATE",
+            "localtime": "2024-01-15 10:31:15",
+            "processId": "1024",
+            "image": "explorer.exe",
+            "commandline": "C:\\Windows\\explorer.exe",
+            "processUserName": "USER01",
+            "processName": "explorer.exe"
+          },
+          "entity": null
+        },
+        "storyNode": null
+      },
+      {
+        "nodeId": "CHILD_52_J0K1L2",
+        "logType": "NETWORK",
+        "nodeThreatSeverity": "LOW",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": false,
+          "isBroken": false,
+          "isAlarm": false,
+          "alarmNodeInfo": null,
+          "processEntity": null,
+          "entity": {
+            "transProtocol": "TCP",
+            "srcAddress": "10.50.86.52",
+            "srcPort": 54321,
+            "destAddress": "192.168.1.100",
+            "destPort": 443,
+            "initiated": true
+          }
+        },
+        "storyNode": null
+      },
+      {
+        "nodeId": "ROOT_102_M3N4O5",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": true,
+          "isBroken": false,
+          "isAlarm": true,
+          "alarmNodeInfo": {
+            "alarmName": "文件操作告警",
+            "dvcAction": "FILE_CREATE",
+            "alarmDescription": "检测到敏感文件创建",
+            "alarmSource": "EDR",
+            "threatSeverity": "HIGH",
+            "alarmResults": "文件创建成功"
+          },
+          "processEntity": {
+            "opType": "PROCESS_CREATE",
+            "localtime": "2024-01-15 10:32:05",
+            "processId": "4096",
+            "image": "powershell.exe",
+            "commandline": "powershell.exe -ExecutionPolicy Bypass",
+            "processUserName": "ADMIN",
+            "processName": "powershell.exe"
+          },
+          "entity": null
+        },
+        "storyNode": null
+      },
+      {
+        "nodeId": "CHILD_102_P6Q7R8",
+        "logType": "FILE",
+        "nodeThreatSeverity": "MEDIUM",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": false,
+          "isBroken": false,
+          "isAlarm": false,
+          "alarmNodeInfo": null,
+          "processEntity": null,
+          "entity": {
+            "filePath": "C:\\Temp\\suspicious_file.txt",
+            "targetFilename": "suspicious_file.txt",
+            "fileSize": 1024,
+            "fileMd5": "a1b2c3d4e5f678901234567890123456",
+            "fileType": "文本文件",
+            "fileName": "suspicious_file.txt"
+          }
+        },
+        "storyNode": null
+      }
+    ],
+    "edges": [
+      {
+        "val": null,
+        "source": "10.50.86.35",
+        "target": "10.50.86.171"
+      },
+      {
+        "val": "",
+        "source": "10.50.86.35",
+        "target": "10.50.86.52"
+      },
+      {
+        "val": "",
+        "source": "10.50.86.35",
+        "target": "10.50.109.102"
+      },
+      {
+        "source": "10.50.86.171",
+        "target": "ROOT_171_A1B2C3",
+        "val": "上传攻击"
+      },
+      {
+        "source": "10.50.86.52",
+        "target": "ROOT_52_G7H8I9",
+        "val": "上传攻击"
+      },
+      {
+        "source": "10.50.109.102",
+        "target": "ROOT_102_M3N4O5",
+        "val": "上传攻击"
+      },
+      {
+        "source": "ROOT_171_A1B2C3",
+        "target": "CHILD_171_D4E5F6",
+        "val": "创建子进程"
+      },
+      {
+        "source": "ROOT_52_G7H8I9",
+        "target": "CHILD_52_J0K1L2",
+        "val": "发起网络连接"
+      },
+      {
+        "source": "ROOT_102_M3N4O5",
+        "target": "CHILD_102_P6Q7R8",
+        "val": "创建文件"
+      }
+    ]
+  }
+}
+要添加关键的边信息，保证网侧和端侧的节点能够链接的上；
+这里isChainNOde的目前都是受害者；同时每一个受害者ip都会对应一个端侧的 节点;网侧的节点是链接到端侧的root节点的，这样端和网的就通了；关键就是边的构造，怎么准确的连接；
+再写一个merge函数或者是在原来的buildIncidentChain 中加入函数逻辑；最终得到上面想要的效果；
