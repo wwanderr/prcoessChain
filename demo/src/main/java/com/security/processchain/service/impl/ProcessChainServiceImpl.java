@@ -36,7 +36,7 @@ public class ProcessChainServiceImpl {
     public IncidentProcessChain generateProcessChains(IpMappingRelation ipMappingRelation) {
         if (ipMappingRelation == null || ipMappingRelation.getIpAndAssociation() == null 
                 || ipMappingRelation.getIpAndAssociation().isEmpty()) {
-            log.error("错误: IP映射关系为空");
+            log.error("【进程链生成】-> 错误: IP映射关系为空");
             return null;
         }
 
@@ -47,16 +47,16 @@ public class ProcessChainServiceImpl {
         List<RawLog> allLogs = new ArrayList<>();
 
         try {
-            log.info("========================================");
-            log.info("开始批量生成进程链，IP数量: {}, 网端关联数: {}", 
+            log.info("【进程链生成】-> ========================================");
+            log.info("【进程链生成】-> 开始批量生成进程链，IP数量: {}, 网端关联数: {}", 
                     ips.size(), ipMappingRelation.getAlarmIps().size());
-            log.info("========================================");
+            log.info("【进程链生成】-> ========================================");
 
             // 性能优化：批量查询所有IP的告警数据
             long startTime = System.currentTimeMillis();
             Map<String, List<RawAlarm>> allAlarmsMap = esQueryService.batchQueryEDRAlarms(ips);
             long queryTime = System.currentTimeMillis() - startTime;
-            log.info("批量告警查询完成，耗时: {}ms", queryTime);
+            log.info("【进程链生成】-> 批量告警查询完成，耗时: {}ms", queryTime);
 
             // 为每个IP选择告警和查询日志
             int successCount = 0;
@@ -68,20 +68,20 @@ public class ProcessChainServiceImpl {
             Map<String, String> hostToTraceId = new HashMap<>();
             for (String ip : ips) {
                 try {
-                    log.info("处理IP: {}", ip);
+                    log.info("【进程链生成】-> 处理IP: {}", ip);
 
                     // 检查是否有网端关联
                     boolean hasAssociation = ipMappingRelation.hasAssociation(ip);
                     String associatedEventId = ipMappingRelation.getAssociatedEventId(ip);
                     
                     if (hasAssociation) {
-                        log.info("IP [{}] 有网端关联，关联告警ID: {}", ip, associatedEventId);
+                        log.info("【进程链生成】-> IP [{}] 有网端关联，关联告警ID: {}", ip, associatedEventId);
                         associatedCount++;
                     }
 
                     List<RawAlarm> alarms = allAlarmsMap.getOrDefault(ip, new ArrayList<>());
                     if (alarms.isEmpty()) {
-                        log.warn("IP [{}] 没有查询到告警数据，跳过", ip);
+                        log.warn("【进程链生成】-> IP [{}] 没有查询到告警数据，跳过", ip);
                         failureCount++;
                         continue;
                     }
@@ -89,20 +89,20 @@ public class ProcessChainServiceImpl {
                     // 选择告警（返回同一个traceId的所有告警）
                     List<RawAlarm> selectedAlarms = selectAlarm(alarms, associatedEventId, hasAssociation);
                     if (selectedAlarms == null || selectedAlarms.isEmpty()) {
-                        log.warn("IP [{}] 无法选择有效告警，跳过", ip);
+                        log.warn("【进程链生成】-> IP [{}] 无法选择有效告警，跳过", ip);
                         failureCount++;
                         continue;
                     }
 
                     // 使用第一个告警获取基本信息
                     RawAlarm firstAlarm = selectedAlarms.get(0);
-                    log.info("选中 {} 个告警: traceId={}, eventId={}, 网端关联={}", 
+                    log.info("【进程链生成】-> 选中 {} 个告警: traceId={}, eventId={}, 网端关联={}", 
                             selectedAlarms.size(), firstAlarm.getTraceId(), firstAlarm.getEventId(), hasAssociation);
 
                     // 记录日志ID（如果有）
                     String logId = ipMappingRelation.getLogId(ip);
                     if (logId != null && !logId.trim().isEmpty()) {
-                        log.debug("IP [{}] 有预存的日志ID: {}", ip, logId);
+                        log.debug("【进程链生成】-> IP [{}] 有预存的日志ID: {}", ip, logId);
                     }
 
                     // 收集所有选中的告警
@@ -118,10 +118,10 @@ public class ProcessChainServiceImpl {
                     }
                     
                     successCount++;
-                    log.info("IP [{}] 告警已选择", ip);
+                    log.info("【进程链生成】-> IP [{}] 告警已选择", ip);
 
                 } catch (Exception e) {
-                    log.error("IP [{}] 处理失败: {}", ip, e.getMessage(), e);
+                    log.error("【进程链生成】-> IP [{}] 处理失败: {}", ip, e.getMessage(), e);
                     failureCount++;
                 }
             }
@@ -134,10 +134,10 @@ public class ProcessChainServiceImpl {
                     allLogs = esQueryService.batchQueryRawLogs(hostToTraceId);
                     long logQueryTime = System.currentTimeMillis() - logQueryStart;
                     
-                    log.info("批量日志查询完成: host-traceId映射数={}, 日志总数={}, 耗时={}ms", 
+                    log.info("【进程链生成】-> 批量日志查询完成: host-traceId映射数={}, 日志总数={}, 耗时={}ms", 
                             hostToTraceId.size(), allLogs.size(), logQueryTime);
                 } catch (Exception e) {
-                    log.error("批量查询日志失败: {}", e.getMessage(), e);
+                    log.error("【进程链生成】-> 批量查询日志失败: {}", e.getMessage(), e);
                     allLogs = new ArrayList<>();
                 }
             }
@@ -149,19 +149,19 @@ public class ProcessChainServiceImpl {
                     IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER);
             
             long totalTime = System.currentTimeMillis() - startTime;
-            log.info("========================================");
-            log.info("批量生成完成");
-            log.info("总耗时: {}ms", totalTime);
-            log.info("成功: {}, 失败: {}, 网端关联: {}", successCount, failureCount, associatedCount);
-            log.info("节点数: {}, 边数: {}", 
+            log.info("【进程链生成】-> ========================================");
+            log.info("【进程链生成】-> 批量生成完成");
+            log.info("【进程链生成】-> 总耗时: {}ms", totalTime);
+            log.info("【进程链生成】-> 成功: {}, 失败: {}, 网端关联: {}", successCount, failureCount, associatedCount);
+            log.info("【进程链生成】-> 节点数: {}, 边数: {}", 
                     incidentChain.getNodes() != null ? incidentChain.getNodes().size() : 0,
                     incidentChain.getEdges() != null ? incidentChain.getEdges().size() : 0);
-            log.info("========================================");
+            log.info("【进程链生成】-> ========================================");
 
             return incidentChain;
 
         } catch (Exception e) {
-            log.error("批量生成进程链失败: {}", e.getMessage(), e);
+            log.error("【进程链生成】-> 批量生成进程链失败: {}", e.getMessage(), e);
             return null;
         }
     }
@@ -171,24 +171,24 @@ public class ProcessChainServiceImpl {
      */
     public IncidentProcessChain generateProcessChainForIp(String ip, String associatedEventId, boolean hasAssociation) {
         if (ip == null || ip.trim().isEmpty()) {
-            log.error("错误: IP为空");
+            log.error("【进程链生成】-> 错误: IP为空");
             return null;
         }
 
         try {
-            log.info("为IP生成进程链: {}, 网端关联: {}", ip, hasAssociation);
+            log.info("【进程链生成】-> 为IP生成进程链: {}, 网端关联: {}", ip, hasAssociation);
 
             // 查询告警
             List<RawAlarm> alarms = esQueryService.queryEDRAlarms(ip);
             if (alarms == null || alarms.isEmpty()) {
-                log.warn("IP [{}] 没有查询到告警数据", ip);
+                log.warn("【进程链生成】-> IP [{}] 没有查询到告警数据", ip);
                 return null;
             }
 
             // 选择告警（返回同一个traceId的所有告警）
             List<RawAlarm> selectedAlarms = selectAlarm(alarms, associatedEventId, hasAssociation);
             if (selectedAlarms == null || selectedAlarms.isEmpty()) {
-                log.warn("IP [{}] 无法选择有效告警", ip);
+                log.warn("【进程链生成】-> IP [{}] 无法选择有效告警", ip);
                 return null;
             }
 

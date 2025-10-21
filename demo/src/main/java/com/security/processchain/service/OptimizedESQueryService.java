@@ -20,7 +20,6 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 优化的ES查询服务实现
@@ -46,6 +45,49 @@ public class OptimizedESQueryService implements ESQueryService {
 
     @Value("${process-chain.max-query-size:10000}")
     private int maxQuerySize;
+
+    /**
+     * 告警查询需要的字段（减少网络传输，提升查询性能）
+     */
+    private static final String[] ALARM_INCLUDES = new String[]{
+        "eventId",
+        "traceId",
+        "hostAddress",
+        "processGuid",
+        "parentProcessGuid",
+        "alarmName",
+        "threatSeverity",
+        "startTime",
+        "endTime",
+        "alarmSource",
+        "logType",
+        "otherFields"
+    };
+
+    /**
+     * 日志查询需要的字段（减少网络传输，提升查询性能）
+     */
+    private static final String[] LOG_INCLUDES = new String[]{
+        "traceId",
+        "hostAddress",
+        "processGuid",
+        "parentProcessGuid",
+        "logType",
+        "startTime",
+        "endTime",
+        "processName",
+        "processPath",
+        "commandLine",
+        "fileName",
+        "filePath",
+        "fileSize",
+        "sourceIp",
+        "sourcePort",
+        "destIp",
+        "destPort",
+        "domainName",
+        "otherFields"
+    };
 
     /**
      * 批量查询多个IP的EDR告警
@@ -84,6 +126,7 @@ public class OptimizedESQueryService implements ESQueryService {
 
                 searchSourceBuilder.query(boolQuery);
                 searchSourceBuilder.size(maxQuerySize);
+                searchSourceBuilder.fetchSource(ALARM_INCLUDES, null);  // 只返回需要的字段
                 searchRequest.source(searchSourceBuilder);
 
                 multiSearchRequest.add(searchRequest);
@@ -162,6 +205,7 @@ public class OptimizedESQueryService implements ESQueryService {
 
                 searchSourceBuilder.query(boolQuery);
                 searchSourceBuilder.size(maxQuerySize);
+                searchSourceBuilder.fetchSource(LOG_INCLUDES, null);  // 只返回需要的字段
                 searchRequest.source(searchSourceBuilder);
 
                 multiSearchRequest.add(searchRequest);
@@ -256,6 +300,7 @@ public class OptimizedESQueryService implements ESQueryService {
 
                 searchSourceBuilder.query(boolQuery);
                 searchSourceBuilder.size(maxQuerySize);
+                searchSourceBuilder.fetchSource(LOG_INCLUDES, null);  // 只返回需要的字段
                 searchRequest.source(searchSourceBuilder);
 
                 multiSearchRequest.add(searchRequest);
@@ -336,6 +381,7 @@ public class OptimizedESQueryService implements ESQueryService {
 
                 searchSourceBuilder.query(boolQuery);
                 searchSourceBuilder.size(maxQuerySize);
+                searchSourceBuilder.fetchSource(LOG_INCLUDES, null);  // 只返回需要的字段
                 searchRequest.source(searchSourceBuilder);
 
                 multiSearchRequest.add(searchRequest);
@@ -390,6 +436,7 @@ public class OptimizedESQueryService implements ESQueryService {
 
             searchSourceBuilder.query(boolQuery);
             searchSourceBuilder.size(maxQuerySize);
+            searchSourceBuilder.fetchSource(ALARM_INCLUDES, null);  // 只返回需要的字段
             searchRequest.source(searchSourceBuilder);
 
             // 执行查询
@@ -444,6 +491,7 @@ public class OptimizedESQueryService implements ESQueryService {
 
             searchSourceBuilder.query(boolQuery);
             searchSourceBuilder.size(maxQuerySize);
+            searchSourceBuilder.fetchSource(LOG_INCLUDES, null);  // 只返回需要的字段
             searchRequest.source(searchSourceBuilder);
 
             // 执行查询

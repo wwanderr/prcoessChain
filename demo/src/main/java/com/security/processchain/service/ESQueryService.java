@@ -26,9 +26,10 @@ public interface ESQueryService {
      * @param hostAddress 主机地址
      * @param timeStart 开始时间
      * @param timeEnd 结束时间
+     * @param logTypes 日志类型列表
      * @return 日志列表
      */
-    List<RawLog> queryRawLogs(String traceId, String hostAddress, String timeStart, String timeEnd);
+    List<RawLog> queryRawLogs(String traceId, String hostAddress, String timeStart, String timeEnd, List<String> logTypes);
 }
 
 
