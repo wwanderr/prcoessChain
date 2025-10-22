@@ -56,11 +56,11 @@ public class ProcessChainBuilder {
      * @param alarms 选举出的告警组
      * @param logs 查询到的原始日志
      * @param traceIds 溯源ID集合（支持多个 traceId）
-     * @param associatedEventId 网端关联成功的eventId(可为null)
+     * @param associatedEventIds 网端关联成功的eventId集合(可为null)
      * @return 构建结果
      */
     public ProcessChainResult buildProcessChain(List<RawAlarm> alarms, List<RawLog> logs, 
-                                                Set<String> traceIds, String associatedEventId) {
+                                                Set<String> traceIds, Set<String> associatedEventIds) {
         if (alarms == null || alarms.isEmpty()) {
             log.warn("【进程链生成】-> 警告: 告警列表为空,返回空进程链");
             return new ProcessChainResult();
@@ -75,10 +75,10 @@ public class ProcessChainBuilder {
             log.info("【进程链生成】-> 开始构建进程链: traceIds={}, 告警数={}, 日志数={}", 
                     traceIds, alarms.size(), (logs != null ? logs.size() : 0));
             
-            // 记录网端关联的eventId
-            if (associatedEventId != null && !associatedEventId.trim().isEmpty()) {
-                this.associatedEventIds.add(associatedEventId);
-                log.info("记录网端关联eventId: {}", associatedEventId);
+            // 记录网端关联的eventIds
+            if (associatedEventIds != null && !associatedEventIds.isEmpty()) {
+                this.associatedEventIds.addAll(associatedEventIds);
+                log.info("【进程链生成】-> 记录网端关联eventIds: {}", associatedEventIds);
             }
             
             // 将日志按processGuid、ParentProcessGuid索引,便于快速查找
@@ -792,7 +792,7 @@ public class ProcessChainBuilder {
     
     /**
      * 构建进程链并直接转换为 IncidentProcessChain（已废弃，保留以兼容旧代码）
-     * 推荐使用接受 Set<String> traceIds 的新版本
+     * 推荐使用接受 Set<String> traceIds 和 Set<String> associatedEventIds 的新版本
      * 
      * @param alarms 选举出的告警组
      * @param logs 查询到的原始日志
@@ -801,7 +801,7 @@ public class ProcessChainBuilder {
      * @param nodeMapper 节点映射器
      * @param edgeMapper 边映射器
      * @return 事件进程链
-     * @deprecated 使用 buildIncidentChain(alarms, logs, Set<String> traceIds, ...)
+     * @deprecated 使用 buildIncidentChain(alarms, logs, Set<String> traceIds, Set<String> associatedEventIds, ...)
      */
     @Deprecated
     public IncidentProcessChain buildIncidentChain(List<RawAlarm> alarms, List<RawLog> logs,
@@ -812,7 +812,13 @@ public class ProcessChainBuilder {
         if (traceId != null && !traceId.trim().isEmpty()) {
             traceIds.add(traceId);
         }
-        return buildIncidentChain(alarms, logs, traceIds, associatedEventId, nodeMapper, edgeMapper);
+        
+        Set<String> associatedEventIds = new HashSet<>();
+        if (associatedEventId != null && !associatedEventId.trim().isEmpty()) {
+            associatedEventIds.add(associatedEventId);
+        }
+        
+        return buildIncidentChain(alarms, logs, traceIds, associatedEventIds, nodeMapper, edgeMapper);
     }
     
     /**
@@ -868,12 +874,12 @@ public class ProcessChainBuilder {
     
     /**
      * 直接构建最终的 IncidentProcessChain（一步到位）
-     * 支持多个 traceId
+     * 支持多个 traceId 和多个 associatedEventId
      * 
      * @param alarms 告警列表
      * @param logs 日志列表
      * @param traceIds 追踪 ID 集合
-     * @param associatedEventId 关联事件 ID
+     * @param associatedEventIds 关联事件 ID 集合
      * @param nodeMapper 节点映射器
      * @param edgeMapper 边映射器
      * @return 完整的 IncidentProcessChain
@@ -882,7 +888,7 @@ public class ProcessChainBuilder {
             List<RawAlarm> alarms, 
             List<RawLog> logs,
             Set<String> traceIds,
-            String associatedEventId,
+            Set<String> associatedEventIds,
             NodeMapper nodeMapper, 
             EdgeMapper edgeMapper) {
         
@@ -897,11 +903,14 @@ public class ProcessChainBuilder {
         }
         
         try {
-            log.info("【进程链生成】-> 开始构建进程链: traceIds={}, 告警数={}, 日志数={}", 
-                    traceIds, alarms.size(), (logs != null ? logs.size() : 0));
+            log.info("【进程链生成】-> 开始构建进程链: traceIds={}, 关联事件数={}, 告警数={}, 日志数={}", 
+                    traceIds, 
+                    (associatedEventIds != null ? associatedEventIds.size() : 0),
+                    alarms.size(), 
+                    (logs != null ? logs.size() : 0));
             
             // 构建内部结果
-            ProcessChainResult result = buildProcessChain(alarms, logs, traceIds, associatedEventId);
+            ProcessChainResult result = buildProcessChain(alarms, logs, traceIds, associatedEventIds);
             
             // 转换为最终的 IncidentProcessChain
             IncidentProcessChain incidentChain = new IncidentProcessChain();

@@ -51,9 +51,10 @@ public class ProcessChainServiceImpl {
         List<RawAlarm> allSelectedAlarms = new ArrayList<>();
         List<RawLog> allLogs = new ArrayList<>();
         
-        // 收集所有的 traceId 和 hostAddress
+        // 收集所有的 traceId、hostAddress 和 associatedEventId
         Set<String> allTraceIds = new HashSet<>();
         Set<String> allHostAddresses = new HashSet<>();
+        Set<String> allAssociatedEventIds = new HashSet<>();
         
         // IP -> rootNodeId 映射（用于桥接网侧和端侧）
         Map<String, String> ipToRootNodeIdMap = new HashMap<>();
@@ -88,6 +89,11 @@ public class ProcessChainServiceImpl {
                     if (hasAssociation) {
                         log.info("【进程链生成】-> IP [{}] 有网端关联，关联告警ID: {}", ip, associatedEventId);
                         associatedCount++;
+                        
+                        // 收集 associatedEventId
+                        if (associatedEventId != null && !associatedEventId.trim().isEmpty()) {
+                            allAssociatedEventIds.add(associatedEventId);
+                        }
                     }
 
                     List<RawAlarm> alarms = allAlarmsMap.getOrDefault(ip, new ArrayList<>());
@@ -158,13 +164,14 @@ public class ProcessChainServiceImpl {
             }
 
             // ========== 阶段3: 构建端侧进程链 ==========
-            log.info("【进程链生成】-> 收集到的 traceId 数量: {}, hostAddress 数量: {}", 
-                    allTraceIds.size(), allHostAddresses.size());
+            log.info("【进程链生成】-> 收集到的 traceId 数量: {}, hostAddress 数量: {}, associatedEventId 数量: {}", 
+                    allTraceIds.size(), allHostAddresses.size(), allAssociatedEventIds.size());
             log.info("【进程链生成】-> traceIds: {}", allTraceIds);
+            log.info("【进程链生成】-> associatedEventIds: {}", allAssociatedEventIds);
             
             ProcessChainBuilder builder = new ProcessChainBuilder();
             IncidentProcessChain endpointChain = builder.buildIncidentChain(
-                    allSelectedAlarms, allLogs, allTraceIds, null,
+                    allSelectedAlarms, allLogs, allTraceIds, allAssociatedEventIds,
                     IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER);
             
             // 设置 traceIds 和 hostAddresses
@@ -249,12 +256,17 @@ public class ProcessChainServiceImpl {
             Set<String> traceIds = new HashSet<>();
             traceIds.add(firstAlarm.getTraceId());  // 单个 IP 只有一个 traceId
             
+            Set<String> associatedEventIds = new HashSet<>();
+            if (hasAssociation && associatedEventId != null && !associatedEventId.trim().isEmpty()) {
+                associatedEventIds.add(associatedEventId);
+            }
+            
             ProcessChainBuilder builder = new ProcessChainBuilder();
             IncidentProcessChain incidentChain = builder.buildIncidentChain(
                 selectedAlarms,  // 所有告警
                 logs, 
                 traceIds,  // 传入 Set
-                associatedEventId,
+                associatedEventIds,  // 传入 Set
                 IncidentConverters.NODE_MAPPER, 
                 IncidentConverters.EDGE_MAPPER);
             

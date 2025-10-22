@@ -23,7 +23,7 @@ if (currentProcessGuid.equals(traceId)) {  // 只能匹配一个 traceId
 当多个 IP 有不同的 traceId 时（例如 T1, T2, T3），但系统只用 firstTraceId（T1）构建，导致：
 - IP1 (T1): ✅ 能找到根节点
 - IP2 (T2): ❌ 找不到根节点 → 被标记为断链
-- IP3 (T3): ❌ 找不到根节点 → 被标记为断链
+- IP3 (T3): ❌ 找不到根节点 → 被标记为断链 
 
 ---
 
