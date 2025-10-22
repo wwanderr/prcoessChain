@@ -3,6 +3,7 @@
 import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
+import com.security.processchain.util.ProcessChainPruner;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
 
@@ -129,11 +130,11 @@ public class ProcessChainBuilder {
             
             // 检查节点数量,如果超过限制则裁剪
             if (nodeMap.size() > MAX_NODE_COUNT) {
-                log.warn("节点数量({})超过限制({}),开始裁剪...", nodeMap.size(), MAX_NODE_COUNT);
+                log.warn("【进程链生成】-> 节点数量({})超过限制({}),开始智能裁剪...", nodeMap.size(), MAX_NODE_COUNT);
                 try {
-                    pruneNodes();
+                    pruneNodesWithSmartStrategy();
                 } catch (Exception e) {
-                    log.error("节点裁剪失败: {}", e.getMessage(), e);
+                    log.error("【进程链生成】-> 节点裁剪失败: {}", e.getMessage(), e);
                 }
             }
             
@@ -414,122 +415,41 @@ public class ProcessChainBuilder {
     }
     
     /**
-     * 裁剪节点
-     * 裁剪规则:
-     * 1. 优先保留网端关联成功的告警节点及其相关节点
-     * 2. 优先保留高危告警节点及其相关节点
-     * 3. 保留中危告警节点
-     * 4. 最后考虑低危和非告警节点
+     * 使用智能策略裁剪节点
+     * 
+     * 智能裁剪策略：
+     * 1. 强制保留：根节点、网端关联节点、高危/中危告警节点
+     * 2. 级联保留：从关键节点到根节点的完整路径
+     * 3. 选择性保留：如果还有剩余槽位，按分数选择其他节点
+     * 4. 优势：关键攻击路径完整，无需 Explore 节点
+     * 
+     * 使用 ProcessChainPruner 工具类实现
      */
-    private void  pruneNodes() {
-        // 计算每个节点的重要性分数
-        Map<String, Integer> nodeScores = calculateNodeScores();
-        
-        // 按分数排序
-        List<Map.Entry<String, Integer>> sortedNodes = new ArrayList<>(nodeScores.entrySet());
-        sortedNodes.sort((a, b) -> b.getValue().compareTo(a.getValue()));
-        
-        // 保留前MAX_NODE_COUNT个节点
-        Set<String> nodesToKeep = new HashSet<>();
-        for (int i = 0; i < Math.min(MAX_NODE_COUNT, sortedNodes.size()); i++) {
-            nodesToKeep.add(sortedNodes.get(i).getKey());
+    private void pruneNodesWithSmartStrategy() {
+        try {
+            // 创建裁剪上下文
+            ProcessChainPruner.PruneContext context = new ProcessChainPruner.PruneContext(
+                nodeMap,
+                edges,
+                rootNodes,
+                associatedEventIds
+            );
+            
+            // 执行智能裁剪
+            ProcessChainPruner.PruneResult result = ProcessChainPruner.pruneNodes(context);
+            
+            // 记录裁剪结果
+            log.info("【进程链生成】-> 智能裁剪完成: 原始节点={}, 必须保留={}, 级联保留={}, 移除节点={}, 最终节点={}",
+                     result.getOriginalNodeCount(),
+                     result.getMustKeepCount(),
+                     result.getCascadeKeepCount(),
+                     result.getRemovedNodeCount(),
+                     result.getFinalNodeCount());
+            
+        } catch (Exception e) {
+            log.error("【进程链生成】-> 智能裁剪异常: {}", e.getMessage(), e);
+            throw e;
         }
-        
-        // 移除低分节点
-        int removedCount = 0;
-        Iterator<Map.Entry<String, ChainBuilderNode>> iterator = nodeMap.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, ChainBuilderNode> entry = iterator.next();
-            if (!nodesToKeep.contains(entry.getKey())) {
-                iterator.remove();
-                removedCount++;
-            }
-        }
-        
-        // 清理无效的边
-        Iterator<ChainBuilderEdge> edgeIterator = edges.iterator();
-        while (edgeIterator.hasNext()) {
-            ChainBuilderEdge edge = edgeIterator.next();
-            if (!nodeMap.containsKey(edge.getSource()) || !nodeMap.containsKey(edge.getTarget())) {
-                edgeIterator.remove();
-            }
-        }
-        
-        log.info("裁剪完成: 移除了 {} 个节点, 保留 {} 个节点", removedCount, nodeMap.size());
-    }
-    
-    /**
-     * 计算节点重要性分数
-     * 分数越高,节点越重要
-     */
-    private Map<String, Integer> calculateNodeScores() {
-        Map<String, Integer> scores = new HashMap<>();
-        
-        for (Map.Entry<String, ChainBuilderNode> entry : nodeMap.entrySet()) {
-            String processGuid = entry.getKey();
-            ChainBuilderNode node = entry.getValue();
-            
-            int score = 0;
-            
-            // 1. 网端关联成功的告警节点: +1000分
-            if (node.getIsAlarm()) {
-                for (RawAlarm alarm : node.getAlarms()) {
-                    if (associatedEventIds.contains(alarm.getEventId())) {
-                        score += 1000;
-                        break;
-                    }
-                }
-            }
-            
-            // 2. 告警节点根据威胁等级加分
-            if (node.getIsAlarm()) {
-                for (RawAlarm alarm : node.getAlarms()) {
-                    String severity = alarm.getThreatSeverity();
-                    if (isHighSeverity(severity)) {
-                        score += 100; // 高危: +100分
-                    } else if (isMediumSeverity(severity)) {
-                        score += 50;  // 中危: +50分
-                    } else {
-                        score += 20;  // 低危: +20分
-                    }
-                }
-            }
-            
-            // 3. 根节点: +80分
-            if (rootNodes.contains(processGuid)) {
-                score += 80;
-            }
-            
-            // 4. 根据节点的连接数加分(度中心性)
-            int connectionCount = 0;
-            for (ChainBuilderEdge edge : edges) {
-                if (edge.getSource().equals(processGuid) || edge.getTarget().equals(processGuid)) {
-                    connectionCount++;
-                }
-            }
-            score += Math.min(connectionCount * 2, 30); // 最多+30分
-            
-            // 5. 有日志数据的节点: +10分
-            if (!node.getLogs().isEmpty()) {
-                score += 10;
-            }
-            
-            // 6. process类型的节点优先于其他类型: +5分
-            boolean hasProcessLog = false;
-            for (RawLog log : node.getLogs()) {
-                if ("process".equalsIgnoreCase(log.getLogType())) {
-                    hasProcessLog = true;
-                    break;
-                }
-            }
-            if (hasProcessLog) {
-                score += 5;
-            }
-            
-            scores.put(processGuid, score);
-        }
-        
-        return scores;
     }
     
     /**
