@@ -663,12 +663,19 @@ public class ProcessChainBuilder {
     }
     
     /**
-     * 为断裂的进程链添加 explore 节点
+     * 为断链节点添加统一的 Explore 虚拟根节点
+     * 
+     * 策略：
+     * 1. 如果找到了真实根节点（rootNodes 不为空），不添加 Explore
+     * 2. 如果没有找到真实根节点，但有断链：
+     *    - 创建一个唯一的 Explore 节点作为虚拟根节点
+     *    - 所有断链节点都连接到这个 Explore
+     *    - 保证：有且只有一个根节点（isRoot = true）
      * 
      * @param finalNodes 最终节点列表
      * @param finalEdges 最终边列表
-     * @param brokenNodes 断裂节点集合（processGuid）
-     * @param rootNodes 根节点集合（processGuid）
+     * @param brokenNodes 断链节点集合
+     * @param rootNodes 真实根节点集合
      */
     private void addExploreNodesForBrokenChains(
             List<com.security.processchain.model.ProcessNode> finalNodes,
@@ -676,71 +683,60 @@ public class ProcessChainBuilder {
             Set<String> brokenNodes,
             Set<String> rootNodes) {
         
+        // 第1步：如果有真实根节点，不需要添加 Explore
+        if (rootNodes != null && !rootNodes.isEmpty()) {
+            log.info("【进程链生成】-> 已找到 {} 个真实根节点，不添加 Explore 节点", rootNodes.size());
+            return;
+        }
+        
+        // 第2步：如果没有断链节点，也不需要 Explore（这种情况理论上不应该出现）
+        if (brokenNodes == null || brokenNodes.isEmpty()) {
+            log.warn("【进程链生成】-> 警告: 既没有真实根节点，也没有断链节点，这不正常！");
+            return;
+        }
+        
+        // 第3步：创建唯一的 Explore 虚拟根节点
+        String exploreNodeId = "EXPLORE_ROOT";  // 使用固定的 ID，表示这是唯一的虚拟根节点
+        
+        log.info("【进程链生成】-> 未找到真实根节点，创建统一的虚拟根节点: {}，将 {} 个断链节点连接到该根节点", 
+                 exploreNodeId, brokenNodes.size());
+        
+        com.security.processchain.model.ProcessNode exploreNode = 
+                new com.security.processchain.model.ProcessNode();
+        exploreNode.setNodeId(exploreNodeId);
+        exploreNode.setIsChainNode(true);
+        exploreNode.setLogType(NodeType.EXPLORE);
+        
+        ChainNode exploreChainNode = new ChainNode();
+        exploreChainNode.setIsRoot(true);   // ✅ 唯一的虚拟根节点
+        exploreChainNode.setIsBroken(false);
+        exploreChainNode.setIsAlarm(false);
+        
+        exploreNode.setChainNode(exploreChainNode);
+        exploreNode.setStoryNode(null);
+        
+        // 添加 Explore 节点到列表
+        finalNodes.add(exploreNode);
+        
+        // 第4步：为每个断链节点创建边，连接到统一的 Explore
         for (String brokenNodeGuid : brokenNodes) {
-            // 创建 explore 节点
-            String exploreNodeId = "explore_" + brokenNodeGuid;
-            
-            com.security.processchain.model.ProcessNode exploreNode = 
-                    new com.security.processchain.model.ProcessNode();
-            exploreNode.setNodeId(exploreNodeId);
-            exploreNode.setIsChainNode(true);
-            exploreNode.setLogType(NodeType.EXPLORE);
-            
-            ChainNode exploreChainNode = new ChainNode();
-            exploreChainNode.setIsRoot(false);
-            exploreChainNode.setIsBroken(false);
-            exploreChainNode.setIsAlarm(false);
-            
-            exploreNode.setChainNode(exploreChainNode);
-            exploreNode.setStoryNode(null);
-            
-            // 添加 explore 节点到列表
-            finalNodes.add(exploreNode);
-            
-            // 创建边：explore -> 断裂节点
+            // 创建边：EXPLORE_ROOT -> 断链节点
             com.security.processchain.model.ProcessEdge exploreEdge = 
                     new com.security.processchain.model.ProcessEdge();
             exploreEdge.setSource(exploreNodeId);
             exploreEdge.setTarget(brokenNodeGuid);
-            exploreEdge.setVal("1");
+            exploreEdge.setVal("断链");  // 友好的标签
             
             finalEdges.add(exploreEdge);
             
-            log.info("为断裂节点 {} 添加了 explore 节点: {}", brokenNodeGuid, exploreNodeId);
-        }
-    }
-    
-    /**
-     * 构建进程链并直接转换为 IncidentProcessChain（已废弃，保留以兼容旧代码）
-     * 推荐使用接受 Set<String> traceIds 和 Set<String> associatedEventIds 的新版本
-     * 
-     * @param alarms 选举出的告警组
-     * @param logs 查询到的原始日志
-     * @param traceId 溯源ID
-     * @param associatedEventId 网端关联成功的eventId(可为null)
-     * @param nodeMapper 节点映射器
-     * @param edgeMapper 边映射器
-     * @return 事件进程链
-     * @deprecated 使用 buildIncidentChain(alarms, logs, Set<String> traceIds, Set<String> associatedEventIds, ...)
-     */
-    @Deprecated
-    public IncidentProcessChain buildIncidentChain(List<RawAlarm> alarms, List<RawLog> logs,
-                                                   String traceId, String associatedEventId,
-                                                   NodeMapper nodeMapper, EdgeMapper edgeMapper) {
-        // 转换为新方法（使用 Set）
-        Set<String> traceIds = new HashSet<>();
-        if (traceId != null && !traceId.trim().isEmpty()) {
-            traceIds.add(traceId);
+            log.debug("【进程链生成】-> 连接断链节点 {} 到虚拟根节点 {}", brokenNodeGuid, exploreNodeId);
         }
         
-        Set<String> associatedEventIds = new HashSet<>();
-        if (associatedEventId != null && !associatedEventId.trim().isEmpty()) {
-            associatedEventIds.add(associatedEventId);
-        }
-        
-        return buildIncidentChain(alarms, logs, traceIds, associatedEventIds, nodeMapper, edgeMapper);
+        log.info("【进程链生成】-> 虚拟根节点创建完成: {} 连接了 {} 个断链节点", 
+                 exploreNodeId, brokenNodes.size());
     }
     
+
     /**
      * 进程链构建结果
      */
