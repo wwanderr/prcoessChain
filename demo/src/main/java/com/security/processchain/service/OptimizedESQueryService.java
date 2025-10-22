@@ -1,4 +1,4 @@
-﻿package com.security.processchain.service;
+package com.security.processchain.service;
 
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;

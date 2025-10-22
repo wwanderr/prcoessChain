@@ -86,17 +86,17 @@ public class ProcessChainController {
         );
     }
     
-    /**
-     * 健康检查
-     */
-    @GetMapping("/health")
-    public Map<String, String> health() {
-        log.debug("健康检查请求");
-        return Map.of(
-            "status", "UP",
-            "service", "Process Chain Generator"
-        );
-    }
+//    /**
+//     * 健康检查
+//     */
+//    @GetMapping("/health")
+//    public Map<String, String> health() {
+//        log.debug("健康检查请求");
+//        return Map.of(
+//            "status", "UP",
+//            "service", "Process Chain Generator"
+//        );
+//    }
     
     /**
      * 合并进程链请求对象

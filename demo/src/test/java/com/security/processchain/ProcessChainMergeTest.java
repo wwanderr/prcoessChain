@@ -51,44 +51,45 @@ public class ProcessChainMergeTest {
         // ===== 准备测试数据 =====
         
         // IP1: 10.50.86.171 的数据
+        // 根节点的 processGuid 必须等于 traceId
         RawAlarm alarm1 = createAlarm(
             "E001", "T001", "10.50.86.171", 
-            "ROOT_171_A1B2C3", "PARENT_171", 
+            "T001", null,  // processGuid=traceId, parentProcessGuid=null（根节点）
             "恶意进程启动告警", "HIGH"
         );
         
         List<RawLog> logs1 = Arrays.asList(
-            createProcessLog("ROOT_171_A1B2C3", "PARENT_171", "10.50.86.171", "T001",
+            createProcessLog("T001", null, "10.50.86.171", "T001",
                 "svchost.exe", "C:\\Windows\\System32\\svchost.exe", "SYSTEM", "processCreate"),
-            createProcessLog("CHILD_171_D4E5F6", "ROOT_171_A1B2C3", "10.50.86.171", "T001",
+            createProcessLog("CHILD_171_D4E5F6", "T001", "10.50.86.171", "T001",
                 "cmd.exe", "cmd.exe /c whoami", "SYSTEM", "processCreate")
         );
 
         // IP2: 10.50.86.52 的数据
         RawAlarm alarm2 = createAlarm(
             "E002", "T002", "10.50.86.52",
-            "ROOT_52_G7H8I9", "PARENT_52",
-            "可疑网络连接告警", "MEDIUM"
+            "T002", null,  // processGuid=traceId, parentProcessGuid=null（根节点）
+            "可疑网络连接告警", "HIGH"  // 修改为高危，才会触发向下遍历，添加网络子节点
         );
         
         List<RawLog> logs2 = Arrays.asList(
-            createProcessLog("ROOT_52_G7H8I9", "PARENT_52", "10.50.86.52", "T002",
+            createProcessLog("T002", null, "10.50.86.52", "T002",
                 "explorer.exe", "C:\\Windows\\explorer.exe", "USER01", "processCreate"),
-            createNetworkLog("CHILD_52_J0K1L2", "ROOT_52_G7H8I9", "10.50.86.52", "T002",
+            createNetworkLog("CHILD_52_J0K1L2", "T002", "10.50.86.52", "T002",
                 "10.50.86.52", "54321", "192.168.1.100", "443", "TCP")
         );
 
         // IP3: 10.50.109.102 的数据
         RawAlarm alarm3 = createAlarm(
             "E003", "T003", "10.50.109.102",
-            "ROOT_102_M3N4O5", "PARENT_102",
+            "T003", null,  // processGuid=traceId, parentProcessGuid=null（根节点）
             "文件操作告警", "HIGH"
         );
         
         List<RawLog> logs3 = Arrays.asList(
-            createProcessLog("ROOT_102_M3N4O5", "PARENT_102", "10.50.109.102", "T003",
+            createProcessLog("T003", null, "10.50.109.102", "T003",
                 "powershell.exe", "powershell.exe -ExecutionPolicy Bypass", "ADMIN", "processCreate"),
-            createFileLog("CHILD_102_P6Q7R8", "ROOT_102_M3N4O5", "10.50.109.102", "T003",
+            createFileLog("CHILD_102_P6Q7R8", "T003", "10.50.109.102", "T003",
                 "C:\\Temp\\suspicious_file.txt", "suspicious_file.txt", "1024", "a1b2c3d4e5f678901234567890123456")
         );
 
@@ -145,9 +146,9 @@ public class ProcessChainMergeTest {
             .map(ProcessNode::getNodeId)
             .collect(java.util.stream.Collectors.toList());
         
-        assertTrue("根节点应包含 ROOT_171_A1B2C3", rootNodeIds.contains("ROOT_171_A1B2C3"));
-        assertTrue("根节点应包含 ROOT_52_G7H8I9", rootNodeIds.contains("ROOT_52_G7H8I9"));
-        assertTrue("根节点应包含 ROOT_102_M3N4O5", rootNodeIds.contains("ROOT_102_M3N4O5"));
+        assertTrue("根节点应包含 T001", rootNodeIds.contains("T001"));
+        assertTrue("根节点应包含 T002", rootNodeIds.contains("T002"));
+        assertTrue("根节点应包含 T003", rootNodeIds.contains("T003"));
         
         // 验证告警节点
         long alarmCount = result.getNodes().stream()

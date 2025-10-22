@@ -323,8 +323,17 @@ public class ProcessChainBuilder {
         if (parentProcessGuid == null || parentProcessGuid.isEmpty() || 
             !logsByProcessGuid.containsKey(parentProcessGuid)) {
             
-            // 断链：当前节点的父进程在原始日志中不存在
-            // 当前节点标记为断裂节点，停止向上追溯
+            // 重要：先检查当前节点是否是根节点
+            if (traceIds.contains(currentProcessGuid)) {
+                // 是根节点，标记为根节点，不是断链
+                foundRootNode = true;
+                rootNodes.add(currentProcessGuid);
+                log.info("【进程链生成】-> 找到根节点: processGuid={} (匹配traceIds，父节点为空)", currentProcessGuid);
+                visitedNodesInPath.remove(currentProcessGuid);
+                return;
+            }
+            
+            // 不是根节点，才标记为断裂节点
             brokenNodes.add(currentProcessGuid);
             log.warn("断链检测: 当前节点 {} 的父节点 {} 在原始日志中不存在，标记为断裂节点", 
                     currentProcessGuid, parentProcessGuid);
@@ -686,23 +695,23 @@ public class ProcessChainBuilder {
             Set<String> brokenNodes,
             Set<String> rootNodes) {
         
-        // 第1步：如果有真实根节点，不需要添加 Explore
-        if (rootNodes != null && !rootNodes.isEmpty()) {
-            log.info("【进程链生成】-> 已找到 {} 个真实根节点，不添加 Explore 节点", rootNodes.size());
+        // 第1步：如果没有断链节点，不需要 Explore
+        if (brokenNodes == null || brokenNodes.isEmpty()) {
+            log.info("【进程链生成】-> 无断链节点，不需要添加 Explore");
             return;
         }
         
-        // 第2步：如果没有断链节点，也不需要 Explore（这种情况理论上不应该出现）
-        if (brokenNodes == null || brokenNodes.isEmpty()) {
-            log.warn("【进程链生成】-> 警告: 既没有真实根节点，也没有断链节点，这不正常！");
-            return;
+        // 第2步：即使有真实根节点，只要有断链，也要为断链创建 Explore
+        // 这样可以确保所有节点都能被访问到（混合 traceId 场景）
+        if (rootNodes != null && !rootNodes.isEmpty()) {
+            log.info("【进程链生成】-> 已有 {} 个真实根节点，但仍为 {} 个断链节点创建 Explore 虚拟根节点", 
+                     rootNodes.size(), brokenNodes.size());
+        } else {
+            log.info("【进程链生成】-> 无真实根节点，为 {} 个断链节点创建 Explore 虚拟根节点", brokenNodes.size());
         }
         
         // 第3步：创建唯一的 Explore 虚拟根节点
         String exploreNodeId = "EXPLORE_ROOT";  // 使用固定的 ID，表示这是唯一的虚拟根节点
-        
-        log.info("【进程链生成】-> 未找到真实根节点，创建统一的虚拟根节点: {}，将 {} 个断链节点连接到该根节点", 
-                 exploreNodeId, brokenNodes.size());
         
         com.security.processchain.model.ProcessNode exploreNode = 
                 new com.security.processchain.model.ProcessNode();
