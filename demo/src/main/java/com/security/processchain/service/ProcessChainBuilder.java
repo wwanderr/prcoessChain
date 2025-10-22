@@ -131,10 +131,13 @@ public class ProcessChainBuilder {
             // 检查节点数量,如果超过限制则裁剪
             if (nodeMap.size() > MAX_NODE_COUNT) {
                 log.warn("【进程链生成】-> 节点数量({})超过限制({}),开始智能裁剪...", nodeMap.size(), MAX_NODE_COUNT);
+                int beforePruneCount = nodeMap.size();
                 try {
                     pruneNodesWithSmartStrategy();
+                    log.info("【进程链生成】-> 裁剪完成: 裁剪前={}, 裁剪后={}", beforePruneCount, nodeMap.size());
                 } catch (Exception e) {
-                    log.error("【进程链生成】-> 节点裁剪失败: {}", e.getMessage(), e);
+                    log.error("【进程链生成】-> 节点裁剪失败: {}，已保留原始数据", e.getMessage(), e);
+                    // 注意：pruneNodesWithSmartStrategy 内部已经处理了回滚，这里只是记录
                 }
             }
             
