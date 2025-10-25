@@ -109,13 +109,14 @@ public class CoreLogicTest {
         assertEquals("应该有1个根节点（Explore）", 1, rootCount);
         
         ProcessNode rootNode = getRootNode(result);
-        assertEquals("应该创建EXPLORE_ROOT", "EXPLORE_ROOT", rootNode.getNodeId());
+        String expectedExploreId = "EXPLORE_ROOT_" + traceId;
+        assertEquals("应该创建EXPLORE_ROOT_" + traceId, expectedExploreId, rootNode.getNodeId());
         assertTrue("Explore应该标记为根节点", rootNode.getChainNode().getIsRoot());
         
         long brokenCount = countBrokenNodes(result);
         assertTrue("应该有断链节点", brokenCount > 0);
         
-        System.out.println("✅ Explore已创建, 断链数=" + brokenCount);
+        System.out.println("✅ Explore已创建: " + expectedExploreId + ", 断链数=" + brokenCount);
     }
 
     /**
@@ -198,20 +199,21 @@ public class CoreLogicTest {
             IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
         );
         
-        // 验证：只有1个 Explore 根节点
+        // 验证：只有1个 Explore 根节点（使用 traceId 特定的命名）
         assertNotNull(result);
         assertEquals("应该有且只有1个根节点", 1, countRootNodes(result));
         
         ProcessNode rootNode = getRootNode(result);
-        assertEquals("应该是EXPLORE_ROOT", "EXPLORE_ROOT", rootNode.getNodeId());
+        String expectedExploreId = "EXPLORE_ROOT_" + traceId;
+        assertEquals("应该是EXPLORE_ROOT_" + traceId, expectedExploreId, rootNode.getNodeId());
         
         // 验证 Explore 连接到所有断链
         long exploreEdges = result.getEdges().stream()
-            .filter(edge -> "EXPLORE_ROOT".equals(edge.getSource()))
+            .filter(edge -> expectedExploreId.equals(edge.getSource()))
             .count();
         assertTrue("Explore应该连接至少3个断链", exploreEdges >= 3);
         
-        System.out.println("✅ Explore连接了" + exploreEdges + "个断链");
+        System.out.println("✅ " + expectedExploreId + " 连接了" + exploreEdges + "个断链");
     }
     
     /**
@@ -448,3 +450,4 @@ public class CoreLogicTest {
     }
 }
 
+ 

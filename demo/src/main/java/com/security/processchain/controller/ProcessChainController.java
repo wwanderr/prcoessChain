@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * 进程链生成REST API控制器
@@ -24,25 +23,6 @@ public class ProcessChainController {
     @Autowired
     private ProcessChainServiceImpl processChainService;
 
-    /**
-     * 为单个IP生成进程链
-     * 
-     * @param ip IP地址
-     * @param associatedEventId 关联事件ID（可选）
-     * @param hasAssociation 是否有网端关联（可选，默认false）
-     * @return 进程链
-     */
-    @GetMapping("/generate")
-    public IncidentProcessChain generateProcessChain(
-            @RequestParam String ip,
-            @RequestParam(required = false) String associatedEventId,
-            @RequestParam(required = false, defaultValue = "false") Boolean hasAssociation) {
-        
-        log.info("收到单个IP进程链生成请求: ip={}, associatedEventId={}, hasAssociation={}", 
-                ip, associatedEventId, hasAssociation);
-        
-        return processChainService.generateProcessChainForIp(ip, associatedEventId, hasAssociation);
-    }
 
     /**
      * 批量生成进程链（端侧）
@@ -58,6 +38,17 @@ public class ProcessChainController {
         
         log.info("收到批量进程链生成请求（仅端侧）: {}", ipMappingRelation);
         
+        // 输入验证
+        if (ipMappingRelation == null) {
+            log.error("【输入验证失败】-> IpMappingRelation参数为空");
+            return null;
+        }
+        
+        if (ipMappingRelation.getIpAndAssociation() == null || ipMappingRelation.getIpAndAssociation().isEmpty()) {
+            log.error("【输入验证失败】-> IP列表为空");
+            return null;
+        }
+        
         return processChainService.generateProcessChains(ipMappingRelation, null);
     }
 
@@ -72,6 +63,17 @@ public class ProcessChainController {
             @RequestBody MergeChainRequest request) {
         
         log.info("收到合并进程链请求");
+        
+        // 输入验证
+        if (request == null) {
+            log.error("【输入验证失败】-> 合并请求为空");
+            return null;
+        }
+        
+        if (request.getIpMappingRelation() == null) {
+            log.error("【输入验证失败】-> IpMappingRelation参数为空");
+            return null;
+        }
         
         // 封装网侧数据为 Pair
         Pair<List<ProcessNode>, List<ProcessEdge>> networkChain = null;

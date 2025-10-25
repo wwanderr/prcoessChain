@@ -3,6 +3,7 @@ package com.security.processchain.service;
 import com.security.processchain.model.ProcessNode;
 import com.security.processchain.model.ProcessEdge;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 事件进程链
@@ -14,6 +15,13 @@ public class IncidentProcessChain {
     private List<ProcessNode> nodes;
     private List<ProcessEdge> edges;
     private ThreatSeverity threatSeverity;
+    
+    /**
+     * traceId 到根节点ID的映射
+     * 用于网端桥接：通过 hostToTraceId 可以找到 traceId，再通过此映射找到对应的根节点
+     * 特殊情况：如果没有真实根节点，会映射到 "EXPLORE_ROOT" 虚拟节点
+     */
+    private Map<String, String> traceIdToRootNodeMap;
     
     public IncidentProcessChain() {}
     
@@ -55,6 +63,14 @@ public class IncidentProcessChain {
     
     public void setThreatSeverity(ThreatSeverity threatSeverity) {
         this.threatSeverity = threatSeverity;
+    }
+    
+    public Map<String, String> getTraceIdToRootNodeMap() {
+        return traceIdToRootNodeMap;
+    }
+    
+    public void setTraceIdToRootNodeMap(Map<String, String> traceIdToRootNodeMap) {
+        this.traceIdToRootNodeMap = traceIdToRootNodeMap;
     }
 }
 

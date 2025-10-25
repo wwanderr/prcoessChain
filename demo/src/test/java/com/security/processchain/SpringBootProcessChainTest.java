@@ -20,7 +20,7 @@ import static org.junit.Assert.*;
  * 4. 多 traceId 支持
  * 5. 网端关联节点处理
  */
-public class SpringBootProcessChainTest {
+    public class SpringBootProcessChainTest {
 
     /**
      * 测试1：单个 traceId，有真实根节点

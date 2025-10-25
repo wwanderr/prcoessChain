@@ -1,4 +1,4 @@
-﻿package com.security.processchain.service;
+package com.security.processchain.service;
 
 import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.RawAlarm;
@@ -41,6 +41,12 @@ public class ProcessChainBuilder {
     // 断裂节点集合（找不到根节点的最顶端节点）
     private Set<String> brokenNodes;
     
+    // 断链节点到 traceId 的映射（用于将断链连接到正确的 EXPLORE）
+    private Map<String, String> brokenNodeToTraceId;
+    
+    // traceId 到根节点ID的映射（用于网端桥接）
+    private Map<String, String> traceIdToRootNodeMap;
+    
     public ProcessChainBuilder() {
         this.nodeMap = new HashMap<>();
         this.edges = new ArrayList<>();
@@ -49,6 +55,8 @@ public class ProcessChainBuilder {
         this.visitedNodesInPath = new HashSet<>();
         this.associatedEventIds = new HashSet<>();
         this.brokenNodes = new HashSet<>();
+        this.brokenNodeToTraceId = new HashMap<>();
+        this.traceIdToRootNodeMap = new HashMap<>();
     }
     
     /**
@@ -148,10 +156,12 @@ public class ProcessChainBuilder {
             result.setFoundRootNode(foundRootNode);
             result.setRootNodes(new HashSet<>(rootNodes));
             result.setBrokenNodes(new HashSet<>(brokenNodes));
+            result.setTraceIdToRootNodeMap(new HashMap<>(traceIdToRootNodeMap));
             
-            log.info("进程链构建完成: 节点数={}, 边数={}, 根节点数={}, 断裂节点数={}", 
+            log.info("进程链构建完成: 节点数={}, 边数={}, 根节点数={}, 断裂节点数={}, traceId映射数={}", 
                     result.getNodes().size(), result.getEdges().size(), 
-                    rootNodes.size(), brokenNodes.size());
+                    rootNodes.size(), brokenNodes.size(), traceIdToRootNodeMap.size());
+            log.info("【进程链生成】-> traceId到根节点映射: {}", traceIdToRootNodeMap);
             
             return result;
             
@@ -191,7 +201,10 @@ public class ProcessChainBuilder {
         if (traceIds.contains(processGuid)) {
             foundRootNode = true;
             rootNodes.add(processGuid);
-            log.info("【进程链生成】-> 告警节点本身就是根节点: processGuid={} (匹配traceIds)", processGuid);
+            // 记录 traceId 到根节点的映射（告警的 traceId 就是 processGuid）
+            traceIdToRootNodeMap.put(alarm.getTraceId(), processGuid);
+            log.info("【进程链生成】-> 告警节点本身就是根节点: processGuid={} (匹配traceIds), 记录映射: traceId={} -> rootNodeId={}", 
+                    processGuid, alarm.getTraceId(), processGuid);
         }
         
         // 添加告警对应的同级日志节点
@@ -251,7 +264,10 @@ public class ProcessChainBuilder {
         if (traceIds.contains(processGuid)) {
             foundRootNode = true;
             rootNodes.add(processGuid);
-            log.info("【进程链生成】-> 告警节点本身就是根节点: processGuid={} (匹配traceIds)", processGuid);
+            // 记录 traceId 到根节点的映射
+            traceIdToRootNodeMap.put(alarm.getTraceId(), processGuid);
+            log.info("【进程链生成】-> 告警节点本身就是根节点: processGuid={} (匹配traceIds), 记录映射: traceId={} -> rootNodeId={}", 
+                    processGuid, alarm.getTraceId(), processGuid);
         }
         
         // 添加告警对应的同级日志节点
@@ -311,7 +327,10 @@ public class ProcessChainBuilder {
         if (traceIds.contains(currentProcessGuid)) {
             foundRootNode = true;
             rootNodes.add(currentProcessGuid);
-            log.info("【进程链生成】-> 找到根节点: processGuid={} (匹配traceIds)", currentProcessGuid);
+            // 记录映射：当 processGuid 在 traceIds 中时，processGuid 本身就是 traceId
+            traceIdToRootNodeMap.put(currentProcessGuid, currentProcessGuid);
+            log.info("【进程链生成】-> 找到根节点: processGuid={} (匹配traceIds), 记录映射: traceId={} -> rootNodeId={}", 
+                    currentProcessGuid, currentProcessGuid, currentProcessGuid);
             visitedNodesInPath.remove(currentProcessGuid);
             return;
         }
@@ -328,15 +347,28 @@ public class ProcessChainBuilder {
                 // 是根节点，标记为根节点，不是断链
                 foundRootNode = true;
                 rootNodes.add(currentProcessGuid);
-                log.info("【进程链生成】-> 找到根节点: processGuid={} (匹配traceIds，父节点为空)", currentProcessGuid);
+                // 记录映射：当 processGuid 在 traceIds 中时，processGuid 本身就是 traceId
+                traceIdToRootNodeMap.put(currentProcessGuid, currentProcessGuid);
+                log.info("【进程链生成】-> 找到根节点: processGuid={} (匹配traceIds，父节点为空), 记录映射: traceId={} -> rootNodeId={}", 
+                        currentProcessGuid, currentProcessGuid, currentProcessGuid);
                 visitedNodesInPath.remove(currentProcessGuid);
                 return;
             }
             
             // 不是根节点，才标记为断裂节点
             brokenNodes.add(currentProcessGuid);
-            log.warn("断链检测: 当前节点 {} 的父节点 {} 在原始日志中不存在，标记为断裂节点", 
-                    currentProcessGuid, parentProcessGuid);
+            
+            // 尝试从节点的日志中获取 traceId
+            String nodeTraceId = extractTraceIdFromNode(currentNode);
+            if (nodeTraceId != null && !nodeTraceId.isEmpty()) {
+                brokenNodeToTraceId.put(currentProcessGuid, nodeTraceId);
+                log.warn("断链检测: 当前节点 {} (traceId={}) 的父节点 {} 在原始日志中不存在，标记为断裂节点", 
+                        currentProcessGuid, nodeTraceId, parentProcessGuid);
+            } else {
+                log.warn("断链检测: 当前节点 {} 的父节点 {} 在原始日志中不存在，标记为断裂节点（未找到traceId）", 
+                        currentProcessGuid, parentProcessGuid);
+            }
+            
             visitedNodesInPath.remove(currentProcessGuid);
             return;
         }
@@ -575,6 +607,36 @@ public class ProcessChainBuilder {
     }
     
     /**
+     * 从节点中提取 traceId
+     * 优先从告警中获取，其次从日志中获取
+     */
+    private String extractTraceIdFromNode(ChainBuilderNode node) {
+        if (node == null) {
+            return null;
+        }
+        
+        // 1. 优先从告警中获取 traceId
+        if (node.getAlarms() != null && !node.getAlarms().isEmpty()) {
+            for (RawAlarm alarm : node.getAlarms()) {
+                if (alarm != null && alarm.getTraceId() != null && !alarm.getTraceId().isEmpty()) {
+                    return alarm.getTraceId();
+                }
+            }
+        }
+        
+        // 2. 从日志中获取 traceId
+        if (node.getLogs() != null && !node.getLogs().isEmpty()) {
+            for (RawLog log : node.getLogs()) {
+                if (log != null && log.getTraceId() != null && !log.getTraceId().isEmpty()) {
+                    return log.getTraceId();
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
      * 判断logType是否有效
      */
     private boolean isValidLogType(String logType) {
@@ -675,77 +737,137 @@ public class ProcessChainBuilder {
     }
     
     /**
-     * 为断链节点添加统一的 Explore 虚拟根节点
+     * 为断链节点添加 Explore 虚拟根节点
      * 
-     * 策略：
-     * 1. 如果找到了真实根节点（rootNodes 不为空），不添加 Explore
-     * 2. 如果没有找到真实根节点，但有断链：
-     *    - 创建一个唯一的 Explore 节点作为虚拟根节点
-     *    - 所有断链节点都连接到这个 Explore
-     *    - 保证：有且只有一个根节点（isRoot = true）
+     * 策略（优化后）：
+     * 1. 如果没有断链节点，检查是否有 traceId 没有真实根节点
+     * 2. 为每个没有真实根节点的 traceId 创建独立的 EXPLORE 节点
+     *    - 节点ID格式：EXPLORE_ROOT_{traceId}
+     *    - 每个 traceId 有自己独立的虚拟根节点
+     *    - 支持多个 victim 连接到不同的 EXPLORE 节点
+     * 3. 将断链节点连接到对应 traceId 的 EXPLORE 节点
      * 
      * @param finalNodes 最终节点列表
      * @param finalEdges 最终边列表
      * @param brokenNodes 断链节点集合
      * @param rootNodes 真实根节点集合
+     * @param traceIds 所有 traceId 集合
+     * @param traceIdToRootNodeMap traceId 到根节点的映射（会被修改）
      */
     private void addExploreNodesForBrokenChains(
             List<com.security.processchain.model.ProcessNode> finalNodes,
             List<com.security.processchain.model.ProcessEdge> finalEdges,
             Set<String> brokenNodes,
-            Set<String> rootNodes) {
+            Set<String> rootNodes,
+            Set<String> traceIds,
+            Map<String, String> traceIdToRootNodeMap,
+            Map<String, String> brokenNodeToTraceId) {
         
-        // 第1步：如果没有断链节点，不需要 Explore
-        if (brokenNodes == null || brokenNodes.isEmpty()) {
-            log.info("【进程链生成】-> 无断链节点，不需要添加 Explore");
+        if (traceIds == null || traceIds.isEmpty()) {
+            log.warn("【进程链生成】-> traceIds为空，无法创建 Explore 节点");
             return;
         }
         
-        // 第2步：即使有真实根节点，只要有断链，也要为断链创建 Explore
-        // 这样可以确保所有节点都能被访问到（混合 traceId 场景）
-        if (rootNodes != null && !rootNodes.isEmpty()) {
-            log.info("【进程链生成】-> 已有 {} 个真实根节点，但仍为 {} 个断链节点创建 Explore 虚拟根节点", 
-                     rootNodes.size(), brokenNodes.size());
-        } else {
-            log.info("【进程链生成】-> 无真实根节点，为 {} 个断链节点创建 Explore 虚拟根节点", brokenNodes.size());
+        // 第1步：找出所有没有真实根节点的 traceId
+        Set<String> traceIdsWithoutRoot = new HashSet<>();
+        for (String traceId : traceIds) {
+            if (!traceIdToRootNodeMap.containsKey(traceId)) {
+                traceIdsWithoutRoot.add(traceId);
+            }
         }
         
-        // 第3步：创建唯一的 Explore 虚拟根节点
-        String exploreNodeId = "EXPLORE_ROOT";  // 使用固定的 ID，表示这是唯一的虚拟根节点
-        
-        com.security.processchain.model.ProcessNode exploreNode = 
-                new com.security.processchain.model.ProcessNode();
-        exploreNode.setNodeId(exploreNodeId);
-        exploreNode.setIsChainNode(true);
-        exploreNode.setLogType(NodeType.EXPLORE);
-        
-        ChainNode exploreChainNode = new ChainNode();
-        exploreChainNode.setIsRoot(true);   // ✅ 唯一的虚拟根节点
-        exploreChainNode.setIsBroken(false);
-        exploreChainNode.setIsAlarm(false);
-        
-        exploreNode.setChainNode(exploreChainNode);
-        exploreNode.setStoryNode(null);
-        
-        // 添加 Explore 节点到列表
-        finalNodes.add(exploreNode);
-        
-        // 第4步：为每个断链节点创建边，连接到统一的 Explore
-        for (String brokenNodeGuid : brokenNodes) {
-            // 创建边：EXPLORE_ROOT -> 断链节点
-            com.security.processchain.model.ProcessEdge exploreEdge = 
-                    new com.security.processchain.model.ProcessEdge();
-            exploreEdge.setSource(exploreNodeId);
-            exploreEdge.setTarget(brokenNodeGuid);
-            exploreEdge.setVal("断链");  // 友好的标签
-            
-            finalEdges.add(exploreEdge);
-            
-            log.debug("【进程链生成】-> 连接断链节点 {} 到虚拟根节点 {}", brokenNodeGuid, exploreNodeId);
+        // 第2步：如果所有 traceId 都有真实根节点，且没有断链，则不需要 Explore
+        if (traceIdsWithoutRoot.isEmpty() && (brokenNodes == null || brokenNodes.isEmpty())) {
+            log.info("【进程链生成】-> 所有 traceId 都有真实根节点，且无断链，不需要添加 Explore");
+            return;
         }
         
-        log.info("【进程链生成】-> 虚拟根节点创建完成: {} 连接了 {} 个断链节点", 
-                 exploreNodeId, brokenNodes.size());
+        log.info("【进程链生成】-> 开始为 {} 个没有真实根节点的 traceId 创建独立的 Explore 节点", 
+                traceIdsWithoutRoot.size());
+        
+        // 第3步：为每个没有真实根节点的 traceId 创建独立的 EXPLORE 节点
+        int exploreNodeCount = 0;
+        for (String traceId : traceIdsWithoutRoot) {
+            // 创建独立的 EXPLORE 节点ID
+            String exploreNodeId = "EXPLORE_ROOT_" + traceId;
+            
+            com.security.processchain.model.ProcessNode exploreNode = 
+                    new com.security.processchain.model.ProcessNode();
+            exploreNode.setNodeId(exploreNodeId);
+            exploreNode.setIsChainNode(true);
+            exploreNode.setLogType(NodeType.EXPLORE);
+            
+            ChainNode exploreChainNode = new ChainNode();
+            exploreChainNode.setIsRoot(true);   // 虚拟根节点
+            exploreChainNode.setIsBroken(false);
+            exploreChainNode.setIsAlarm(false);
+            
+            exploreNode.setChainNode(exploreChainNode);
+            exploreNode.setStoryNode(null);
+            
+            // 添加 Explore 节点到列表
+            finalNodes.add(exploreNode);
+            exploreNodeCount++;
+            
+            // 记录 traceId 到 EXPLORE 节点的映射
+            traceIdToRootNodeMap.put(traceId, exploreNodeId);
+            
+            log.info("【进程链生成】-> 创建独立 Explore 节点: traceId={} -> nodeId={}", 
+                    traceId, exploreNodeId);
+        }
+        
+        // 第4步：将断链节点连接到对应的 EXPLORE 节点
+        // 使用 brokenNodeToTraceId 映射来确定每个断链节点属于哪个 traceId
+        if (brokenNodes != null && !brokenNodes.isEmpty()) {
+            int connectedCount = 0;
+            int unmappedCount = 0;
+            
+            for (String brokenNodeGuid : brokenNodes) {
+                // 查找断链节点的 traceId
+                String nodeTraceId = brokenNodeToTraceId.get(brokenNodeGuid);
+                
+                if (nodeTraceId != null && traceIdToRootNodeMap.containsKey(nodeTraceId)) {
+                    // 找到了对应的 EXPLORE 节点
+                    String exploreNodeId = traceIdToRootNodeMap.get(nodeTraceId);
+                    
+                    com.security.processchain.model.ProcessEdge exploreEdge = 
+                            new com.security.processchain.model.ProcessEdge();
+                    exploreEdge.setSource(exploreNodeId);
+                    exploreEdge.setTarget(brokenNodeGuid);
+                    exploreEdge.setVal("断链");
+                    
+                    finalEdges.add(exploreEdge);
+                    connectedCount++;
+                    
+                    log.debug("【进程链生成】-> 连接断链节点 {} (traceId={}) 到虚拟根节点 {}", 
+                            brokenNodeGuid, nodeTraceId, exploreNodeId);
+                } else {
+                    // 未找到 traceId 映射，尝试连接到第一个 EXPLORE
+                    if (!traceIdsWithoutRoot.isEmpty()) {
+                        String firstTraceId = traceIdsWithoutRoot.iterator().next();
+                        String exploreNodeId = traceIdToRootNodeMap.get(firstTraceId);
+                        
+                        com.security.processchain.model.ProcessEdge exploreEdge = 
+                                new com.security.processchain.model.ProcessEdge();
+                        exploreEdge.setSource(exploreNodeId);
+                        exploreEdge.setTarget(brokenNodeGuid);
+                        exploreEdge.setVal("断链");
+                        
+                        finalEdges.add(exploreEdge);
+                        unmappedCount++;
+                        
+                        log.warn("【进程链生成】-> 断链节点 {} 未找到traceId映射，连接到第一个 Explore 节点: {}", 
+                                brokenNodeGuid, exploreNodeId);
+                    }
+                }
+            }
+            
+            log.info("【进程链生成】-> 断链节点连接完成: 成功匹配={}, 未匹配={}, 总数={}", 
+                    connectedCount, unmappedCount, brokenNodes.size());
+        }
+        
+        log.info("【进程链生成】-> Explore 节点创建完成: 共创建 {} 个独立的虚拟根节点", exploreNodeCount);
+        log.info("【进程链生成】-> traceId到根节点映射更新: {}", traceIdToRootNodeMap);
     }
     
 
@@ -758,6 +880,13 @@ public class ProcessChainBuilder {
         private boolean foundRootNode = false;
         private Set<String> rootNodes = new HashSet<>();
         private Set<String> brokenNodes = new HashSet<>();
+        
+        /**
+         * traceId 到根节点ID的映射
+         * 用于网端桥接：通过 hostToTraceId 可以找到 traceId，再通过此映射找到对应的根节点
+         * 特殊情况：如果没有真实根节点，会映射到 "EXPLORE_ROOT" 虚拟节点
+         */
+        private Map<String, String> traceIdToRootNodeMap = new HashMap<>();
         
         public List<ChainBuilderNode> getNodes() {
             return nodes;
@@ -797,6 +926,14 @@ public class ProcessChainBuilder {
         
         public void setBrokenNodes(Set<String> brokenNodes) {
             this.brokenNodes = brokenNodes;
+        }
+        
+        public Map<String, String> getTraceIdToRootNodeMap() {
+            return traceIdToRootNodeMap;
+        }
+        
+        public void setTraceIdToRootNodeMap(Map<String, String> traceIdToRootNodeMap) {
+            this.traceIdToRootNodeMap = traceIdToRootNodeMap;
         }
     }
     
@@ -877,11 +1014,15 @@ public class ProcessChainBuilder {
             // 添加 Explore 节点（如果有断链）
             if (result.getBrokenNodes() != null && !result.getBrokenNodes().isEmpty()) {
                 addExploreNodesForBrokenChains(finalNodes, finalEdges, 
-                        result.getBrokenNodes(), result.getRootNodes());
+                        result.getBrokenNodes(), result.getRootNodes(), 
+                        traceIds, result.getTraceIdToRootNodeMap());
             }
             
             incidentChain.setNodes(finalNodes);
             incidentChain.setEdges(finalEdges);
+            
+            // 将 traceId 到根节点的映射传递给 IncidentProcessChain（用于后续桥接）
+            incidentChain.setTraceIdToRootNodeMap(result.getTraceIdToRootNodeMap());
             
             log.info("【进程链生成】-> IncidentProcessChain 构建完成: 节点数={}, 边数={}", 
                     finalNodes.size(), finalEdges.size());

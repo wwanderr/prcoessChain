@@ -1,6 +1,5 @@
 package com.security.processchain.service.impl;
 
-import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.IpMappingRelation;
 import com.security.processchain.model.ProcessEdge;
 import com.security.processchain.model.ProcessNode;
@@ -9,7 +8,6 @@ import com.security.processchain.model.RawLog;
 import com.security.processchain.service.*;
 import com.security.processchain.util.AlarmElectionUtil;
 import com.security.processchain.util.Pair;
-import com.security.processchain.util.TimeUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -55,14 +53,12 @@ public class ProcessChainServiceImpl {
         Set<String> allTraceIds = new HashSet<>();
         Set<String> allHostAddresses = new HashSet<>();
         Set<String> allAssociatedEventIds = new HashSet<>();
-        
-        // IP -> rootNodeId 映射（用于桥接网侧和端侧）
-        Map<String, String> ipToRootNodeIdMap = new HashMap<>();
 
         try {
             log.info("【进程链生成】-> ========================================");
+            int alarmIpsCount = (ipMappingRelation.getAlarmIps() != null) ? ipMappingRelation.getAlarmIps().size() : 0;
             log.info("【进程链生成】-> 开始批量生成进程链，IP数量: {}, 网端关联数: {}", 
-                    ips.size(), ipMappingRelation.getAlarmIps().size());
+                    ips.size(), alarmIpsCount);
             log.info("【进程链生成】-> ========================================");
 
             // 性能优化：批量查询所有IP的告警数据
@@ -180,20 +176,6 @@ public class ProcessChainServiceImpl {
                 endpointChain.setHostAddresses(new ArrayList<>(allHostAddresses));
             }
             
-            // ========== 阶段4: 构建 IP -> rootNodeId 映射 ==========
-            if (endpointChain != null && endpointChain.getNodes() != null) {
-                for (ProcessNode node : endpointChain.getNodes()) {
-                    if (isRootNode(node)) {
-                        // 通过 hostToTraceId 反向查找该根节点对应的 IP
-                        String nodeIp = findIpForRootNode(node, hostToTraceId, allSelectedAlarms);
-                        if (nodeIp != null && !nodeIp.isEmpty()) {
-                            ipToRootNodeIdMap.put(nodeIp, node.getNodeId());
-                            log.info("【进程链生成】-> 根节点映射: IP={}, rootNodeId={}", nodeIp, node.getNodeId());
-                        }
-                    }
-                }
-            }
-            
             long totalTime = System.currentTimeMillis() - startTime;
             log.info("【进程链生成】-> ========================================");
             log.info("【进程链生成】-> 端侧进程链生成完成");
@@ -202,17 +184,20 @@ public class ProcessChainServiceImpl {
             log.info("【进程链生成】-> 节点数: {}, 边数: {}", 
                     endpointChain != null && endpointChain.getNodes() != null ? endpointChain.getNodes().size() : 0,
                     endpointChain != null && endpointChain.getEdges() != null ? endpointChain.getEdges().size() : 0);
-            log.info("【进程链生成】-> 根节点映射数: {}", ipToRootNodeIdMap.size());
+            if (endpointChain != null && endpointChain.getTraceIdToRootNodeMap() != null) {
+                log.info("【进程链生成】-> traceId到根节点映射数: {}", endpointChain.getTraceIdToRootNodeMap().size());
+                log.info("【进程链生成】-> traceId映射详情: {}", endpointChain.getTraceIdToRootNodeMap());
+            }
             log.info("【进程链生成】-> ========================================");
 
-            // ========== 阶段5: 合并网侧和端侧 ==========
+            // ========== 阶段4: 合并网侧和端侧 ==========
             if (networkChain == null || networkChain.getKey() == null || networkChain.getKey().isEmpty()) {
                 log.info("【进程链生成】-> 没有网侧数据，直接返回端侧进程链");
                 return endpointChain;
             }
             
-            // 合并网侧和端侧进程链
-            return mergeNetworkAndEndpointChain(networkChain, endpointChain, ipToRootNodeIdMap);
+            // 合并网侧和端侧进程链（使用 hostToTraceId 和 endpointChain 中的 traceIdToRootNodeMap）
+            return mergeNetworkAndEndpointChain(networkChain, endpointChain, hostToTraceId);
 
         } catch (Exception e) {
             log.error("【进程链生成】-> 批量生成进程链失败: {}", e.getMessage(), e);
@@ -220,74 +205,6 @@ public class ProcessChainServiceImpl {
         }
     }
 
-    /**
-     * 为单个IP生成进程链
-     */
-    public IncidentProcessChain generateProcessChainForIp(String ip, String associatedEventId, boolean hasAssociation) {
-        if (ip == null || ip.trim().isEmpty()) {
-            log.error("【进程链生成】-> 错误: IP为空");
-            return null;
-        }
-
-        try {
-            log.info("【进程链生成】-> 为IP生成进程链: {}, 网端关联: {}", ip, hasAssociation);
-
-            // 查询告警
-            List<RawAlarm> alarms = esQueryService.queryEDRAlarms(ip);
-            if (alarms == null || alarms.isEmpty()) {
-                log.warn("【进程链生成】-> IP [{}] 没有查询到告警数据", ip);
-                return null;
-            }
-
-            // 选择告警（返回同一个traceId的所有告警）
-            List<RawAlarm> selectedAlarms = selectAlarm(alarms, associatedEventId, hasAssociation);
-            if (selectedAlarms == null || selectedAlarms.isEmpty()) {
-                log.warn("【进程链生成】-> IP [{}] 无法选择有效告警", ip);
-                return null;
-            }
-
-            // 使用第一个告警的信息查询日志和设置基本信息
-            RawAlarm firstAlarm = selectedAlarms.get(0);
-
-            // 查询日志
-            List<RawLog> logs = queryLogsForAlarm(firstAlarm);
-
-            // 构建进程链（传入所有选中的告警）
-            Set<String> traceIds = new HashSet<>();
-            traceIds.add(firstAlarm.getTraceId());  // 单个 IP 只有一个 traceId
-            
-            Set<String> associatedEventIds = new HashSet<>();
-            if (hasAssociation && associatedEventId != null && !associatedEventId.trim().isEmpty()) {
-                associatedEventIds.add(associatedEventId);
-            }
-            
-            ProcessChainBuilder builder = new ProcessChainBuilder();
-            IncidentProcessChain incidentChain = builder.buildIncidentChain(
-                selectedAlarms,  // 所有告警
-                logs, 
-                traceIds,  // 传入 Set
-                associatedEventIds,  // 传入 Set
-                IncidentConverters.NODE_MAPPER, 
-                IncidentConverters.EDGE_MAPPER);
-            
-            // 设置基本信息
-            if (incidentChain != null) {
-                List<String> traceIdList = new ArrayList<>();
-                traceIdList.add(firstAlarm.getTraceId());
-                incidentChain.setTraceIds(traceIdList);
-                
-                List<String> hostAddressList = new ArrayList<>();
-                hostAddressList.add(firstAlarm.getHostAddress());
-                incidentChain.setHostAddresses(hostAddressList);
-            }
-            
-            return incidentChain;
-
-        } catch (Exception e) {
-            log.error("【进程链生成】-> 生成进程链失败: {}", e.getMessage(), e);
-            return null;
-        }
-    }
 
     /**
      * 选择告警（返回同一个traceId的所有告警）
@@ -369,101 +286,17 @@ public class ProcessChainServiceImpl {
     }
 
     /**
-     * 查询告警相关的日志
-     */
-    private List<RawLog> queryLogsForAlarm(RawAlarm alarm) {
-        if (alarm == null || alarm.getTraceId() == null) {
-            return new ArrayList<>();
-        }
-
-        try {
-            String timeStart = alarm.getStartTime();
-            String timeEnd = calculateEndTime(timeStart);
-
-            // 关注的日志类型
-            List<String> logTypes = ProcessChainConstants.LogType.ALL_MONITORED_TYPES;
-
-            return esQueryService.queryRawLogs(
-                alarm.getTraceId(),
-                alarm.getHostAddress(),
-                timeStart,
-                timeEnd,
-                logTypes
-            );
-
-        } catch (Exception e) {
-            log.error("【进程链生成】-> 查询告警日志失败: {}", e.getMessage(), e);
-            return new ArrayList<>();
-        }
-    }
-
-    /**
-     * 计算结束时间（告警开始时间+默认时间窗口）
-     */
-    private String calculateEndTime(String startTime) {
-        return TimeUtil.addHours(startTime, ProcessChainConstants.Time.DEFAULT_TIME_WINDOW_HOURS);
-    }
-    
-    /**
-     * 判断节点是否是根节点
-     */
-    private boolean isRootNode(ProcessNode node) {
-        return node.getIsChainNode() != null 
-                && node.getIsChainNode() 
-                && node.getChainNode() != null 
-                && node.getChainNode().getIsRoot() != null 
-                && node.getChainNode().getIsRoot();
-    }
-    
-    /**
-     * 查找根节点对应的 IP
-     * 通过根节点的 processGuid 匹配告警中的 processGuid，然后获取 hostAddress
-     * 
-     * @param rootNode 根节点
-     * @param hostToTraceId host到traceId的映射
-     * @param allAlarms 所有告警列表
-     * @return 对应的IP地址，如果找不到返回null
-     */
-    private String findIpForRootNode(ProcessNode rootNode, 
-                                      Map<String, String> hostToTraceId,
-                                      List<RawAlarm> allAlarms) {
-        String rootNodeId = rootNode.getNodeId(); // 这是 processGuid
-        
-        // 在告警列表中查找匹配的告警
-        for (RawAlarm alarm : allAlarms) {
-            if (alarm.getProcessGuid() != null && alarm.getProcessGuid().equals(rootNodeId)) {
-                String ip = alarm.getHostAddress();
-                log.debug("【进程链生成】-> 根节点 {} 对应IP: {}", rootNodeId, ip);
-                return ip;
-            }
-        }
-        
-        // 如果告警中没找到，尝试通过 traceId 反向查找
-        // 如果根节点的 processGuid == traceId，可以通过 hostToTraceId 反向查找
-        for (Map.Entry<String, String> entry : hostToTraceId.entrySet()) {
-            if (entry.getValue().equals(rootNodeId)) {
-                String ip = entry.getKey();
-                log.debug("【进程链生成】-> 通过traceId匹配，根节点 {} 对应IP: {}", rootNodeId, ip);
-                return ip;
-            }
-        }
-        
-        log.warn("【进程链生成】-> 无法找到根节点 {} 对应的IP", rootNodeId);
-        return null;
-    }
-    
-    /**
      * 合并网侧和端侧进程链
      * 
      * @param networkChain 网侧进程链（包含节点和边）
-     * @param endpointChain 端侧进程链
-     * @param ipToRootNodeIdMap IP到端侧根节点ID的映射
+     * @param endpointChain 端侧进程链（包含 traceIdToRootNodeMap）
+     * @param hostToTraceId host到traceId的映射
      * @return 合并后的完整进程链
      */
     private IncidentProcessChain mergeNetworkAndEndpointChain(
             Pair<List<ProcessNode>, List<ProcessEdge>> networkChain,
             IncidentProcessChain endpointChain,
-            Map<String, String> ipToRootNodeIdMap) {
+            Map<String, String> hostToTraceId) {
         
         log.info("【进程链生成】-> ========================================");
         log.info("【进程链生成】-> 开始合并网侧和端侧进程链");
@@ -500,10 +333,18 @@ public class ProcessChainServiceImpl {
             }
             
             // 5. **关键**：创建桥接边（连接网侧 victim 到端侧根节点）
-            List<ProcessEdge> bridgeEdges = createBridgeEdges(networkNodes, ipToRootNodeIdMap);
-            if (bridgeEdges != null && !bridgeEdges.isEmpty()) {
-                allEdges.addAll(bridgeEdges);
-                log.info("【进程链生成】-> 添加桥接边数: {}", bridgeEdges.size());
+            // 使用 hostToTraceId 和 traceIdToRootNodeMap 联动创建桥接边
+            if (endpointChain != null && endpointChain.getTraceIdToRootNodeMap() != null) {
+                List<ProcessEdge> bridgeEdges = createBridgeEdges(
+                        networkNodes, 
+                        hostToTraceId, 
+                        endpointChain.getTraceIdToRootNodeMap());
+                if (bridgeEdges != null && !bridgeEdges.isEmpty()) {
+                    allEdges.addAll(bridgeEdges);
+                    log.info("【进程链生成】-> 添加桥接边数: {}", bridgeEdges.size());
+                }
+            } else {
+                log.warn("【进程链生成】-> 端侧进程链或 traceIdToRootNodeMap 为空，无法创建桥接边");
             }
             
             // 6. 设置合并结果
@@ -532,19 +373,27 @@ public class ProcessChainServiceImpl {
     /**
      * 创建网侧到端侧的桥接边
      * 
-     * 核心逻辑：
+     * 核心逻辑（优化后）：
      * 1. 遍历网侧节点，找到所有 victim 类型节点（storyNode.type === "victim"）
      * 2. 从 storyNode.other.ip 提取 victim 的 IP
-     * 3. 在 ipToRootNodeIdMap 中查找对应的端侧根节点ID
-     * 4. 如果找到，创建桥接边（source=victim.nodeId, target=rootNodeId）
+     * 3. 通过 hostToTraceId 映射找到该 IP 对应的 traceId
+     * 4. 通过 traceIdToRootNodeMap 映射找到该 traceId 对应的根节点ID（可能是真实根节点或 EXPLORE_ROOT）
+     * 5. 如果找到，创建桥接边（source=victim.nodeId, target=rootNodeId）
+     * 
+     * 优势：
+     * - 不需要遍历所有节点构建 ipToRootNodeIdMap
+     * - 支持 EXPLORE_ROOT 虚拟节点的桥接
+     * - 逻辑更清晰：IP -> traceId -> rootNodeId
      * 
      * @param networkNodes 网侧节点列表
-     * @param ipToRootNodeIdMap IP到端侧根节点ID的映射
+     * @param hostToTraceId host到traceId的映射
+     * @param traceIdToRootNodeMap traceId到根节点ID的映射
      * @return 桥接边列表
      */
     private List<ProcessEdge> createBridgeEdges(
             List<ProcessNode> networkNodes,
-            Map<String, String> ipToRootNodeIdMap) {
+            Map<String, String> hostToTraceId,
+            Map<String, String> traceIdToRootNodeMap) {
         
         List<ProcessEdge> bridgeEdges = new ArrayList<>();
         
@@ -553,13 +402,20 @@ public class ProcessChainServiceImpl {
             return bridgeEdges;
         }
         
-        if (ipToRootNodeIdMap == null || ipToRootNodeIdMap.isEmpty()) {
-            log.warn("【进程链生成】-> 端侧根节点映射为空，无法创建桥接边");
+        if (hostToTraceId == null || hostToTraceId.isEmpty()) {
+            log.warn("【进程链生成】-> hostToTraceId 映射为空，无法创建桥接边");
             return bridgeEdges;
         }
         
-        log.info("【进程链生成】-> 开始创建桥接边，网侧节点数: {}, 端侧根节点映射数: {}", 
-                networkNodes.size(), ipToRootNodeIdMap.size());
+        if (traceIdToRootNodeMap == null || traceIdToRootNodeMap.isEmpty()) {
+            log.warn("【进程链生成】-> traceIdToRootNodeMap 映射为空，无法创建桥接边");
+            return bridgeEdges;
+        }
+        
+        log.info("【进程链生成】-> 开始创建桥接边，网侧节点数: {}, hostToTraceId映射数: {}, traceIdToRootNode映射数: {}", 
+                networkNodes.size(), hostToTraceId.size(), traceIdToRootNodeMap.size());
+        log.info("【进程链生成】-> hostToTraceId详情: {}", hostToTraceId);
+        log.info("【进程链生成】-> traceIdToRootNodeMap详情: {}", traceIdToRootNodeMap);
         
         int victimCount = 0;
         int bridgedCount = 0;
@@ -585,37 +441,57 @@ public class ProcessChainServiceImpl {
             
             victimCount++;
             
-            // 从 storyNode.other.ip 提取 IP（统一从这里获取）
+            // 步骤1: 从 storyNode.other.ip 提取 IP
             String victimIp = extractIpFromStoryNode(storyNode);
             
             if (victimIp == null || victimIp.isEmpty()) {
-                log.warn("【进程链生成】-> 无法从 victim 节点提取IP: nodeId={}", networkNode.getNodeId());
+                log.warn("【进程链生成】-> ❌ 无法从 victim 节点提取IP: nodeId={}", networkNode.getNodeId());
                 continue;
             }
             
-            // 查找端侧对应的根节点ID
-            String rootNodeId = ipToRootNodeIdMap.get(victimIp);
+            log.debug("【进程链生成】-> victim节点 {} 的IP: {}", networkNode.getNodeId(), victimIp);
+            
+            // 步骤2: 通过 IP 查找 traceId
+            String traceId = hostToTraceId.get(victimIp);
+            
+            if (traceId == null || traceId.isEmpty()) {
+                log.warn("【进程链生成】-> ❌ IP [{}] 在 hostToTraceId 中没有对应的 traceId，跳过桥接", victimIp);
+                continue;
+            }
+            
+            log.debug("【进程链生成】-> IP {} 对应的 traceId: {}", victimIp, traceId);
+            
+            // 步骤3: 通过 traceId 查找根节点ID
+            String rootNodeId = traceIdToRootNodeMap.get(traceId);
             
             if (rootNodeId == null || rootNodeId.isEmpty()) {
-                log.debug("【进程链生成】-> IP [{}] 在端侧没有对应的根节点，跳过桥接", victimIp);
+                log.warn("【进程链生成】-> ❌ traceId [{}] 在 traceIdToRootNodeMap 中没有对应的根节点，跳过桥接", traceId);
                 continue;
             }
             
-            // 创建桥接边
+            log.debug("【进程链生成】-> traceId {} 对应的根节点: {}", traceId, rootNodeId);
+            
+            // 步骤4: 创建桥接边
             ProcessEdge bridgeEdge = new ProcessEdge();
-            bridgeEdge.setSource(networkNode.getNodeId());  // victim 的 nodeId（可能是 "victim" 或 IP）
-            bridgeEdge.setTarget(rootNodeId);               // 端侧根节点的 nodeId（processGuid）
-            bridgeEdge.setVal("");                          // 透传，不设置特定值
+            bridgeEdge.setSource(networkNode.getNodeId());  // victim 的 nodeId
+            bridgeEdge.setTarget(rootNodeId);               // 端侧根节点的 nodeId（可能是真实根节点或 EXPLORE_ROOT）
+            bridgeEdge.setVal("桥接");                       // 标记为桥接边
             
             bridgeEdges.add(bridgeEdge);
             bridgedCount++;
             
-            log.info("【进程链生成】-> 创建桥接边 #{}: source={}, target={}, IP={}", 
-                    bridgedCount, networkNode.getNodeId(), rootNodeId, victimIp);
+            log.info("【进程链生成】-> ✅ 创建桥接边 #{}: source={}, target={}, IP={}, traceId={}", 
+                    bridgedCount, networkNode.getNodeId(), rootNodeId, victimIp, traceId);
         }
         
-        log.info("【进程链生成】-> 桥接边创建完成: 发现victim节点={}, 成功创建桥接边={}", 
-                victimCount, bridgedCount);
+        // 最终统计
+        if (bridgedCount == 0 && victimCount > 0) {
+            log.error("【进程链生成】-> ❌❌❌ 发现了 {} 个victim节点，但没有创建任何桥接边！", victimCount);
+            log.error("【进程链生成】-> 请检查：1) victim的IP提取  2) hostToTraceId映射  3) traceIdToRootNodeMap映射");
+        } else {
+            log.info("【进程链生成】-> ✅ 桥接边创建完成: 发现victim节点={}, 成功创建桥接边={}", 
+                    victimCount, bridgedCount);
+        }
         
         return bridgeEdges;
     }

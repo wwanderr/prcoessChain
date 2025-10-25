@@ -128,7 +128,7 @@ public class IpMappingRelation {
     }
 
     public void setIpAndAssociation(Map<String, Boolean> ipAndAssociation) {
-        this.ipAndAssociation = ipAndAssociation;
+        this.ipAndAssociation = (ipAndAssociation != null) ? ipAndAssociation : new HashMap<>();
     }
 
     public Map<String, String> getAlarmIps() {
@@ -136,7 +136,15 @@ public class IpMappingRelation {
     }
 
     public void setAlarmIps(Map<String, String> alarmIps) {
-        this.alarmIps = alarmIps;
+        this.alarmIps = (alarmIps != null) ? alarmIps : new HashMap<>();
+    }
+    
+    public Map<String, String> getLogs() {
+        return logs;
+    }
+    
+    public void setLogs(Map<String, String> logs) {
+        this.logs = (logs != null) ? logs : new HashMap<>();
     }
 
 
