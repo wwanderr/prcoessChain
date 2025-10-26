@@ -170,6 +170,9 @@ public class ProcessChainServiceImpl {
                     allSelectedAlarms, allLogs, allTraceIds, allAssociatedEventIds,
                     IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER);
             
+            // ✅ 优化：单独获取 traceIdToRootNodeMap（不作为 IncidentProcessChain 的一部分）
+            Map<String, String> traceIdToRootNodeMap = builder.getTraceIdToRootNodeMap();
+            
             // 设置 traceIds 和 hostAddresses
             if (endpointChain != null) {
                 endpointChain.setTraceIds(new ArrayList<>(allTraceIds));
@@ -184,9 +187,9 @@ public class ProcessChainServiceImpl {
             log.info("【进程链生成】-> 节点数: {}, 边数: {}", 
                     endpointChain != null && endpointChain.getNodes() != null ? endpointChain.getNodes().size() : 0,
                     endpointChain != null && endpointChain.getEdges() != null ? endpointChain.getEdges().size() : 0);
-            if (endpointChain != null && endpointChain.getTraceIdToRootNodeMap() != null) {
-                log.info("【进程链生成】-> traceId到根节点映射数: {}", endpointChain.getTraceIdToRootNodeMap().size());
-                log.info("【进程链生成】-> traceId映射详情: {}", endpointChain.getTraceIdToRootNodeMap());
+            if (traceIdToRootNodeMap != null && !traceIdToRootNodeMap.isEmpty()) {
+                log.info("【进程链生成】-> traceId到根节点映射数: {}", traceIdToRootNodeMap.size());
+                log.info("【进程链生成】-> traceId映射详情: {}", traceIdToRootNodeMap);
             }
             log.info("【进程链生成】-> ========================================");
 
@@ -196,8 +199,8 @@ public class ProcessChainServiceImpl {
                 return endpointChain;
             }
             
-            // 合并网侧和端侧进程链（使用 hostToTraceId 和 endpointChain 中的 traceIdToRootNodeMap）
-            return mergeNetworkAndEndpointChain(networkChain, endpointChain, hostToTraceId);
+            // ✅ 优化：将 traceIdToRootNodeMap 作为参数传递，而不是从 IncidentProcessChain 中获取
+            return mergeNetworkAndEndpointChain(networkChain, endpointChain, hostToTraceId, traceIdToRootNodeMap);
 
         } catch (Exception e) {
             log.error("【进程链生成】-> 批量生成进程链失败: {}", e.getMessage(), e);
@@ -285,18 +288,20 @@ public class ProcessChainServiceImpl {
         return groups;
     }
 
-    /**
+     /**
      * 合并网侧和端侧进程链
      * 
      * @param networkChain 网侧进程链（包含节点和边）
-     * @param endpointChain 端侧进程链（包含 traceIdToRootNodeMap）
+     * @param endpointChain 端侧进程链
      * @param hostToTraceId host到traceId的映射
+     * @param traceIdToRootNodeMap traceId到根节点ID的映射（用于创建桥接边）
      * @return 合并后的完整进程链
      */
     private IncidentProcessChain mergeNetworkAndEndpointChain(
             Pair<List<ProcessNode>, List<ProcessEdge>> networkChain,
             IncidentProcessChain endpointChain,
-            Map<String, String> hostToTraceId) {
+            Map<String, String> hostToTraceId,
+            Map<String, String> traceIdToRootNodeMap) {
         
         log.info("【进程链生成】-> ========================================");
         log.info("【进程链生成】-> 开始合并网侧和端侧进程链");
@@ -334,17 +339,17 @@ public class ProcessChainServiceImpl {
             
             // 5. **关键**：创建桥接边（连接网侧 victim 到端侧根节点）
             // 使用 hostToTraceId 和 traceIdToRootNodeMap 联动创建桥接边
-            if (endpointChain != null && endpointChain.getTraceIdToRootNodeMap() != null) {
+            if (traceIdToRootNodeMap != null && !traceIdToRootNodeMap.isEmpty()) {
                 List<ProcessEdge> bridgeEdges = createBridgeEdges(
                         networkNodes, 
                         hostToTraceId, 
-                        endpointChain.getTraceIdToRootNodeMap());
+                        traceIdToRootNodeMap);
                 if (bridgeEdges != null && !bridgeEdges.isEmpty()) {
                     allEdges.addAll(bridgeEdges);
                     log.info("【进程链生成】-> 添加桥接边数: {}", bridgeEdges.size());
                 }
             } else {
-                log.warn("【进程链生成】-> 端侧进程链或 traceIdToRootNodeMap 为空，无法创建桥接边");
+                log.warn("【进程链生成】-> traceIdToRootNodeMap 为空，无法创建桥接边");
             }
             
             // 6. 设置合并结果

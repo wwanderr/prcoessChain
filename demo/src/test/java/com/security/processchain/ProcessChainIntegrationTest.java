@@ -510,10 +510,13 @@ public class ProcessChainIntegrationTest {
             IncidentConverters.EDGE_MAPPER
         );
         
+        // ✅ 优化：从 builder 获取 traceIdToRootNodeMap（不再从 IncidentProcessChain 获取）
+        Map<String, String> traceIdToRootNodeMap = builder.getTraceIdToRootNodeMap();
+        
         // 验证
         assertNotNull(result);
         assertNotNull(result.getNodes());
-        assertNotNull(result.getTraceIdToRootNodeMap(), "traceIdToRootNodeMap 不应为空");
+        assertNotNull(traceIdToRootNodeMap, "traceIdToRootNodeMap 不应为空");
         
         // 验证根节点数量（应该有3个独立的 EXPLORE 节点）
         long rootCount = result.getNodes().stream()
@@ -537,11 +540,11 @@ public class ProcessChainIntegrationTest {
         assertTrue(rootNodeIds.contains("EXPLORE_ROOT_T003"), "应该包含 EXPLORE_ROOT_T003");
         
         // 验证 traceIdToRootNodeMap 映射正确
-        assertEquals("EXPLORE_ROOT_T001", result.getTraceIdToRootNodeMap().get("T001"), 
+        assertEquals("EXPLORE_ROOT_T001", traceIdToRootNodeMap.get("T001"), 
                     "T001 应该映射到 EXPLORE_ROOT_T001");
-        assertEquals("EXPLORE_ROOT_T002", result.getTraceIdToRootNodeMap().get("T002"), 
+        assertEquals("EXPLORE_ROOT_T002", traceIdToRootNodeMap.get("T002"), 
                     "T002 应该映射到 EXPLORE_ROOT_T002");
-        assertEquals("EXPLORE_ROOT_T003", result.getTraceIdToRootNodeMap().get("T003"), 
+        assertEquals("EXPLORE_ROOT_T003", traceIdToRootNodeMap.get("T003"), 
                     "T003 应该映射到 EXPLORE_ROOT_T003");
         
         log.info("✅ 测试通过：每个 traceId 都有独立的 EXPLORE 节点");
@@ -597,9 +600,12 @@ public class ProcessChainIntegrationTest {
             IncidentConverters.EDGE_MAPPER
         );
         
+        // ✅ 优化：从 builder 获取 traceIdToRootNodeMap（不再从 IncidentProcessChain 获取）
+        Map<String, String> traceIdToRootNodeMap = builder.getTraceIdToRootNodeMap();
+        
         // 验证
         assertNotNull(result);
-        assertNotNull(result.getTraceIdToRootNodeMap());
+        assertNotNull(traceIdToRootNodeMap);
         
         // 验证根节点数量（2个真实根节点 + 1个 EXPLORE 节点 = 3个）
         long rootCount = result.getNodes().stream()
@@ -623,11 +629,11 @@ public class ProcessChainIntegrationTest {
         assertTrue(rootNodeIds.contains("EXPLORE_ROOT_T002"), "应该包含 EXPLORE_ROOT_T002");
         
         // 验证 traceIdToRootNodeMap 映射
-        assertEquals("T001", result.getTraceIdToRootNodeMap().get("T001"), 
+        assertEquals("T001", traceIdToRootNodeMap.get("T001"), 
                     "T001 应该映射到真实根节点 T001");
-        assertEquals("EXPLORE_ROOT_T002", result.getTraceIdToRootNodeMap().get("T002"), 
+        assertEquals("EXPLORE_ROOT_T002", traceIdToRootNodeMap.get("T002"), 
                     "T002 应该映射到 EXPLORE_ROOT_T002");
-        assertEquals("T003", result.getTraceIdToRootNodeMap().get("T003"), 
+        assertEquals("T003", traceIdToRootNodeMap.get("T003"), 
                     "T003 应该映射到真实根节点 T003");
         
         log.info("✅ 测试通过：混合场景正确处理，真实根节点和 EXPLORE 节点共存");

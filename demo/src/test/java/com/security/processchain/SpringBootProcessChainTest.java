@@ -120,7 +120,8 @@ import static org.junit.Assert.*;
         // 验证是 Explore 节点
         ProcessNode rootNode = getRootNode(result);
         assertNotNull("应该找到根节点", rootNode);
-        assertEquals("应该创建EXPLORE_ROOT", "EXPLORE_ROOT", rootNode.getNodeId());
+        String expectedExploreId = "EXPLORE_ROOT_TRACE_001";
+        assertEquals("应该创建EXPLORE_ROOT_TRACE_001", expectedExploreId, rootNode.getNodeId());
         
         // 验证断链节点
         long brokenCount = countBrokenNodes(result);
@@ -233,7 +234,8 @@ import static org.junit.Assert.*;
         
         // 验证是 Explore 节点
         ProcessNode rootNode = getRootNode(result);
-        assertEquals("应该创建EXPLORE_ROOT", "EXPLORE_ROOT", rootNode.getNodeId());
+        String expectedExploreId = "EXPLORE_ROOT_TRACE_001";
+        assertEquals("应该创建EXPLORE_ROOT_TRACE_001", expectedExploreId, rootNode.getNodeId());
         
         // 验证断链数量
         long brokenCount = countBrokenNodes(result);
@@ -241,7 +243,7 @@ import static org.junit.Assert.*;
         
         // 验证从 Explore 到断链的边
         long exploreEdges = result.getEdges().stream()
-            .filter(edge -> "EXPLORE_ROOT".equals(edge.getSource()))
+            .filter(edge -> expectedExploreId.equals(edge.getSource()))
             .count();
         assertTrue("Explore应该连接到至少3个断链", exploreEdges >= 3);
         
@@ -597,10 +599,10 @@ import static org.junit.Assert.*;
                           Boolean.TRUE.equals(n.getChainNode().getIsRoot()));
         assertTrue("应该有T001作为真实根节点", hasRealRoot);
         
-        // 验证有Explore节点
+        // 验证有Explore节点（T002 没有真实根节点，应该有 EXPLORE_ROOT_T002）
         boolean hasExplore = result.getNodes().stream()
-            .anyMatch(n -> "EXPLORE_ROOT".equals(n.getNodeId()));
-        assertTrue("应该有Explore节点", hasExplore);
+            .anyMatch(n -> "EXPLORE_ROOT_T002".equals(n.getNodeId()));
+        assertTrue("应该有Explore节点（EXPLORE_ROOT_T002）", hasExplore);
         
         System.out.println("✅ 测试通过：混合traceId处理正确，根节点数=" + rootCount);
     }
@@ -945,4 +947,430 @@ import static org.junit.Assert.*;
         log.setStartTime("2024-01-15 10:00:00");
         return log;
     }
+    
+    /**
+     * 测试16：边界情况 - 只有告警没有日志
+     * 测试系统对数据缺失的容错能力
+     */
+    @Test
+    public void testBuildChain_AlarmWithoutLogs() {
+        System.out.println("\n========== 测试16：只有告警没有日志 ==========");
+        
+        String traceId = "TRACE_001";
+        RawAlarm alarm = createAlarm("EVENT_001", traceId, traceId, null, "孤立告警", "高");
+        
+        // 执行
+        ProcessChainBuilder builder = new ProcessChainBuilder();
+        IncidentProcessChain result = builder.buildIncidentChain(
+            Collections.singletonList(alarm),
+            Collections.emptyList(),
+            Collections.singleton(traceId),
+            new HashSet<>(),
+            IncidentConverters.NODE_MAPPER,
+            IncidentConverters.EDGE_MAPPER
+        );
+        
+        // 验证
+        assertNotNull("进程链不应为空", result);
+        assertTrue("应至少有1个节点", result.getNodes().size() >= 1);
+        
+        System.out.println("✅ 只有告警没有日志测试通过，节点数=" + result.getNodes().size());
+    }
+    
+    /**
+     * 测试17：性能测试 - 大规模数据（200个节点）
+     * 测试系统处理大规模数据的性能
+     */
+    @Test
+    public void testBuildChain_LargeScale_200Nodes() {
+        System.out.println("\n========== 测试17：大规模数据200节点 ==========");
+        
+        String traceId = "TRACE_LARGE";
+        List<RawLog> logs = new ArrayList<>();
+        
+        // 创建200个节点的链
+        logs.add(createProcessLog(traceId, null, traceId, "root.exe", "processCreate"));
+        
+        String currentParent = traceId;
+        for (int i = 1; i <= 200; i++) {
+            String childGuid = "CHILD_" + String.format("%04d", i);
+            logs.add(createProcessLog(childGuid, currentParent, traceId, 
+                "process_" + i + ".exe", "processCreate"));
+            currentParent = childGuid;
+        }
+        
+        // 在最后一个节点添加告警
+        RawAlarm alarm = createAlarm("EVENT_001", traceId, "CHILD_0200", "CHILD_0199", 
+            "深层告警", "高");
+        
+        // 执行并计时
+        long startTime = System.currentTimeMillis();
+        ProcessChainBuilder builder = new ProcessChainBuilder();
+        IncidentProcessChain result = builder.buildIncidentChain(
+            Collections.singletonList(alarm),
+            logs,
+            Collections.singleton(traceId),
+            new HashSet<>(),
+            IncidentConverters.NODE_MAPPER,
+            IncidentConverters.EDGE_MAPPER
+        );
+        long duration = System.currentTimeMillis() - startTime;
+        
+        // 验证
+        assertNotNull("进程链不应为空", result);
+        
+        // 【重要说明】系统有最大深度限制：50层
+        // 告警在 CHILD_0200（深度200），向上遍历50层后停止在 CHILD_0150
+        // 系统会记录警告日志：⚠️ "向上遍历达到最大深度限制(50),停止遍历"
+        // 最终包含：CHILD_0200 → CHILD_0199 → ... → CHILD_0150 = 51个节点（50层+起点）
+        // 注意：根节点 TRACE_LARGE 不在结果中（超过深度限制）
+        assertEquals("应有51个节点（受最大深度50限制）", 51, result.getNodes().size());
+        assertEquals("应有50条边", 50, result.getEdges().size());
+        
+        // 验证告警节点存在
+        assertTrue("应包含告警节点CHILD_0200", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("CHILD_0200")));
+        
+        // 验证深度限制的边界节点
+        assertTrue("应包含CHILD_0150（深度限制边界）", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("CHILD_0150")));
+        
+        // 验证根节点不在结果中（超过深度限制）
+        assertFalse("不应包含根节点TRACE_LARGE（超过深度限制）", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("TRACE_LARGE")));
+        
+        System.out.println("✅ 大规模数据测试通过，节点数=" + result.getNodes().size() + "，耗时=" + duration + "ms");
+        System.out.println("   说明：系统有最大深度限制50层，从CHILD_0200向上遍历50层后停止");
+        assertTrue("处理时间应该合理（<2秒）", duration < 2000);
+    }
+    
+    /**
+     * 测试18：复杂场景 - 多个断链 + 多个告警
+     * 测试复杂的混合场景
+     */
+    @Test
+    public void testBuildChain_ComplexMixedScenario() {
+        System.out.println("\n========== 测试18：复杂混合场景 ==========");
+        
+        String traceId = "TRACE_COMPLEX";
+        
+        // 创建复杂场景：有根节点的链 + 多个断链
+        List<RawLog> logs = new ArrayList<>();
+        List<RawAlarm> alarms = new ArrayList<>();
+        
+        // 正常链
+        logs.add(createProcessLog(traceId, null, traceId, "root.exe", "processCreate"));
+        logs.add(createProcessLog("CHILD_A", traceId, traceId, "childA.exe", "processCreate"));
+        logs.add(createProcessLog("CHILD_B", "CHILD_A", traceId, "childB.exe", "processCreate"));
+        alarms.add(createAlarm("EVENT_001", traceId, "CHILD_B", "CHILD_A", "正常链告警", "中"));
+        
+        // 断链1
+        logs.add(createProcessLog("BROKEN_1", "MISSING_1", traceId, "broken1.exe", "processCreate"));
+        alarms.add(createAlarm("EVENT_002", traceId, "BROKEN_1", "MISSING_1", "断链1告警", "高"));
+        
+        // 断链2及其子节点
+        logs.add(createProcessLog("BROKEN_2", "MISSING_2", traceId, "broken2.exe", "processCreate"));
+        logs.add(createProcessLog("BROKEN_2_CHILD", "BROKEN_2", traceId, "broken2child.exe", "processCreate"));
+        alarms.add(createAlarm("EVENT_003", traceId, "BROKEN_2_CHILD", "BROKEN_2", "断链2子节点告警", "高"));
+        
+        // 执行
+        ProcessChainBuilder builder = new ProcessChainBuilder();
+        IncidentProcessChain result = builder.buildIncidentChain(
+            alarms,
+            logs,
+            Collections.singleton(traceId),
+            new HashSet<>(),
+            IncidentConverters.NODE_MAPPER,
+            IncidentConverters.EDGE_MAPPER
+        );
+        
+        // 验证
+        assertNotNull("进程链不应为空", result);
+        assertEquals("应有6个节点", 6, result.getNodes().size());
+        assertTrue("应有多条边", result.getEdges().size() >= 5);
+        
+        System.out.println("✅ 复杂混合场景测试通过");
+    }
+    
+    /**
+     * 测试19：边界情况 - 特殊字符在节点ID中
+     * 测试系统对特殊字符的处理能力
+     */
+    @Test
+    public void testBuildChain_SpecialCharactersInNodeId() {
+        System.out.println("\n========== 测试19：特殊字符节点ID ==========");
+        
+        String traceId = "TRACE_001";
+        
+        // 包含特殊字符的节点ID
+        List<RawLog> logs = Arrays.asList(
+            createProcessLog(traceId, null, traceId, "root.exe", "processCreate"),
+            createProcessLog("NODE_<TEST>", traceId, traceId, "test<>.exe", "processCreate"),
+            createProcessLog("NODE_&AMP", "NODE_<TEST>", traceId, "test&.exe", "processCreate"),
+            createProcessLog("NODE_中文", "NODE_&AMP", traceId, "测试.exe", "processCreate")
+        );
+        
+        RawAlarm alarm = createAlarm("EVENT_001", traceId, "NODE_中文", "NODE_&AMP", 
+            "特殊字符告警", "高");
+        
+        // 执行
+        ProcessChainBuilder builder = new ProcessChainBuilder();
+        IncidentProcessChain result = builder.buildIncidentChain(
+            Collections.singletonList(alarm),
+            logs,
+            Collections.singleton(traceId),
+            new HashSet<>(),
+            IncidentConverters.NODE_MAPPER,
+            IncidentConverters.EDGE_MAPPER
+        );
+        
+        // 验证
+        assertNotNull("进程链不应为空", result);
+        assertEquals("应有4个节点", 4, result.getNodes().size());
+        
+        // 验证特殊字符节点存在
+        boolean hasSpecialNode = result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().contains("中文"));
+        assertTrue("应包含中文节点", hasSpecialNode);
+        
+        System.out.println("✅ 特殊字符节点ID测试通过");
+    }
+    
+    /**
+     * 测试20：性能测试 - 星型结构（1父50子）
+     * 测试系统处理大量分支的能力
+     */
+    @Test
+    public void testBuildChain_StarTopology_50Children() {
+        System.out.println("\n========== 测试20：星型结构1父50子 ==========");
+        
+        String traceId = "TRACE_STAR";
+        List<RawLog> logs = new ArrayList<>();
+        
+        // 父节点
+        logs.add(createProcessLog(traceId, null, traceId, "parent.exe", "processCreate"));
+        
+        // 50个子节点
+        for (int i = 1; i <= 50; i++) {
+            logs.add(createProcessLog("CHILD_" + String.format("%03d", i), traceId, traceId,
+                "child_" + i + ".exe", "processCreate"));
+        }
+        
+        // 在第25个子节点添加告警
+        RawAlarm alarm = createAlarm("EVENT_001", traceId, "CHILD_025", traceId, 
+            "中间子节点告警", "高");
+        
+        // 执行
+        long startTime = System.currentTimeMillis();
+        ProcessChainBuilder builder = new ProcessChainBuilder();
+        IncidentProcessChain result = builder.buildIncidentChain(
+            Collections.singletonList(alarm),
+            logs,
+            Collections.singleton(traceId),
+            new HashSet<>(),
+            IncidentConverters.NODE_MAPPER,
+            IncidentConverters.EDGE_MAPPER
+        );
+        long duration = System.currentTimeMillis() - startTime;
+        
+        // 验证
+        assertNotNull("进程链不应为空", result);
+        
+        // 【重要说明】系统只包含告警相关节点，不包含所有节点
+        // 告警在 CHILD_025，向上遍历到根节点 TRACE_STAR
+        // 最终只包含：TRACE_STAR + CHILD_025 = 2个节点
+        // 其他49个兄弟节点（CHILD_001-024, CHILD_026-050）不在告警路径上，不会被包含
+        assertEquals("应有2个节点（根节点+告警节点）", 2, result.getNodes().size());
+        assertEquals("应有1条边", 1, result.getEdges().size());
+        
+        // 验证关键节点存在
+        assertTrue("应包含根节点TRACE_STAR", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("TRACE_STAR")));
+        assertTrue("应包含告警节点CHILD_025", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("CHILD_025")));
+        
+        System.out.println("✅ 星型结构测试通过，节点数=" + result.getNodes().size() + "，耗时=" + duration + "ms");
+        System.out.println("   说明：系统只包含告警路径上的节点，其他49个兄弟节点不在结果中");
+        assertTrue("处理时间应该合理（<1秒）", duration < 1000);
+    }
+    
+    /**
+     * 测试21：边界情况 - 所有节点都是告警节点
+     * 测试极端情况下的告警处理
+     */
+    @Test
+    public void testBuildChain_AllNodesAreAlarmNodes() {
+        System.out.println("\n========== 测试21：所有节点都是告警节点 ==========");
+        
+        String traceId = "TRACE_ALL_ALARM";
+        
+        // 创建5个节点的链
+        List<RawLog> logs = Arrays.asList(
+            createProcessLog(traceId, null, traceId, "root.exe", "processCreate"),
+            createProcessLog("CHILD_1", traceId, traceId, "child1.exe", "processCreate"),
+            createProcessLog("CHILD_2", "CHILD_1", traceId, "child2.exe", "processCreate"),
+            createProcessLog("CHILD_3", "CHILD_2", traceId, "child3.exe", "processCreate"),
+            createProcessLog("CHILD_4", "CHILD_3", traceId, "child4.exe", "processCreate")
+        );
+        
+        // 每个节点都有告警
+        List<RawAlarm> alarms = Arrays.asList(
+            createAlarm("EVENT_001", traceId, traceId, null, "根节点告警", "低"),
+            createAlarm("EVENT_002", traceId, "CHILD_1", traceId, "子节点1告警", "中"),
+            createAlarm("EVENT_003", traceId, "CHILD_2", "CHILD_1", "子节点2告警", "高"),
+            createAlarm("EVENT_004", traceId, "CHILD_3", "CHILD_2", "子节点3告警", "中"),
+            createAlarm("EVENT_005", traceId, "CHILD_4", "CHILD_3", "子节点4告警", "高")
+        );
+        
+        // 执行
+        ProcessChainBuilder builder = new ProcessChainBuilder();
+        IncidentProcessChain result = builder.buildIncidentChain(
+            alarms,
+            logs,
+            Collections.singleton(traceId),
+            new HashSet<>(),
+            IncidentConverters.NODE_MAPPER,
+            IncidentConverters.EDGE_MAPPER
+        );
+        
+        // 验证
+        assertNotNull("进程链不应为空", result);
+        assertEquals("应有5个节点", 5, result.getNodes().size());
+        assertEquals("应有4条边", 4, result.getEdges().size());
+        
+        // 验证所有节点都是告警节点
+        long alarmNodeCount = result.getNodes().stream()
+            .filter(n -> n.getChainNode() != null && 
+                        Boolean.TRUE.equals(n.getChainNode().getIsAlarm()))
+            .count();
+        assertEquals("所有5个节点都应该是告警节点", 5, alarmNodeCount);
+        
+        System.out.println("✅ 所有节点都是告警节点测试通过");
+    }
+    
+    /**
+     * 测试22：复杂场景 - 多种日志类型混合
+     * 测试系统处理多种日志类型的能力
+     */
+    @Test
+    public void testBuildChain_MixedLogTypes() {
+        System.out.println("\n========== 测试22：多种日志类型混合 ==========");
+        
+        String traceId = "TRACE_MIXED";
+        
+        // 创建包含多种日志类型的链
+        List<RawLog> logs = new ArrayList<>();
+        
+        // 进程日志
+        logs.add(createProcessLog(traceId, null, traceId, "malware.exe", "processCreate"));
+        logs.add(createProcessLog("CHILD_001", traceId, traceId, "cmd.exe", "processCreate"));
+        
+        // 文件日志
+        logs.add(createFileLog("FILE_001", "CHILD_001", traceId, 
+            "C:\\Temp\\malicious.dll", "fileCreate"));
+        logs.add(createFileLog("FILE_002", "CHILD_001", traceId, 
+            "C:\\Windows\\System32\\config.dat", "fileModify"));
+        
+        // 网络日志
+        logs.add(createNetworkLog("NET_001", "CHILD_001", traceId, 
+            "192.168.1.100", "evil.com", "networkConnect"));
+        
+        // 域名日志
+        logs.add(createDomainLog("DOMAIN_001", "CHILD_001", traceId, 
+            "evil.com", "dnsQuery"));
+        
+        // 添加告警
+        RawAlarm alarm = createAlarm("EVENT_001", traceId, "CHILD_001", traceId, 
+            "多类型日志告警", "高");
+        
+        // 执行
+        ProcessChainBuilder builder = new ProcessChainBuilder();
+        IncidentProcessChain result = builder.buildIncidentChain(
+            Collections.singletonList(alarm),
+            logs,
+            Collections.singleton(traceId),
+            new HashSet<>(),
+            IncidentConverters.NODE_MAPPER,
+            IncidentConverters.EDGE_MAPPER
+        );
+        
+        // 验证
+        assertNotNull("进程链不应为空", result);
+        assertEquals("应有6个节点", 6, result.getNodes().size());
+        assertTrue("应有多条边", result.getEdges().size() >= 5);
+        
+        System.out.println("✅ 多种日志类型混合测试通过");
+    }
+    
+    /**
+     * 测试23：边界情况 - 超长进程链（深度100）
+     * 测试系统处理极深链的能力
+     */
+    @Test
+    public void testBuildChain_VeryDeepChain_Depth100() {
+        System.out.println("\n========== 测试23：超长进程链深度100 ==========");
+        
+        String traceId = "TRACE_DEEP";
+        List<RawLog> logs = new ArrayList<>();
+        
+        // 创建深度为100的进程链
+        logs.add(createProcessLog(traceId, null, traceId, "root.exe", "processCreate"));
+        
+        String currentParent = traceId;
+        for (int i = 1; i <= 100; i++) {
+            String childGuid = "CHILD_" + String.format("%04d", i);
+            logs.add(createProcessLog(childGuid, currentParent, traceId, 
+                "process_" + i + ".exe", "processCreate"));
+            currentParent = childGuid;
+        }
+        
+        // 在最深层添加告警
+        RawAlarm alarm = createAlarm("EVENT_001", traceId, "CHILD_0100", "CHILD_0099", 
+            "深层告警", "高");
+        
+        // 执行
+        long startTime = System.currentTimeMillis();
+        ProcessChainBuilder builder = new ProcessChainBuilder();
+        IncidentProcessChain result = builder.buildIncidentChain(
+            Collections.singletonList(alarm),
+            logs,
+            Collections.singleton(traceId),
+            new HashSet<>(),
+            IncidentConverters.NODE_MAPPER,
+            IncidentConverters.EDGE_MAPPER
+        );
+        long duration = System.currentTimeMillis() - startTime;
+        
+        // 验证
+        assertNotNull("进程链不应为空", result);
+        
+        // 【重要说明】系统有最大深度限制：50层
+        // 告警在 CHILD_0100（深度100），向上遍历50层后停止在 CHILD_0050
+        // 系统会记录警告日志：⚠️ "向上遍历达到最大深度限制(50),停止遍历"
+        // 最终包含：CHILD_0100 → CHILD_0099 → ... → CHILD_0050 = 51个节点（50层+起点）
+        // 注意：根节点 TRACE_DEEP 和 CHILD_0001-0049 不在结果中（超过深度限制）
+        assertEquals("应有51个节点（受最大深度50限制）", 51, result.getNodes().size());
+        assertEquals("应有50条边", 50, result.getEdges().size());
+        
+        // 验证告警节点存在
+        assertTrue("应包含告警节点CHILD_0100", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("CHILD_0100")));
+        
+        // 验证深度限制的边界节点
+        assertTrue("应包含CHILD_0050（深度限制边界）", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("CHILD_0050")));
+        
+        // 验证根节点不在结果中（超过深度限制）
+        assertFalse("不应包含根节点TRACE_DEEP（超过深度限制）", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("TRACE_DEEP")));
+        
+        // 验证超出深度限制的节点不在结果中
+        assertFalse("不应包含CHILD_0049（超过深度限制）", result.getNodes().stream()
+            .anyMatch(n -> n.getNodeId().equals("CHILD_0049")));
+        
+        System.out.println("✅ 超长进程链测试通过，节点数=" + result.getNodes().size() + "，耗时=" + duration + "ms");
+        System.out.println("   说明：系统有最大深度限制50层，从CHILD_0100向上遍历50层后停止在CHILD_0050");
+        assertTrue("处理时间应该合理（<2秒）", duration < 2000);
+    }
 }
+

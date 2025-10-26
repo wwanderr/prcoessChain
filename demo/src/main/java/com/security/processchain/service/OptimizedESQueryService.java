@@ -180,6 +180,8 @@ public class OptimizedESQueryService implements ESQueryService {
      * 批量查询多个traceId的原始日志（简化版本，用于ProcessChainServiceImpl）
      * 优化：使用MultiSearchRequest为每个traceId单独查询，与告警查询方式统一
      * 
+     * 优化：只查询 BUILDER_LOG_TYPES 中的日志类型（process, file, network, domain, registry）
+     * 
      * @param traceIds traceId列表
      * @param hostAddress 主机地址
      * @return 所有日志的列表（不分组）
@@ -211,6 +213,10 @@ public class OptimizedESQueryService implements ESQueryService {
                 BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
                 boolQuery.filter(QueryBuilders.termQuery("traceId", traceId));
                 boolQuery.filter(QueryBuilders.termQuery("hostAddress", hostAddress));
+                
+                // ✅ 关键优化：只查询 BUILDER_LOG_TYPES 中的日志类型
+                boolQuery.filter(QueryBuilders.termsQuery("logType", 
+                    com.security.processchain.constants.ProcessChainConstants.LogType.BUILDER_LOG_TYPES));
 
                 searchSourceBuilder.query(boolQuery);
                 searchSourceBuilder.size(maxQuerySize);
@@ -359,6 +365,8 @@ public class OptimizedESQueryService implements ESQueryService {
      * 批量查询日志：输入为 hostAddress -> traceId 的映射
      * 每个映射项生成一个查询请求，统一通过 MultiSearchRequest 执行
      * 返回所有匹配日志的聚合列表
+     * 
+     * 优化：只查询 BUILDER_LOG_TYPES 中的日志类型（process, file, network, domain, registry）
      */
     public List<RawLog> batchQueryRawLogs(Map<String, String> hostToTraceId) {
         if (hostToTraceId == null || hostToTraceId.isEmpty()) {
@@ -387,6 +395,11 @@ public class OptimizedESQueryService implements ESQueryService {
                 BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
                 boolQuery.filter(QueryBuilders.termQuery("traceId", traceId));
                 boolQuery.filter(QueryBuilders.termQuery("hostAddress", hostAddress));
+                
+                // ✅ 关键优化：只查询 BUILDER_LOG_TYPES 中的日志类型
+                // 过滤掉不需要的日志类型，减少数据传输和处理量
+                boolQuery.filter(QueryBuilders.termsQuery("logType", 
+                    com.security.processchain.constants.ProcessChainConstants.LogType.BUILDER_LOG_TYPES));
 
                 searchSourceBuilder.query(boolQuery);
                 searchSourceBuilder.size(maxQuerySize);
