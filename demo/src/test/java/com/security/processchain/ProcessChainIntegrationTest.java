@@ -6,13 +6,13 @@ import com.security.processchain.model.RawLog;
 import com.security.processchain.service.IncidentConverters;
 import com.security.processchain.service.IncidentProcessChain;
 import com.security.processchain.service.ProcessChainBuilder;
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.Assert.*;
 
 /**
  * 进程链集成测试
@@ -73,7 +73,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsRoot()))
             .count();
         
-        assertEquals(1, rootCount, "应该有且只有1个根节点");
+        assertEquals("应该有且只有1个根节点", 1, rootCount);
         
         // 验证根节点是真实根节点，不是 Explore
         ProcessNode rootNode = result.getNodes().stream()
@@ -83,9 +83,9 @@ public class ProcessChainIntegrationTest {
             .findFirst()
             .orElse(null);
         
-        assertNotNull(rootNode, "应该找到根节点");
-        assertEquals(traceId, rootNode.getNodeId(), "根节点应该是 " + traceId);
-        assertNotEquals("EXPLORE_ROOT", rootNode.getNodeId(), "不应该创建 Explore 节点");
+        assertNotNull("应该找到根节点", rootNode);
+        assertEquals("根节点应该是 " + traceId, traceId, rootNode.getNodeId());
+        assertNotEquals("不应该创建 Explore 节点", "EXPLORE_ROOT", rootNode.getNodeId());
         
         log.info("✅ 测试通过：有真实根节点，无 Explore 节点");
     }
@@ -137,7 +137,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsRoot()))
             .count();
         
-        assertEquals(1, rootCount, "应该有且只有1个根节点（Explore）");
+        assertEquals("应该有且只有1个根节点（Explore）", 1, rootCount);
         
         // 验证是 Explore 虚拟根节点
         ProcessNode rootNode = result.getNodes().stream()
@@ -147,10 +147,10 @@ public class ProcessChainIntegrationTest {
             .findFirst()
             .orElse(null);
         
-        assertNotNull(rootNode, "应该找到根节点");
+        assertNotNull("应该找到根节点", rootNode);
         // 修改：现在 EXPLORE 节点ID格式为 EXPLORE_ROOT_{traceId}
-        assertEquals("EXPLORE_ROOT_" + traceId, rootNode.getNodeId(), 
-                    "应该创建独立的 EXPLORE_ROOT_" + traceId + " 虚拟根节点");
+        assertEquals("应该创建独立的 EXPLORE_ROOT_" + traceId + " 虚拟根节点",
+                    "EXPLORE_ROOT_" + traceId, rootNode.getNodeId());
         
         // 验证断链节点
         long brokenCount = result.getNodes().stream()
@@ -159,7 +159,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsBroken()))
             .count();
         
-        assertTrue(brokenCount > 0, "应该有断链节点");
+        assertTrue("应该有断链节点", brokenCount > 0);
         
         log.info("✅ 测试通过：无真实根节点，创建了 Explore 虚拟根节点");
     }
@@ -221,7 +221,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsRoot()))
             .count();
         
-        assertEquals(3, rootCount, "应该有3个根节点");
+        assertEquals("应该有3个根节点", 3, rootCount);
         
         // 验证每个根节点都是真实根节点
         List<String> rootNodeIds = result.getNodes().stream()
@@ -231,10 +231,10 @@ public class ProcessChainIntegrationTest {
             .map(ProcessNode::getNodeId)
             .collect(java.util.stream.Collectors.toList());
         
-        assertTrue(rootNodeIds.contains("T001"), "应该包含 T001");
-        assertTrue(rootNodeIds.contains("T002"), "应该包含 T002");
-        assertTrue(rootNodeIds.contains("T003"), "应该包含 T003");
-        assertFalse(rootNodeIds.contains("EXPLORE_ROOT"), "不应该有 Explore 节点");
+        assertTrue("应该包含 T001", rootNodeIds.contains("T001"));
+        assertTrue("应该包含 T002", rootNodeIds.contains("T002"));
+        assertTrue("应该包含 T003", rootNodeIds.contains("T003"));
+        assertFalse("不应该有 Explore 节点", rootNodeIds.contains("EXPLORE_ROOT"));
         
         log.info("✅ 测试通过：多个 traceId，每个都有真实根节点");
     }
@@ -295,7 +295,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsRoot()))
             .count();
         
-        assertEquals(1, rootCount, "应该有且只有1个根节点（Explore）");
+        assertEquals("应该有且只有1个根节点（Explore）", 1, rootCount);
         
         // 验证是 Explore 虚拟根节点
         ProcessNode rootNode = result.getNodes().stream()
@@ -305,10 +305,10 @@ public class ProcessChainIntegrationTest {
             .findFirst()
             .orElse(null);
         
-        assertNotNull(rootNode, "应该找到根节点");
+        assertNotNull("应该找到根节点", rootNode);
         // 修改：现在 EXPLORE 节点ID格式为 EXPLORE_ROOT_{traceId}
-        assertEquals("EXPLORE_ROOT_" + traceId, rootNode.getNodeId(), 
-                    "应该创建独立的 EXPLORE_ROOT_" + traceId);
+        assertEquals("应该创建独立的 EXPLORE_ROOT_" + traceId,
+                    "EXPLORE_ROOT_" + traceId, rootNode.getNodeId());
         
         // 验证所有断链节点
         long brokenCount = result.getNodes().stream()
@@ -317,7 +317,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsBroken()))
             .count();
         
-        assertTrue(brokenCount >= 3, "应该有至少3个断链节点");
+        assertTrue("应该有至少3个断链节点", brokenCount >= 3);
         
         // 验证从 Explore 到断链的边
         String exploreNodeId = "EXPLORE_ROOT_" + traceId;
@@ -325,7 +325,7 @@ public class ProcessChainIntegrationTest {
             .filter(edge -> exploreNodeId.equals(edge.getSource()))
             .count();
         
-        assertTrue(exploreEdges >= 3, "Explore 应该连接到至少3个断链节点");
+        assertTrue("Explore 应该连接到至少3个断链节点", exploreEdges >= 3);
         
         log.info("✅ 测试通过：多个断链统一连接到独立的 Explore 节点");
     }
@@ -380,8 +380,8 @@ public class ProcessChainIntegrationTest {
             .findFirst()
             .orElse(null);
         
-        assertNotNull(rootNode, "根节点必须保留，不能被裁剪");
-        assertTrue(rootNode.getChainNode().getIsRoot(), "根节点的 isRoot 应该为 true");
+        assertNotNull("根节点必须保留，不能被裁剪", rootNode);
+        assertTrue("根节点的 isRoot 应该为 true", rootNode.getChainNode().getIsRoot());
         
         // 验证只有一个根节点
         long rootCount = result.getNodes().stream()
@@ -390,7 +390,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsRoot()))
             .count();
         
-        assertEquals(1, rootCount, "裁剪后应该仍然只有1个根节点");
+        assertEquals("裁剪后应该仍然只有1个根节点", 1, rootCount);
         
         log.info("✅ 测试通过：裁剪后根节点已保留");
     }
@@ -442,7 +442,7 @@ public class ProcessChainIntegrationTest {
             .findFirst()
             .orElse(null);
         
-        assertNotNull(associatedNode, "网端关联节点必须保留");
+        assertNotNull("网端关联节点必须保留", associatedNode);
         
         // 验证根节点存在（根节点ID已改为traceId）
         ProcessNode rootNode = result.getNodes().stream()
@@ -450,14 +450,14 @@ public class ProcessChainIntegrationTest {
             .findFirst()
             .orElse(null);
         
-        assertNotNull(rootNode, "根节点必须保留");
+        assertNotNull("根节点必须保留", rootNode);
         
         // 验证它们之间的边存在（完整路径）
         boolean pathExists = result.getEdges().stream()
             .anyMatch(edge -> traceId.equals(edge.getSource()) && 
                              "NODE_ASSOCIATED".equals(edge.getTarget()));
         
-        assertTrue(pathExists, "从根节点到关联节点的路径必须完整");
+        assertTrue("从根节点到关联节点的路径必须完整", pathExists);
         
         log.info("✅ 测试通过：网端关联节点和完整路径已保留");
     }
@@ -516,7 +516,7 @@ public class ProcessChainIntegrationTest {
         // 验证
         assertNotNull(result);
         assertNotNull(result.getNodes());
-        assertNotNull(traceIdToRootNodeMap, "traceIdToRootNodeMap 不应为空");
+        assertNotNull("traceIdToRootNodeMap 不应为空", traceIdToRootNodeMap);
         
         // 验证根节点数量（应该有3个独立的 EXPLORE 节点）
         long rootCount = result.getNodes().stream()
@@ -525,7 +525,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsRoot()))
             .count();
         
-        assertEquals(3, rootCount, "应该有3个独立的 EXPLORE 根节点");
+        assertEquals("应该有3个独立的 EXPLORE 根节点", 3, rootCount);
         
         // 验证每个 traceId 都有独立的 EXPLORE 节点
         List<String> rootNodeIds = result.getNodes().stream()
@@ -535,17 +535,17 @@ public class ProcessChainIntegrationTest {
             .map(ProcessNode::getNodeId)
             .collect(java.util.stream.Collectors.toList());
         
-        assertTrue(rootNodeIds.contains("EXPLORE_ROOT_T001"), "应该包含 EXPLORE_ROOT_T001");
-        assertTrue(rootNodeIds.contains("EXPLORE_ROOT_T002"), "应该包含 EXPLORE_ROOT_T002");
-        assertTrue(rootNodeIds.contains("EXPLORE_ROOT_T003"), "应该包含 EXPLORE_ROOT_T003");
+        assertTrue("应该包含 EXPLORE_ROOT_T001", rootNodeIds.contains("EXPLORE_ROOT_T001"));
+        assertTrue("应该包含 EXPLORE_ROOT_T002", rootNodeIds.contains("EXPLORE_ROOT_T002"));
+        assertTrue("应该包含 EXPLORE_ROOT_T003", rootNodeIds.contains("EXPLORE_ROOT_T003"));
         
         // 验证 traceIdToRootNodeMap 映射正确
-        assertEquals("EXPLORE_ROOT_T001", traceIdToRootNodeMap.get("T001"), 
-                    "T001 应该映射到 EXPLORE_ROOT_T001");
-        assertEquals("EXPLORE_ROOT_T002", traceIdToRootNodeMap.get("T002"), 
-                    "T002 应该映射到 EXPLORE_ROOT_T002");
-        assertEquals("EXPLORE_ROOT_T003", traceIdToRootNodeMap.get("T003"), 
-                    "T003 应该映射到 EXPLORE_ROOT_T003");
+        assertEquals("T001 应该映射到 EXPLORE_ROOT_T001",
+                    "EXPLORE_ROOT_T001", traceIdToRootNodeMap.get("T001"));
+        assertEquals("T002 应该映射到 EXPLORE_ROOT_T002",
+                    "EXPLORE_ROOT_T002", traceIdToRootNodeMap.get("T002"));
+        assertEquals("T003 应该映射到 EXPLORE_ROOT_T003",
+                    "EXPLORE_ROOT_T003", traceIdToRootNodeMap.get("T003"));
         
         log.info("✅ 测试通过：每个 traceId 都有独立的 EXPLORE 节点");
     }
@@ -614,7 +614,7 @@ public class ProcessChainIntegrationTest {
                            Boolean.TRUE.equals(node.getChainNode().getIsRoot()))
             .count();
         
-        assertEquals(3, rootCount, "应该有3个根节点（2个真实 + 1个EXPLORE）");
+        assertEquals("应该有3个根节点（2个真实 + 1个EXPLORE）", 3, rootCount);
         
         // 验证根节点ID
         List<String> rootNodeIds = result.getNodes().stream()
@@ -624,17 +624,17 @@ public class ProcessChainIntegrationTest {
             .map(ProcessNode::getNodeId)
             .collect(java.util.stream.Collectors.toList());
         
-        assertTrue(rootNodeIds.contains("T001"), "应该包含真实根节点 T001");
-        assertTrue(rootNodeIds.contains("T003"), "应该包含真实根节点 T003");
-        assertTrue(rootNodeIds.contains("EXPLORE_ROOT_T002"), "应该包含 EXPLORE_ROOT_T002");
+        assertTrue("应该包含真实根节点 T001", rootNodeIds.contains("T001"));
+        assertTrue("应该包含真实根节点 T003", rootNodeIds.contains("T003"));
+        assertTrue("应该包含 EXPLORE_ROOT_T002", rootNodeIds.contains("EXPLORE_ROOT_T002"));
         
         // 验证 traceIdToRootNodeMap 映射
-        assertEquals("T001", traceIdToRootNodeMap.get("T001"), 
-                    "T001 应该映射到真实根节点 T001");
-        assertEquals("EXPLORE_ROOT_T002", traceIdToRootNodeMap.get("T002"), 
-                    "T002 应该映射到 EXPLORE_ROOT_T002");
-        assertEquals("T003", traceIdToRootNodeMap.get("T003"), 
-                    "T003 应该映射到真实根节点 T003");
+        assertEquals("T001 应该映射到真实根节点 T001",
+                    "T001", traceIdToRootNodeMap.get("T001"));
+        assertEquals("T002 应该映射到 EXPLORE_ROOT_T002",
+                    "EXPLORE_ROOT_T002", traceIdToRootNodeMap.get("T002"));
+        assertEquals("T003 应该映射到真实根节点 T003",
+                    "T003", traceIdToRootNodeMap.get("T003"));
         
         log.info("✅ 测试通过：混合场景正确处理，真实根节点和 EXPLORE 节点共存");
     }
