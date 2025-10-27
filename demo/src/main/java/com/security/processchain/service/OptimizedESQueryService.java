@@ -1,5 +1,6 @@
 package com.security.processchain.service;
 
+import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
 import com.security.processchain.util.DataConverter;
@@ -559,6 +560,71 @@ public class OptimizedESQueryService implements ESQueryService {
         return hitMaps;
     }
 
+    /**
+     * 根据 processGuid 查询日志（不限制 traceId，用于跨 traceId 扩展溯源）
+     * 
+     * @param hostAddress 主机地址
+     * @param processGuids 要查询的 processGuid 列表
+     * @param maxLevels 最多查询几层父节点
+     * @return 查询到的日志
+     */
+    public List<RawLog> queryLogsByProcessGuids(String hostAddress, List<String> processGuids, int maxLevels) {
+        if (processGuids == null || processGuids.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        log.info("【跨traceId查询】-> 开始查询，host={}, processGuids={}, maxLevels={}", 
+                hostAddress, processGuids, maxLevels);
+        
+        List<RawLog> allLogs = new ArrayList<>();
+        Set<String> queriedGuids = new HashSet<>(processGuids);
+        List<String> currentLevelGuids = new ArrayList<>(processGuids);
+        
+        for (int level = 0; level < maxLevels && !currentLevelGuids.isEmpty(); level++) {
+            try {
+                SearchRequest searchRequest = new SearchRequest(logIndex);
+                SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+                
+                BoolQueryBuilder boolQuery = QueryBuilders.boolQuery()
+                        .filter(QueryBuilders.termQuery("hostAddress", hostAddress))
+                        .filter(QueryBuilders.termsQuery("processGuid", currentLevelGuids))
+                        .filter(QueryBuilders.termsQuery("logType", ProcessChainConstants.LogType.BUILDER_LOG_TYPES));
+                
+                sourceBuilder.query(boolQuery);
+                sourceBuilder.size(1000);
+                sourceBuilder.fetchSource(LOG_INCLUDES, null);
+                searchRequest.source(sourceBuilder);
+                
+                SearchResponse response = esClient.search(searchRequest, RequestOptions.DEFAULT);
+                
+                List<String> nextLevelGuids = new ArrayList<>();
+                for (SearchHit hit : response.getHits().getHits()) {
+                    RawLog log = DataConverter.convertToLog(hit.getSourceAsMap());
+                    if (log != null) {
+                        allLogs.add(log);
+                        
+                        String parentGuid = log.getParentProcessGuid();
+                        if (parentGuid != null && !parentGuid.isEmpty() && !queriedGuids.contains(parentGuid)) {
+                            nextLevelGuids.add(parentGuid);
+                            queriedGuids.add(parentGuid);
+                        }
+                    }
+                }
+                
+                currentLevelGuids = nextLevelGuids;
+                log.info("【跨traceId查询】-> Level {} 完成，查询到 {} 条日志，下一层有 {} 个父节点", 
+                        level, response.getHits().getHits().length, nextLevelGuids.size());
+                
+            } catch (Exception e) {
+                log.error("【跨traceId查询】-> Level {} 查询失败: {}", level, e.getMessage(), e);
+                break;
+            }
+        }
+        
+        log.info("【跨traceId查询】-> 查询完成，共 {} 条日志", allLogs.size());
+        return allLogs;
+    }
+    
     /**
      * 获取查询统计信息
      */

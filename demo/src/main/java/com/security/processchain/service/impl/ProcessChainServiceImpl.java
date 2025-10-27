@@ -337,26 +337,30 @@ public class ProcessChainServiceImpl {
                 log.info("【进程链生成】-> 添加端侧边数: {}", endpointChain.getEdges().size());
             }
             
-            // 5. **关键**：创建桥接边（连接网侧 victim 到端侧根节点）
-            // 使用 hostToTraceId 和 traceIdToRootNodeMap 联动创建桥接边
-            if (traceIdToRootNodeMap != null && !traceIdToRootNodeMap.isEmpty()) {
+            // ========== 5. 扩展溯源（新增功能）==========
+            Map<String, String> finalRootMap = com.security.processchain.util.ProcessChainExtensionUtil.performExtension(
+                    traceIdToRootNodeMap, hostToTraceId, allNodes, allEdges, esQueryService, 2);
+            
+            // 6. **关键**：创建桥接边（连接网侧 victim 到端侧根节点）
+            // 使用更新后的映射创建桥接边
+            if (finalRootMap != null && !finalRootMap.isEmpty()) {
                 List<ProcessEdge> bridgeEdges = createBridgeEdges(
                         networkNodes, 
                         hostToTraceId, 
-                        traceIdToRootNodeMap);
+                        finalRootMap);
                 if (bridgeEdges != null && !bridgeEdges.isEmpty()) {
                     allEdges.addAll(bridgeEdges);
                     log.info("【进程链生成】-> 添加桥接边数: {}", bridgeEdges.size());
                 }
             } else {
-                log.warn("【进程链生成】-> traceIdToRootNodeMap 为空，无法创建桥接边");
+                log.warn("【进程链生成】-> 桥接映射为空，无法创建桥接边");
             }
             
-            // 6. 设置合并结果
+            // 7. 设置合并结果
             mergedChain.setNodes(allNodes);
             mergedChain.setEdges(allEdges);
             
-            // 7. 设置基本信息（使用端侧的信息）
+            // 8. 设置基本信息（使用端侧的信息）
             if (endpointChain != null) {
                 mergedChain.setTraceIds(endpointChain.getTraceIds());
                 mergedChain.setHostAddresses(endpointChain.getHostAddresses());

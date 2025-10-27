@@ -7,6 +7,8 @@ public class ProcessEntity {
     private String opType;
     private String localtime;
     private String processId;
+    private String processGuid;
+    private String parentProcessGuid;
     private String image;
     private String commandline;
     private String processUserName;
@@ -68,6 +70,22 @@ public class ProcessEntity {
     
     public void setProcessName(String processName) {
         this.processName = processName;
+    }
+    
+    public String getProcessGuid() {
+        return processGuid;
+    }
+    
+    public void setProcessGuid(String processGuid) {
+        this.processGuid = processGuid;
+    }
+    
+    public String getParentProcessGuid() {
+        return parentProcessGuid;
+    }
+    
+    public void setParentProcessGuid(String parentProcessGuid) {
+        this.parentProcessGuid = parentProcessGuid;
     }
 }
 

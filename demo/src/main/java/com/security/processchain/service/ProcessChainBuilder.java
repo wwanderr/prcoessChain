@@ -395,6 +395,7 @@ public class ProcessChainBuilder {
             // 原因：无法继续向上追溯，进程链在此处断裂
             brokenNodes.add(currentProcessGuid);
             currentNode.setIsBroken(true);
+            nodeIndex.updateNode(currentNode);  // 更新索引
 
             // 记录断链节点的 traceId，用于后续创建对应的 EXPLORE_ROOT 节点
             String nodeTraceId = extractTraceIdFromNode(currentNode);

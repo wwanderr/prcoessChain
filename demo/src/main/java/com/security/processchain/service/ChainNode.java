@@ -11,6 +11,17 @@ public class ChainNode {
     private ProcessEntity processEntity;
     private Object entity;
     
+    /**
+     * 是否是扩展节点（从逻辑根向上扩展出来的节点）
+     * 用于前端区分显示样式
+     */
+    private Boolean isExtensionNode;
+    
+    /**
+     * 扩展深度（从逻辑根开始，0=逻辑根本身，1=父节点，2=祖父节点）
+     */
+    private Integer extensionDepth;
+    
     public ChainNode() {}
     
     public Boolean getIsRoot() {
@@ -59,6 +70,22 @@ public class ChainNode {
     
     public void setEntity(Object entity) {
         this.entity = entity;
+    }
+    
+    public Boolean getIsExtensionNode() {
+        return isExtensionNode;
+    }
+    
+    public void setIsExtensionNode(Boolean isExtensionNode) {
+        this.isExtensionNode = isExtensionNode;
+    }
+    
+    public Integer getExtensionDepth() {
+        return extensionDepth;
+    }
+    
+    public void setExtensionDepth(Integer extensionDepth) {
+        this.extensionDepth = extensionDepth;
     }
 }
 
