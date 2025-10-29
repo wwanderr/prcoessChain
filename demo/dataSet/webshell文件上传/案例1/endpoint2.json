@@ -1,0 +1,20 @@
+{
+  "processGuid": "process-2-guid-12345",
+  "parentProcessGuid": "process-1-guid-12345",
+  "traceId": "process-1-guid-12345",
+  "hostAddress": "192.168.1.100",
+  "processName": "cmd.exe",
+  "commandLine": "cmd.exe /c echo test",
+  "startTime": "2025-01-27 15:30:45",
+  "endTime": "2025-01-27 15:30:50",
+  "collectorReceiptTime": "2025-01-27 15:30:51",
+  "deviceReceiptTime": "2025-01-27 15:30:52",
+  "@timestamp": "2025-01-27T15:30:45.000Z",
+  "baas_sink_process_time": 1737975045000,
+  "eventTime": 1737975045000,
+  "createdTime": "1737975045000",
+  "processCreateTime": "1737975045000",
+  "threatType": "webshell文件上传",
+  "severity": "high",
+  "description": "检测到可疑的命令执行行为"
+}

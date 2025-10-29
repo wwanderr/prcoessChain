@@ -1,5 +1,34 @@
-# ==================== Java ====================
-# 编译输出
+# Maven
+target/
+**/target/
+**/target/**
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+.metadata/
+bin/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+*.stackdump
+[Dd]esktop.ini
+
+# Java
 *.class
 *.jar
 *.war
@@ -8,104 +37,12 @@
 *.tar.gz
 *.rar
 
-# ==================== Maven ====================
-target/
-pom.xml.tag
-pom.xml.releaseBackup
-pom.xml.versionsBackup
-pom.xml.next
-release.properties
-dependency-reduced-pom.xml
-buildNumber.properties
-.mvn/timing.properties
-.mvn/wrapper/maven-wrapper.jar
-
-# ==================== IDE ====================
-# IntelliJ IDEA
-.idea/
-*.iws
-*.iml
-*.ipr
-out/
-.idea_modules/
-
-# Eclipse
-.classpath
-.project
-.settings/
-.metadata/
-bin/
-tmp/
-*.tmp
-*.bak
-*.swp
-*~.nib
-local.properties
-.loadpath
-.recommenders
-
-# VS Code
-.vscode/
-*.code-workspace
-.history/
-
-# NetBeans
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-
-# ==================== 操作系统 ====================
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-Icon
-._*
-.DocumentRevisions-V100
-.fseventsd
-.Spotlight-V100
-.TemporaryItems
-.Trashes
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
-.apdisk
-
-# Windows
-Thumbs.db
-Thumbs.db:encryptable
-ehthumbs.db
-ehthumbs_vista.db
-*.stackdump
-[Dd]esktop.ini
-$RECYCLE.BIN/
-*.cab
-*.msi
-*.msix
-*.msm
-*.msp
-*.lnk
-
-# Linux
-*~
-.fuse_hidden*
-.directory
-.Trash-*
-.nfs*
-
-# ==================== 日志文件 ====================
+# Logs
 *.log
 logs/
 log/
-*.log.*
-*.log.gz
 
-# ==================== 临时文件 ====================
+# Temporary files
 *.tmp
 *.temp
 *.bak
@@ -115,32 +52,26 @@ log/
 *.swp
 *.swo
 
-# ==================== 测试覆盖率 ====================
+# Test coverage
 *.exec
 *.gcda
 *.gcno
 *.gcov
 .coverage
 coverage/
-htmlcov/
-.tox/
-.pytest_cache/
-.mypy_cache/
-.dmypy.json
-dmypy.json
 
-# ==================== 构建脚本生成的文件 ====================
-*.bat.bak
-*.sh.bak
+# Build outputs
+build/
+**/build/
+**/build/**
+out/
+**/out/
+**/out/**
+generated/
+**/generated/
+**/generated/**
 
-# ==================== 其他 ====================
-# 敏感配置文件
-application-local.yml
-application-dev.yml
-application-prod.yml
-*.properties.bak
-
-# Node.js (如果前端在同一个仓库)
+# Node.js
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -148,20 +79,13 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
-# ==================== 项目特定 ====================
-# 不上传生成的文档（可选，根据需要调整）
-# *.md
+# Sensitive configs
+application-local.yml
+application-dev.yml
+application-prod.yml
+*.properties.bak
 
-# 不上传测试数据
+# Project specific
 test-data/
 sample-data/
-
-# 不上传本地配置
 local-config/
-
-
-
-
-
-
-
