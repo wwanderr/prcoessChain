@@ -40,6 +40,11 @@ public class ProcessNode {
      */
     private StoryNode storyNode;
     
+    /**
+     * 子节点数量（该节点下挂的直接子节点个数）
+     */
+    private Integer childrenCount;
+    
     // Getters and Setters
     
     public NodeType getLogType() {
@@ -88,6 +93,14 @@ public class ProcessNode {
     
     public void setStoryNode(StoryNode storyNode) {
         this.storyNode = storyNode;
+    }
+    
+    public Integer getChildrenCount() {
+        return childrenCount;
+    }
+    
+    public void setChildrenCount(Integer childrenCount) {
+        this.childrenCount = childrenCount;
     }
 }
 

@@ -501,5 +501,62 @@ public class ProcessChainExtensionUtil {
         // 使用转换器将 ChainBuilderNode 转换为最终的 ProcessNode
         return IncidentConverters.NODE_MAPPER.toIncidentNode(builderNode);
     }
+    
+    /**
+     * 计算每个节点的子节点数量
+     * 
+     * <p><b>功能说明</b>：统计每个节点在进程链中的直接子节点数量。</p>
+     * 
+     * <p><b>实现原理</b>：</p>
+     * <ol>
+     *   <li>遍历所有边，统计每个节点作为 source（父节点）出现的次数</li>
+     *   <li>将统计结果设置到对应的 ProcessNode.childrenCount 字段</li>
+     * </ol>
+     * 
+     * <p><b>适用场景</b>：</p>
+     * <ul>
+     *   <li>端侧进程链构建完成后</li>
+     *   <li>网端合并完成后（推荐位置，包含所有节点和边）</li>
+     *   <li>扩展溯源完成后</li>
+     * </ul>
+     * 
+     * <p><b>性能</b>：</p>
+     * <ul>
+     *   <li>时间复杂度：O(E + N)，其中 E 是边数，N 是节点数</li>
+     *   <li>空间复杂度：O(N)，用于存储节点ID到子节点数的映射</li>
+     * </ul>
+     * 
+     * @param nodes 节点列表（会原地修改每个节点的 childrenCount 字段）
+     * @param edges 边列表
+     */
+    public static void calculateChildrenCount(
+            List<ProcessNode> nodes,
+            List<ProcessEdge> edges) {
+        
+        if (nodes == null || edges == null) {
+            log.debug("【子节点统计】-> 跳过计算：节点或边列表为空");
+            return;
+        }
+        
+        // 步骤1: 统计每个节点作为 source 的次数（即子节点数量）
+        // key: nodeId (source), value: 子节点数量
+        Map<String, Integer> childrenCountMap = new HashMap<>();
+        for (ProcessEdge edge : edges) {
+            String source = edge.getSource();
+            if (source != null) {
+                childrenCountMap.put(source, childrenCountMap.getOrDefault(source, 0) + 1);
+            }
+        }
+        
+        // 步骤2: 为每个节点设置子节点数量
+        for (ProcessNode node : nodes) {
+            String nodeId = node.getNodeId();
+            int count = childrenCountMap.getOrDefault(nodeId, 0);
+            node.setChildrenCount(count);
+        }
+        
+        log.debug("【子节点统计】-> 完成子节点数量计算，共处理 {} 个节点，{} 条边", 
+                nodes.size(), edges.size());
+    }
 }
 

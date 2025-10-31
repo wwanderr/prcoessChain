@@ -196,6 +196,14 @@ public class ProcessChainServiceImpl {
             // ========== 阶段4: 合并网侧和端侧 ==========
             if (networkChain == null || networkChain.getKey() == null || networkChain.getKey().isEmpty()) {
                 log.info("【进程链生成】-> 没有网侧数据，直接返回端侧进程链");
+                
+                // ========== 计算端侧节点的子节点数量 ==========
+                if (endpointChain != null && endpointChain.getNodes() != null && endpointChain.getEdges() != null) {
+                    com.security.processchain.util.ProcessChainExtensionUtil.calculateChildrenCount(
+                            endpointChain.getNodes(), endpointChain.getEdges());
+                    log.info("【进程链生成】-> 子节点数量计算完成");
+                }
+                
                 return endpointChain;
             }
             
@@ -360,7 +368,14 @@ public class ProcessChainServiceImpl {
             mergedChain.setNodes(allNodes);
             mergedChain.setEdges(allEdges);
             
-            // 8. 设置基本信息（使用端侧的信息）
+            // ========== 8. 计算每个节点的子节点数量 ==========
+            // 在所有节点和边都添加完成后，统一计算子节点数量
+            // 这样可以涵盖：端侧节点、网侧节点、扩展节点、桥接边
+            com.security.processchain.util.ProcessChainExtensionUtil.calculateChildrenCount(
+                    allNodes, allEdges);
+            log.info("【进程链生成】-> 子节点数量计算完成");
+            
+            // 9. 设置基本信息（使用端侧的信息）
             if (endpointChain != null) {
                 mergedChain.setTraceIds(endpointChain.getTraceIds());
                 mergedChain.setHostAddresses(endpointChain.getHostAddresses());
