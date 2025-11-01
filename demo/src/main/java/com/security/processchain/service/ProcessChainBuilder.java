@@ -379,20 +379,7 @@ public class ProcessChainBuilder {
         if (parentProcessGuid == null || parentProcessGuid.isEmpty() ||
                 !context.hasParentNode(parentProcessGuid)) {
 
-            // 重要：先检查当前节点是否是根节点
-            if (context.getTraceIds().contains(currentProcessGuid)) {
-                // 场景1: 当前节点是根节点（parentProcessGuid 为空或父节点缺失是正常的）
-                foundRootNode = true;
-                rootNodes.add(currentProcessGuid);
-                currentNode.setIsRoot(true);
-                traceIdToRootNodeMap.put(currentProcessGuid, currentProcessGuid);
-                log.info("【进程链生成】-> 找到根节点: processGuid={} (父节点为空或缺失)",
-                        currentProcessGuid);
-                visitedNodesInPath.remove(currentProcessGuid);
-                return;
-            }
-
-            // 场景2: 当前节点不是根节点，但父节点不存在 → 断链
+            // 当前节点不是根节点，但父节点不存在 → 断链
             brokenNodes.add(currentProcessGuid);
             currentNode.setIsBroken(true);
 
