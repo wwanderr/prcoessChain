@@ -607,6 +607,18 @@ public class ProcessChainBuilder {
      * 添加边
      */
     private void addEdge(String source, String target) {
+        // 检查参数有效性
+        if (source == null || source.isEmpty() || target == null || target.isEmpty()) {
+            log.warn("【边添加】-> 跳过无效边：source={}, target={}", source, target);
+            return;
+        }
+        
+        // ✅ 防止自环：source 不能等于 target
+        if (source.equals(target)) {
+            log.warn("【边添加】-> 检测到自环，跳过添加：source=target={}", source);
+            return;
+        }
+        
         // 检查边是否已存在
         for (ChainBuilderEdge edge : edges) {
             if (edge.getSource().equals(source) && edge.getTarget().equals(target)) {
