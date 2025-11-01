@@ -100,21 +100,40 @@ public class ProcessChainBuilder {
                 log.info("【进程链生成】-> 记录网端关联eventIds: {}", associatedEventIds);
             }
             
-            // 将日志按processGuid、ParentProcessGuid索引,便于快速查找
+            // 将日志和告警按processGuid、ParentProcessGuid索引,便于快速查找
             Map<String, List<RawLog>> logsByProcessGuid = null;
             Map<String, List<RawLog>> logsByParentProcessGuid = null;
+            Map<String, List<RawAlarm>> alarmsByProcessGuid = null;
+            Map<String, List<RawAlarm>> alarmsByParentProcessGuid = null;
             
             try {
-                //日志kv存储
+                // 日志索引构建
                 logsByProcessGuid = indexLogsByProcessGuid(logs);
                 logsByParentProcessGuid = indexLogsByParentProcessGuid(logs);
-                log.info("日志索引完成: 按processGuid={} 组, 按parentProcessGuid={} 组", 
+                log.info("【进程链生成】-> 日志索引完成: 按processGuid={} 组, 按parentProcessGuid={} 组", 
                         logsByProcessGuid.size(), logsByParentProcessGuid.size());
+                
+                // 告警索引构建
+                alarmsByProcessGuid = indexAlarmsByProcessGuid(alarms);
+                alarmsByParentProcessGuid = indexAlarmsByParentProcessGuid(alarms);
+                log.info("【进程链生成】-> 告警索引完成: 按processGuid={} 组, 按parentProcessGuid={} 组", 
+                        alarmsByProcessGuid.size(), alarmsByParentProcessGuid.size());
             } catch (Exception e) {
-                log.warn("日志索引失败: {}", e.getMessage());
+                log.warn("【进程链生成】-> 索引构建失败: {}", e.getMessage());
                 logsByProcessGuid = new HashMap<>();
                 logsByParentProcessGuid = new HashMap<>();
+                alarmsByProcessGuid = new HashMap<>();
+                alarmsByParentProcessGuid = new HashMap<>();
             }
+            
+            // 创建链遍历上下文
+            ChainTraversalContext context = new ChainTraversalContext(
+                    logsByProcessGuid,
+                    logsByParentProcessGuid,
+                    alarmsByProcessGuid,
+                    alarmsByParentProcessGuid,
+                    traceIds
+            );
             
             // 遍历每个告警,构建进程链
             int processedCount = 0;
@@ -131,10 +150,10 @@ public class ProcessChainBuilder {
                     
                     if (isHighSeverity(severity)) {
                         // 高危告警: 双向遍历
-                        buildBidirectionalChain(alarm, logsByProcessGuid, logsByParentProcessGuid, traceIds);
+                        buildBidirectionalChain(alarm, context);
                     } else {
                         // 中低危告警: 向上遍历
-                        buildUpwardChain(alarm, logsByProcessGuid, traceIds);
+                        buildUpwardChain(alarm, context);
                     }
                     processedCount++;
                 } catch (Exception e) {
@@ -187,10 +206,7 @@ public class ProcessChainBuilder {
     /**
      * 构建双向进程链(用于高危告警)
      */
-    private void buildBidirectionalChain(RawAlarm alarm, 
-                                        Map<String, List<RawLog>> logsByProcessGuid,
-                                        Map<String, List<RawLog>> logsByParentProcessGuid,
-                                        Set<String> traceIds) {
+    private void buildBidirectionalChain(RawAlarm alarm, ChainTraversalContext context) {
         if (alarm == null) {
             log.warn("【进程链生成】-> 告警为空,跳过双向遍历");
             return;
@@ -202,16 +218,11 @@ public class ProcessChainBuilder {
             return;
         }
         
-        if (logsByProcessGuid == null || logsByParentProcessGuid == null) {
-            log.warn("【进程链生成】-> 日志索引为空,跳过双向遍历");
-            return;
-        }
-        
         // 先添加告警对应的节点，包含很多重要数据
         addAlarmNode(alarm);
         
         // 检查告警节点本身是否是根节点
-        if (traceIds.contains(processGuid)) {
+        if (context.getTraceIds().contains(processGuid)) {
             foundRootNode = true;
             rootNodes.add(processGuid);
             // ✅ 优化：设置节点的 isRoot 属性（用于 NodeIndex）
@@ -226,14 +237,14 @@ public class ProcessChainBuilder {
         }
         
         // 添加告警对应的同级日志节点
-        List<RawLog> sameLevelLogs = logsByProcessGuid.get(processGuid);
+        List<RawLog> sameLevelLogs = context.getLogsByProcessGuid().get(processGuid);
         if (sameLevelLogs != null) {
             for (RawLog rawLog : sameLevelLogs) {
                 if (isValidLogType(rawLog.getLogType())) {
                     addLogNode(rawLog, true);
                     // 检查日志节点是否是根节点
                     String logProcessGuid = rawLog.getProcessGuid();
-                    if (logProcessGuid != null && traceIds.contains(logProcessGuid)) {
+                    if (logProcessGuid != null && context.getTraceIds().contains(logProcessGuid)) {
                         foundRootNode = true;
                         rootNodes.add(logProcessGuid);
                         // ✅ 优化：设置节点的 isRoot 属性（用于 NodeIndex）
@@ -248,22 +259,20 @@ public class ProcessChainBuilder {
         }
         
         // 向上遍历（如果告警节点不是根节点）
-        if (!traceIds.contains(processGuid)) {
+        if (!context.getTraceIds().contains(processGuid)) {
             visitedNodesInPath.clear();
-            traverseUpward(processGuid, logsByProcessGuid, traceIds, 0);
+            traverseUpward(processGuid, context, 0);
         }
         
         // 向下遍历
         visitedNodesInPath.clear();
-        traverseDownward(processGuid, logsByParentProcessGuid, logsByProcessGuid, 0);
+        traverseDownward(processGuid, context, 0);
     }
     
     /**
      * 构建向上进程链(用于中低危告警)
      */
-    private void buildUpwardChain(RawAlarm alarm, 
-                                   Map<String, List<RawLog>> logsByProcessGuid,
-                                   Set<String> traceIds) {
+    private void buildUpwardChain(RawAlarm alarm, ChainTraversalContext context) {
         if (alarm == null) {
             log.warn("【进程链生成】-> 告警为空,跳过向上遍历");
             return;
@@ -275,16 +284,11 @@ public class ProcessChainBuilder {
             return;
         }
         
-        if (logsByProcessGuid == null) {
-            log.warn("【进程链生成】-> 日志索引为空,跳过向上遍历");
-            return;
-        }
-        
         // 添加告警对应的节点
         addAlarmNode(alarm);
         
         // 检查告警节点本身是否是根节点
-        if (traceIds.contains(processGuid)) {
+        if (context.getTraceIds().contains(processGuid)) {
             foundRootNode = true;
             rootNodes.add(processGuid);
             // ✅ 优化：设置节点的 isRoot 属性（用于 NodeIndex）
@@ -299,14 +303,14 @@ public class ProcessChainBuilder {
         }
         
         // 添加告警对应的同级日志节点
-        List<RawLog> sameLevelLogs = logsByProcessGuid.get(processGuid);
+        List<RawLog> sameLevelLogs = context.getLogsByProcessGuid().get(processGuid);
         if (sameLevelLogs != null) {
             for (RawLog rawLog : sameLevelLogs) {
                 if (isValidLogType(rawLog.getLogType())) {
                     addLogNode(rawLog, false);
                     // 检查日志节点是否是根节点
                     String logProcessGuid = rawLog.getProcessGuid();
-                    if (logProcessGuid != null && traceIds.contains(logProcessGuid)) {
+                    if (logProcessGuid != null && context.getTraceIds().contains(logProcessGuid)) {
                         foundRootNode = true;
                         rootNodes.add(logProcessGuid);
                         // ✅ 优化：设置节点的 isRoot 属性（用于 NodeIndex）
@@ -321,9 +325,9 @@ public class ProcessChainBuilder {
         }
         
         // 向上遍历（如果告警节点不是根节点）
-        if (!traceIds.contains(processGuid)) {
+        if (!context.getTraceIds().contains(processGuid)) {
             visitedNodesInPath.clear();
-            traverseUpward(processGuid, logsByProcessGuid, traceIds, 0);
+            traverseUpward(processGuid, context, 0);
         }
     }
     
@@ -333,8 +337,7 @@ public class ProcessChainBuilder {
      * @param depth 当前遍历深度
      */
     private void traverseUpward(String currentProcessGuid, 
-                               Map<String, List<RawLog>> logsByProcessGuid,
-                               Set<String> traceIds,
+                               ChainTraversalContext context,
                                int depth) {
         // 检查深度限制
         if (depth >= MAX_TRAVERSE_DEPTH) {
@@ -358,12 +361,10 @@ public class ProcessChainBuilder {
         
         // 检查当前节点是否是根节点（processGuid 匹配任意一个 traceId）
         // 终止条件1: 找到根节点
-        if (traceIds.contains(currentProcessGuid)) {
+        if (context.getTraceIds().contains(currentProcessGuid)) {
             foundRootNode = true;
             rootNodes.add(currentProcessGuid);
-            // ✅ 优化：设置节点的 isRoot 属性（用于 NodeIndex）
             currentNode.setIsRoot(true);
-            // 记录映射：当 processGuid 在 traceIds 中时，processGuid 本身就是 traceId
             traceIdToRootNodeMap.put(currentProcessGuid, currentProcessGuid);
             log.info("【进程链生成】-> 找到根节点: processGuid={} (匹配traceIds), 记录映射: traceId={} -> rootNodeId={}", 
                     currentProcessGuid, currentProcessGuid, currentProcessGuid);
@@ -373,14 +374,14 @@ public class ProcessChainBuilder {
         
         String parentProcessGuid = currentNode.getParentProcessGuid();
 
-        // 检查父节点日志是否存在于原始日志中
-        // 终止条件2: 父节点日志缺失（断链）
+        // ✅ 关键修复：检查父节点是否存在（日志索引 或 告警索引）
+        // 终止条件2: 父节点不存在（断链）
         if (parentProcessGuid == null || parentProcessGuid.isEmpty() ||
-                !logsByProcessGuid.containsKey(parentProcessGuid)) {
+                !context.hasParentNode(parentProcessGuid)) {
 
             // 重要：先检查当前节点是否是根节点
-            if (traceIds.contains(currentProcessGuid)) {
-                // 场景1: 当前节点是根节点（parentProcessGuid 为空或父节点缺失是存在的）
+            if (context.getTraceIds().contains(currentProcessGuid)) {
+                // 场景1: 当前节点是根节点（parentProcessGuid 为空或父节点缺失是正常的）
                 foundRootNode = true;
                 rootNodes.add(currentProcessGuid);
                 currentNode.setIsRoot(true);
@@ -391,20 +392,18 @@ public class ProcessChainBuilder {
                 return;
             }
 
-            // 场景2: 当前节点不是根节点，但父节点日志缺失 → 断链
-            // 原因：无法继续向上追溯，进程链在此处断裂
+            // 场景2: 当前节点不是根节点，但父节点不存在 → 断链
             brokenNodes.add(currentProcessGuid);
             currentNode.setIsBroken(true);
 
-            // 记录断链节点的 traceId，用于后续创建对应的 EXPLORE_ROOT 节点
             String nodeTraceId = extractTraceIdFromNode(currentNode);
             if (nodeTraceId != null && !nodeTraceId.isEmpty()) {
                 brokenNodeToTraceId.put(currentProcessGuid, nodeTraceId);
-                log.warn("【断链检测】-> 节点 {} (traceId={}) 的父节点 {} 日志缺失，标记为断链节点",
+                log.warn("【断链检测】-> 节点 {} (traceId={}) 的父节点 {} 不存在（日志和告警索引中均无），标记为断链节点",
                         currentProcessGuid, nodeTraceId,
                         parentProcessGuid != null ? parentProcessGuid : "null");
             } else {
-                log.warn("【断链检测】-> 节点 {} 的父节点 {} 日志缺失，标记为断链节点（未提取到traceId）",
+                log.warn("【断链检测】-> 节点 {} 的父节点 {} 不存在（日志和告警索引中均无），标记为断链节点（未提取到traceId）",
                         currentProcessGuid,
                         parentProcessGuid != null ? parentProcessGuid : "null");
             }
@@ -413,24 +412,36 @@ public class ProcessChainBuilder {
             return;
         }
         
-        // 父节点存在，获取父节点日志
-        List<RawLog> parentLogs = logsByProcessGuid.get(parentProcessGuid);
-        
-        // 添加父节点
-        for (RawLog log : parentLogs) {
-            if (isValidLogType(log.getLogType()) && 
-                parentProcessGuid.equals(log.getProcessGuid())) {
-                
-                addLogNode(log, false);
-                
-                // 添加边: 父节点 -> 当前节点
-                addEdge(parentProcessGuid, currentProcessGuid);
-                
-                // 继续向上递归
-                traverseUpward(parentProcessGuid, logsByProcessGuid, traceIds, depth + 1);
-                break;
+        // ✅ 父节点存在：优先从日志添加，否则从告警索引获取（纯告警场景）
+        if (context.hasParentInLogs(parentProcessGuid)) {
+            // 从日志索引获取父节点日志并添加
+            List<RawLog> parentLogs = context.getParentLogs(parentProcessGuid);
+            for (RawLog log : parentLogs) {
+                if (isValidLogType(log.getLogType()) && 
+                    parentProcessGuid.equals(log.getProcessGuid())) {
+                    
+                    addLogNode(log, false);
+                    break;
+                }
+            }
+        } else if (context.hasParentInAlarms(parentProcessGuid)) {
+            // 从告警索引获取父节点（纯告警场景的关键修复）
+            List<RawAlarm> parentAlarms = context.getParentAlarms(parentProcessGuid);
+            if (parentAlarms != null && !parentAlarms.isEmpty()) {
+                RawAlarm parentAlarm = parentAlarms.get(0);
+                addAlarmNode(parentAlarm);
+                log.debug("【进程链生成】-> 通过告警索引向上溯源: {} -> {}", 
+                        parentProcessGuid, currentProcessGuid);
             }
         }
+        // else: 父节点已在nodeMap中（可能在预处理或其他告警中已添加），无需重复添加
+        
+        // 添加边: 父节点 -> 当前节点
+        addEdge(parentProcessGuid, currentProcessGuid);
+        
+        // 继续向上递归
+        traverseUpward(parentProcessGuid, context, depth + 1);
+        
         // 回溯时清理，允许其他路径访问该节点
         visitedNodesInPath.remove(currentProcessGuid);
     }
@@ -441,8 +452,7 @@ public class ProcessChainBuilder {
      * @param depth 当前遍历深度
      */
     private void traverseDownward(String currentProcessGuid,
-                                  Map<String, List<RawLog>> logsByParentProcessGuid,
-                                  Map<String, List<RawLog>> logsByProcessGuid,
+                                  ChainTraversalContext context,
                                   int depth) {
         // 检查深度限制
         if (depth >= MAX_TRAVERSE_DEPTH) {
@@ -457,42 +467,70 @@ public class ProcessChainBuilder {
         }
         visitedNodesInPath.add(currentProcessGuid);
         
-        // 查找子节点
-        List<RawLog> childLogs = logsByParentProcessGuid.get(currentProcessGuid);
-        if (childLogs == null || childLogs.isEmpty()) {
+        // ✅ 查找日志子节点和告警子节点
+        List<RawLog> childLogs = context.getChildLogs(currentProcessGuid);
+        List<RawAlarm> childAlarms = context.getChildAlarms(currentProcessGuid);
+        
+        // 如果既没有日志子节点也没有告警子节点，返回
+        if ((childLogs == null || childLogs.isEmpty()) && 
+            (childAlarms == null || childAlarms.isEmpty())) {
             visitedNodesInPath.remove(currentProcessGuid);
             return;
         }
         
-        // 遍历所有子节点
-        for (RawLog childLog : childLogs) {
-            if (!isValidLogType(childLog.getLogType())) {
-                continue;
-            }
-            
-            String childProcessGuid = childLog.getProcessGuid();
-            if (childProcessGuid == null || childProcessGuid.isEmpty()) {
-                continue;
-            }
-            
-            // 添加子节点
-            addLogNode(childLog, false);
-            
-            // 添加同级节点
-            List<RawLog> sameLevelLogs = logsByProcessGuid.get(childProcessGuid);
-            if (sameLevelLogs != null) {
-                for (RawLog log : sameLevelLogs) {
-                    if (isValidLogType(log.getLogType())) {
-                        addLogNode(log, false);
+        // 处理日志子节点
+        if (childLogs != null && !childLogs.isEmpty()) {
+            for (RawLog childLog : childLogs) {
+                if (!isValidLogType(childLog.getLogType())) {
+                    continue;
+                }
+                
+                String childProcessGuid = childLog.getProcessGuid();
+                if (childProcessGuid == null || childProcessGuid.isEmpty()) {
+                    continue;
+                }
+                
+                // 添加子节点
+                addLogNode(childLog, false);
+                
+                // 添加同级节点
+                List<RawLog> sameLevelLogs = context.getLogsByProcessGuid().get(childProcessGuid);
+                if (sameLevelLogs != null) {
+                    for (RawLog log : sameLevelLogs) {
+                        if (isValidLogType(log.getLogType())) {
+                            addLogNode(log, false);
+                        }
                     }
                 }
+                
+                // 添加边: 当前节点 -> 子节点
+                addEdge(currentProcessGuid, childProcessGuid);
+                
+                // 继续向下递归
+                traverseDownward(childProcessGuid, context, depth + 1);
             }
-            
-            // 添加边: 当前节点 -> 子节点
-            addEdge(currentProcessGuid, childProcessGuid);
-            
-            // 继续向下递归
-            traverseDownward(childProcessGuid, logsByParentProcessGuid, logsByProcessGuid, depth + 1);
+        }
+        
+        // ✅ 处理告警子节点（纯告警场景的关键修复）
+        if (childAlarms != null && !childAlarms.isEmpty()) {
+            for (RawAlarm childAlarm : childAlarms) {
+                String childProcessGuid = childAlarm.getProcessGuid();
+                if (childProcessGuid == null || childProcessGuid.isEmpty()) {
+                    continue;
+                }
+                
+                // 添加告警子节点
+                addAlarmNode(childAlarm);
+                
+                // 添加边: 当前节点 -> 告警子节点
+                addEdge(currentProcessGuid, childProcessGuid);
+                
+                log.debug("【进程链生成】-> 通过告警索引向下溯源: {} -> {}", 
+                        currentProcessGuid, childProcessGuid);
+                
+                // 继续向下递归
+                traverseDownward(childProcessGuid, context, depth + 1);
+            }
         }
         
         visitedNodesInPath.remove(currentProcessGuid);
@@ -632,6 +670,42 @@ public class ProcessChainBuilder {
     }
     
     /**
+     * 将告警按processGuid索引
+     */
+    private Map<String, List<RawAlarm>> indexAlarmsByProcessGuid(List<RawAlarm> alarms) {
+        Map<String, List<RawAlarm>> index = new HashMap<>();
+        if (alarms == null) {
+            return index;
+        }
+        
+        for (RawAlarm alarm : alarms) {
+            String processGuid = alarm.getProcessGuid();
+            if (processGuid != null && !processGuid.isEmpty()) {
+                index.computeIfAbsent(processGuid, k -> new ArrayList<>()).add(alarm);
+            }
+        }
+        return index;
+    }
+    
+    /**
+     * 将告警按parentProcessGuid索引
+     */
+    private Map<String, List<RawAlarm>> indexAlarmsByParentProcessGuid(List<RawAlarm> alarms) {
+        Map<String, List<RawAlarm>> index = new HashMap<>();
+        if (alarms == null) {
+            return index;
+        }
+        
+        for (RawAlarm alarm : alarms) {
+            String parentProcessGuid = alarm.getParentProcessGuid();
+            if (parentProcessGuid != null && !parentProcessGuid.isEmpty()) {
+                index.computeIfAbsent(parentProcessGuid, k -> new ArrayList<>()).add(alarm);
+            }
+        }
+        return index;
+    }
+    
+    /**
      * 判断是否是高危
      */
     private boolean isHighSeverity(String severity) {
@@ -688,6 +762,112 @@ public class ProcessChainBuilder {
             }
         }
         return false;
+    }
+    
+    /**
+     * 链遍历上下文
+     * 封装构建过程中需要的所有索引和配置
+     */
+    public static class ChainTraversalContext {
+        // 日志索引
+        private final Map<String, List<RawLog>> logsByProcessGuid;
+        private final Map<String, List<RawLog>> logsByParentProcessGuid;
+        
+        // 告警索引
+        private final Map<String, List<RawAlarm>> alarmsByProcessGuid;
+        private final Map<String, List<RawAlarm>> alarmsByParentProcessGuid;
+        
+        // 溯源配置
+        private final Set<String> traceIds;
+        
+        public ChainTraversalContext(
+                Map<String, List<RawLog>> logsByProcessGuid,
+                Map<String, List<RawLog>> logsByParentProcessGuid,
+                Map<String, List<RawAlarm>> alarmsByProcessGuid,
+                Map<String, List<RawAlarm>> alarmsByParentProcessGuid,
+                Set<String> traceIds) {
+            this.logsByProcessGuid = logsByProcessGuid != null ? logsByProcessGuid : new HashMap<>();
+            this.logsByParentProcessGuid = logsByParentProcessGuid != null ? logsByParentProcessGuid : new HashMap<>();
+            this.alarmsByProcessGuid = alarmsByProcessGuid != null ? alarmsByProcessGuid : new HashMap<>();
+            this.alarmsByParentProcessGuid = alarmsByParentProcessGuid != null ? alarmsByParentProcessGuid : new HashMap<>();
+            this.traceIds = traceIds != null ? traceIds : new HashSet<>();
+        }
+        
+        // Getter 方法
+        public Map<String, List<RawLog>> getLogsByProcessGuid() {
+            return logsByProcessGuid;
+        }
+        
+        public Map<String, List<RawLog>> getLogsByParentProcessGuid() {
+            return logsByParentProcessGuid;
+        }
+        
+        public Map<String, List<RawAlarm>> getAlarmsByProcessGuid() {
+            return alarmsByProcessGuid;
+        }
+        
+        public Map<String, List<RawAlarm>> getAlarmsByParentProcessGuid() {
+            return alarmsByParentProcessGuid;
+        }
+        
+        public Set<String> getTraceIds() {
+            return traceIds;
+        }
+        
+        /**
+         * 检查父节点是否存在（日志或告警）
+         */
+        public boolean hasParentNode(String parentProcessGuid) {
+            if (parentProcessGuid == null || parentProcessGuid.isEmpty()) {
+                return false;
+            }
+            return logsByProcessGuid.containsKey(parentProcessGuid) ||
+                   alarmsByProcessGuid.containsKey(parentProcessGuid);
+        }
+        
+        /**
+         * 获取父节点日志（如果存在）
+         */
+        public List<RawLog> getParentLogs(String parentProcessGuid) {
+            return logsByProcessGuid.get(parentProcessGuid);
+        }
+        
+        /**
+         * 获取父节点告警（如果存在）
+         */
+        public List<RawAlarm> getParentAlarms(String parentProcessGuid) {
+            return alarmsByProcessGuid.get(parentProcessGuid);
+        }
+        
+        /**
+         * 获取子节点日志列表
+         */
+        public List<RawLog> getChildLogs(String processGuid) {
+            return logsByParentProcessGuid.get(processGuid);
+        }
+        
+        /**
+         * 获取子节点告警列表
+         */
+        public List<RawAlarm> getChildAlarms(String processGuid) {
+            return alarmsByParentProcessGuid.get(processGuid);
+        }
+        
+        /**
+         * 检查父节点是否在日志索引中
+         */
+        public boolean hasParentInLogs(String parentProcessGuid) {
+            return parentProcessGuid != null && !parentProcessGuid.isEmpty() &&
+                   logsByProcessGuid.containsKey(parentProcessGuid);
+        }
+        
+        /**
+         * 检查父节点是否在告警索引中
+         */
+        public boolean hasParentInAlarms(String parentProcessGuid) {
+            return parentProcessGuid != null && !parentProcessGuid.isEmpty() &&
+                   alarmsByProcessGuid.containsKey(parentProcessGuid);
+        }
     }
     
     /**
