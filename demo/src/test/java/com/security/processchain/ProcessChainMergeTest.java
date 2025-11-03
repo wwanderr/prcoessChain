@@ -1,6 +1,5 @@
 package com.security.processchain;
 
-import com.security.processchain.model.IpMappingRelation;
 import com.security.processchain.model.ProcessEdge;
 import com.security.processchain.model.ProcessNode;
 import com.security.processchain.model.RawAlarm;
@@ -17,8 +16,6 @@ import org.mockito.MockitoAnnotations;
 import java.util.*;
 
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 /**
  * 进程链合并单元测试
@@ -381,7 +378,7 @@ public class ProcessChainMergeTest {
         attackerStory.setType("attacker");
         Map<String, Object> attackerOther = new HashMap<>();
         attackerOther.put("ip", "10.50.86.35");
-        attackerStory.setOther(attackerOther);
+        attackerStory.setNode(attackerOther);
         attackerNode.setStoryNode(attackerStory);
         
         networkNodes.add(attackerNode);
@@ -503,7 +500,7 @@ public class ProcessChainMergeTest {
         Map<String, Object> attackerOther = new HashMap<>();
         attackerOther.put("ip", "10.50.86.35");
         attackerOther.put("isTopNode", true);
-        attackerStory.setOther(attackerOther);
+        attackerStory.setNode(attackerOther);
         attackerNode.setStoryNode(attackerStory);
         nodes.add(attackerNode);
         
@@ -521,7 +518,7 @@ public class ProcessChainMergeTest {
         victim1Other.put("port", "22");
         victim1Other.put("isEdr", true);
         victim1Other.put("associated", true);
-        victim1Story.setOther(victim1Other);
+        victim1Story.setNode(victim1Other);
         victim1.setStoryNode(victim1Story);
         nodes.add(victim1);
         
@@ -538,7 +535,7 @@ public class ProcessChainMergeTest {
         victim2Other.put("ip", "10.50.86.52");
         victim2Other.put("port", "32");
         victim2Other.put("isEdr", false);
-        victim2Story.setOther(victim2Other);
+        victim2Story.setNode(victim2Other);
         victim2.setStoryNode(victim2Story);
         nodes.add(victim2);
         
@@ -555,7 +552,7 @@ public class ProcessChainMergeTest {
         victim3Other.put("ip", "10.50.109.102");
         victim3Other.put("port", "22");
         victim3Other.put("isEdr", true);
-        victim3Story.setOther(victim3Other);
+        victim3Story.setNode(victim3Other);
         victim3.setStoryNode(victim3Story);
         nodes.add(victim3);
         
@@ -735,11 +732,11 @@ public class ProcessChainMergeTest {
      * 从 StoryNode 提取 IP
      */
     private String extractIpFromStoryNode(StoryNode storyNode) {
-        if (storyNode.getOther() == null) {
+        if (storyNode.getNode() == null) {
             return null;
         }
         
-        Object ipObj = storyNode.getOther().get("ip");
+        Object ipObj = storyNode.getNode().get("ip");
         if (ipObj == null) {
             return null;
         }

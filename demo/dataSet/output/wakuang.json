@@ -1,0 +1,123 @@
+{
+  "data": {
+    "traceIds": ["traceId-test-001"],
+    "hostAddresses": ["10.50.110.193"],
+    "threatSeverity": "HIGH",
+    "nodes": [
+      {
+        "nodeId": "victim",
+        "logType": null,
+        "nodeThreatSeverity": null,
+        "isChainNode": false,
+        "storyNode": {
+          "type": "srcNode",
+          "node": {
+            "ip":"10.50.109.192",
+            "type" : "victim"
+          }
+        },
+        "childrenCount": 1
+      },
+      {
+        "nodeId": "server",
+        "logType": null,
+        "nodeThreatSeverity": null,
+        "isChainNode": false,
+        "storyNode": {
+          "type": "srcNode",
+          "node": {
+            "name":"DNS服务器",
+            "type" : "server"
+          }
+        },
+        "childrenCount": 0
+      },
+      {
+        "nodeId": null,
+        "logType": null,
+        "nodeThreatSeverity": null,
+        "isChainNode": false,
+        "storyNode": {
+          "type": "aaa",
+          "node": {
+            "name":"矿池",
+            "type" : "attacker"
+          }
+        },
+        "childrenCount": 0
+      },
+      {
+        "nodeId": "AAAAA",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "LOW",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": false,
+          "isBroken": false,
+          "isAlarm": false,
+          "isExtensionNode": true,
+          "extensionDepth": 1,
+          "processEntity": {
+            "processGuid": "AAAAA",
+            "parentProcessGuid": "GUID-001-11111",
+            "processName": "RuntimeBroker.exe",
+            "processId": 424,
+            "parentProcessId": 896,
+            "commandLine": "C:\\Windows\\System32\\RuntimeBroker.exe -Embedding",
+            "image": "C:\\Windows\\System32\\RuntimeBroker.exe",
+            "processMd5": "51e04ae0701a1d33fdd89b96d7ce12a4",
+            "processUserName": "DESKTOP-M0S0L3H\\Administrator",
+            "processStartTime": "2025-05-21 07:55:33",
+            "parentProcessName": ""
+          }
+        },
+        "childrenCount": 0
+      },
+      {
+        "nodeId": "EXPLORE_ROOT_traceId-1",
+        "logType": "EXPLORE",
+        "nodeThreatSeverity": "MEDIUM",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": true,
+          "isBroken": false,
+          "isAlarm": false,
+          "isExtensionNode": false,
+          "extensionDepth": 0,
+          "processEntity": {
+            "processGuid":null,
+            "parentProcessGuid": null,
+            "processName": "EXPLORE.exe",
+            "processId": 6992,
+            "parentProcessId": 424,
+            "commandLine": "",
+            "image": "",
+            "processMd5": "47f5bcae0727743d845fba7220611ae1",
+            "processUserName": null,
+            "processStartTime": "2025-05-21 09:48:08",
+            "parentProcessName": ""
+          }
+        },
+        "childrenCount": 1
+      }
+    ],
+      "edges": [
+      {
+        "source": "victim",
+        "target": "server",
+        "val": ""
+      },
+      {
+        "source": "EXPLORE_ROOT_traceId-1",
+        "target": "AAAAA",
+        "val": "段链"
+      },
+      {
+        "source": "victim",
+        "target": "EXPLORE_ROOT_traceId-1",
+        "val": "桥接"
+      }
+    ]
+  }
+}
+

@@ -78,11 +78,31 @@ public class ProcessChainVisualizer {
         sb.append("**节点数量**: ").append(chain.getNodes() != null ? chain.getNodes().size() : 0).append("\n");
         sb.append("**边数量**: ").append(chain.getEdges() != null ? chain.getEdges().size() : 0).append("\n\n");
         
-        // 构建节点映射
+        // 构建节点映射（处理nodeId为null的情况）
         Map<String, ProcessNode> nodeMap = new HashMap<>();
         if (chain.getNodes() != null) {
+            int nullNodeIndex = 0;
             for (ProcessNode node : chain.getNodes()) {
-                nodeMap.put(node.getNodeId(), node);
+                String nodeId = node.getNodeId();
+                // 如果nodeId为null，使用type或其他标识符作为临时ID
+                if (nodeId == null || nodeId.isEmpty()) {
+                    if (node.getStoryNode() != null && node.getStoryNode().getNode() != null) {
+                        Map<String, Object> nodeInfo = node.getStoryNode().getNode();
+                        String type = (String) nodeInfo.get("type");
+                        if (type != null) {
+                            nodeId = type;  // 使用type作为ID
+                        } else {
+                            nodeId = "NULL_NODE_" + (++nullNodeIndex);  // 最后的手段
+                        }
+                    } else {
+                        nodeId = "NULL_NODE_" + (++nullNodeIndex);
+                    }
+                }
+                nodeMap.put(nodeId, node);
+                // 如果原始nodeId不是null，也建立一个映射（用于后续查找）
+                if (node.getNodeId() != null && !nodeId.equals(node.getNodeId())) {
+                    // 已经在上面put了，这里不需要额外处理
+                }
             }
         }
         
@@ -130,15 +150,35 @@ public class ProcessChainVisualizer {
             // 找到所有网络节点（作为真正的起点）
             List<ProcessNode> networkNodes = new ArrayList<>();
             for (ProcessNode node : chain.getNodes()) {
-                if ("NETWORK".equalsIgnoreCase(node.getLogType())) {
+                // 识别网络节点：logType=NETWORK 或者 storyNode.type=srcNode
+                boolean isNetworkNode = "NETWORK".equalsIgnoreCase(node.getLogType());
+                if (!isNetworkNode && node.getStoryNode() != null && "srcNode".equals(node.getStoryNode().getType())) {
+                    isNetworkNode = true;
+                }
+                if (isNetworkNode) {
                     networkNodes.add(node);
                 }
             }
             
             // 如果有网络节点，从网络节点开始生成树
             if (!networkNodes.isEmpty()) {
-                for (ProcessNode networkNode : networkNodes) {
-                    generateProcessTree(sb, networkNode.getNodeId(), nodeMap, adjacencyList, "", true, new HashSet<>());
+                // 找到网络节点中没有父节点的（真正的起点）
+                Set<String> networkNodeIds = new HashSet<>();
+                for (ProcessNode nn : networkNodes) {
+                    networkNodeIds.add(nn.getNodeId());
+                }
+                
+                // 找到网络节点中没有被其他节点指向的（顶层网络节点）
+                Set<String> topNetworkNodes = new HashSet<>(networkNodeIds);
+                topNetworkNodes.removeAll(childToParent.keySet());
+                
+                if (!topNetworkNodes.isEmpty()) {
+                    for (String topNodeId : topNetworkNodes) {
+                        generateProcessTree(sb, topNodeId, nodeMap, adjacencyList, "", true, new HashSet<>());
+                    }
+                } else {
+                    // 如果所有网络节点都有父节点，选择第一个
+                    generateProcessTree(sb, networkNodes.get(0).getNodeId(), nodeMap, adjacencyList, "", true, new HashSet<>());
                 }
             } else {
                 // 没有网络节点，从告警根节点开始
@@ -292,48 +332,67 @@ public class ProcessChainVisualizer {
             }
         }
         
-        // 找到所有网络节点
+        // 找到所有网络节点（包括IP节点）
         List<ProcessNode> networkNodes = new ArrayList<>();
         for (ProcessNode node : chain.getNodes()) {
-            if ("NETWORK".equalsIgnoreCase(node.getLogType())) {
+            boolean isNetworkNode = "NETWORK".equalsIgnoreCase(node.getLogType());
+            // 也识别 storyNode.type=srcNode 的IP节点
+            if (!isNetworkNode && node.getStoryNode() != null && "srcNode".equals(node.getStoryNode().getType())) {
+                isNetworkNode = true;
+            }
+            if (isNetworkNode) {
                 networkNodes.add(node);
             }
         }
         
-        // 构建网络节点到告警节点的映射（通过边关系）
-        Map<String, ProcessNode> networkToAlarm = new HashMap<>();
+        // 构建网络节点到根节点的映射（通过边关系）
+        // 根节点可能是告警节点或者isRoot=true的节点
+        Map<String, ProcessNode> networkToRoot = new HashMap<>();
+        Set<String> rootNodeIds = new HashSet<>();
+        for (String nodeId : rootNodes) {
+            rootNodeIds.add(nodeId);
+        }
+        
         if (chain.getEdges() != null) {
             for (ProcessEdge edge : chain.getEdges()) {
-                // 查找网络节点指向告警节点的边
                 ProcessNode sourceNode = nodeMap.get(edge.getSource());
                 ProcessNode targetNode = nodeMap.get(edge.getTarget());
                 
-                if (sourceNode != null && "NETWORK".equalsIgnoreCase(sourceNode.getLogType()) &&
-                    targetNode != null && targetNode.getIsChainNode() != null && 
-                    targetNode.getIsChainNode() && targetNode.getChainNode() != null &&
-                    targetNode.getChainNode().getIsAlarm() != null && 
-                    targetNode.getChainNode().getIsAlarm()) {
-                    networkToAlarm.put(edge.getSource(), targetNode);
+                // 查找网络节点（或IP节点）指向根节点的边
+                boolean isNetworkSource = false;
+                if (sourceNode != null) {
+                    isNetworkSource = "NETWORK".equalsIgnoreCase(sourceNode.getLogType()) ||
+                                    (sourceNode.getStoryNode() != null && "srcNode".equals(sourceNode.getStoryNode().getType()));
+                }
+                
+                boolean isRootTarget = targetNode != null && rootNodeIds.contains(targetNode.getNodeId());
+                
+                if (isNetworkSource && isRootTarget) {
+                    // 找到最早的网络源节点（没有父节点的那个）
+                    String networkSourceId = edge.getSource();
+                    // 回溯找到最顶层的网络节点
+                    ProcessNode topNetworkNode = findTopNetworkNode(sourceNode, chain.getEdges(), nodeMap);
+                    networkToRoot.put(topNetworkNode.getNodeId(), targetNode);
+                    System.out.println("DEBUG: 映射 网络节点 " + topNetworkNode.getNodeId() + " → 根节点 " + targetNode.getNodeId());
                 }
             }
         }
         
         System.out.println("DEBUG: 找到 " + networkNodes.size() + " 个网络节点");
         System.out.println("DEBUG: 找到 " + alarmNodes.size() + " 个告警节点");
-        System.out.println("DEBUG: 网络→告警映射: " + networkToAlarm.size() + " 条");
+        System.out.println("DEBUG: 网络→根节点映射: " + networkToRoot.size() + " 条");
         
-        // 如果有多个网络节点，为每个生成独立的攻击链图
-        if (networkNodes.size() > 1) {
-            sb.append("**检测到 " + networkNodes.size() + " 个独立的网络攻击，将分别展示**\n\n");
+        // 如果有多个独立的网络链路，为每个生成独立的攻击链图
+        if (networkToRoot.size() > 1) {
+            sb.append("**检测到 " + networkToRoot.size() + " 个独立的网络攻击链，将分别展示**\n\n");
             
             int chainIndex = 1;
-            for (ProcessNode networkNode : networkNodes) {
-                ProcessNode targetAlarm = networkToAlarm.get(networkNode.getNodeId());
-                if (targetAlarm != null) {
-                    sb.append("### 攻击链 " + chainIndex + "\n\n");
-                    generateSingleChainView(sb, chain, nodeMap, targetAlarm, networkNode);
-                    chainIndex++;
-                }
+            for (Map.Entry<String, ProcessNode> entry : networkToRoot.entrySet()) {
+                ProcessNode topNetworkNode = nodeMap.get(entry.getKey());
+                ProcessNode targetRoot = entry.getValue();
+                sb.append("### 攻击链 " + chainIndex + "\n\n");
+                generateSingleChainView(sb, chain, nodeMap, targetRoot, topNetworkNode);
+                chainIndex++;
             }
         } else {
             // 单个攻击链，使用原有逻辑
@@ -341,6 +400,32 @@ public class ProcessChainVisualizer {
             ProcessNode networkNode = networkNodes.isEmpty() ? null : networkNodes.get(0);
             generateSingleChainView(sb, chain, nodeMap, rootNode, networkNode);
         }
+    }
+    
+    /**
+     * 找到最顶层的网络节点（递归向上查找没有父节点的网络节点）
+     */
+    private static ProcessNode findTopNetworkNode(ProcessNode node, List<ProcessEdge> edges, Map<String, ProcessNode> nodeMap) {
+        if (node == null || edges == null) return node;
+        
+        // 查找指向当前节点的边
+        for (ProcessEdge edge : edges) {
+            if (edge.getTarget().equals(node.getNodeId())) {
+                ProcessNode parentNode = nodeMap.get(edge.getSource());
+                if (parentNode != null) {
+                    // 检查父节点是否也是网络节点
+                    boolean isNetworkNode = "NETWORK".equalsIgnoreCase(parentNode.getLogType()) ||
+                                          (parentNode.getStoryNode() != null && "srcNode".equals(parentNode.getStoryNode().getType()));
+                    if (isNetworkNode) {
+                        // 继续向上查找
+                        return findTopNetworkNode(parentNode, edges, nodeMap);
+                    }
+                }
+            }
+        }
+        
+        // 没有网络父节点，当前节点就是顶层网络节点
+        return node;
     }
     
     /**
@@ -360,9 +445,13 @@ public class ProcessChainVisualizer {
         sb.append("                            攻 击 链 完 整 视 图                              \n");
         sb.append("════════════════════════════════════════════════════════════════════════════\n\n");
         
+        // 构建完整的攻击链路径（包括IP节点和进程节点）
+        // buildFullChainPath已经按照边关系从上到下（网侧→端侧）的顺序构建，不需要反转
+        List<ChainStep> fullChain = buildFullChainPath(rootNode.getNodeId(), nodeMap, chain.getEdges());
+        
         // 使用传入的rootNode
         if (rootNode != null) {
-            // 构建从祖先到根节点的完整路径
+            // 构建从祖先到根节点的进程链路径（用于兼容性）
             List<ProcessNode> chainPath = new ArrayList<>();
             buildChainPath(rootNode.getNodeId(), nodeMap, chainPath, new HashSet<>());
             Collections.reverse(chainPath);
@@ -393,118 +482,70 @@ public class ProcessChainVisualizer {
                 }
             }
             
-            // 显示进程链
-            sb.append("【端侧】主机进程执行链\n");
+            // 显示完整攻击链（包括IP节点和进程节点，支持同级分支）
+            sb.append("【完整攻击链】\n");
             
-            // 遍历进程链，找到告警节点的位置
-            int alarmNodeIndex = -1;
-            for (int i = 0; i < chainPath.size(); i++) {
-                ProcessNode node = chainPath.get(i);
-                if (node.getChainNode() != null && node.getChainNode().getIsAlarm() != null && 
-                    node.getChainNode().getIsAlarm()) {
-                    alarmNodeIndex = i;
-                    break;
+            // 重新构建树形结构以支持分支展示
+            Map<String, List<String>> parentToChildren = new HashMap<>();
+            Map<String, String> edgeDescriptions = new HashMap<>();
+            
+            // 构建类型标识符到节点ID的映射
+            Map<String, String> typeToNodeId = new HashMap<>();
+            for (Map.Entry<String, ProcessNode> entry : nodeMap.entrySet()) {
+                ProcessNode node = entry.getValue();
+                if (node.getStoryNode() != null && node.getStoryNode().getNode() != null) {
+                    Map<String, Object> nodeInfo = node.getStoryNode().getNode();
+                    String type = (String) nodeInfo.get("type");
+                    if (type != null) {
+                        typeToNodeId.put(type, entry.getKey());
+                    }
                 }
             }
             
-            // 输出完整链路信息
-            int processCount = 0;
-            for (int i = 0; i < chainPath.size(); i++) {
-                ProcessNode node = chainPath.get(i);
-                
-                if (node.getChainNode() == null || node.getChainNode().getProcessEntity() == null) {
-                    continue;
-                }
-                
-                processCount++;
-                ProcessEntity entity = node.getChainNode().getProcessEntity();
-                boolean isAlarm = node.getChainNode().getIsAlarm() != null && node.getChainNode().getIsAlarm();
-                boolean isRoot = node.getChainNode().getIsRoot() != null && node.getChainNode().getIsRoot();
-                boolean isExtend = node.getChainNode().getIsExtensionNode() != null && node.getChainNode().getIsExtensionNode();
-                
-                String icon = isAlarm ? "🚨" : isRoot ? "⚡" : isExtend ? "🔗" : "💻";
-                String boxStyle = isAlarm ? "━" : "─";
-                
-                // 连接线（在第一个节点之前不显示）
-                if (processCount > 1) {
-                    sb.append("                                 ║\n");
-                    sb.append("                                 ▼\n");
-                    sb.append("                                 ║\n");
-                }
-                
-                // 在当前节点之前插入网络攻击来源（如果网络节点连接到当前节点）
-                if (networkTargetNodeId != null && node.getNodeId().equals(networkTargetNodeId) && 
-                    networkNode != null && networkNode.getStoryNode() != null && 
-                    networkNode.getStoryNode().getOther() != null) {
-                    Map<String, Object> other = networkNode.getStoryNode().getOther();
+            if (chain.getEdges() != null) {
+                for (ProcessEdge edge : chain.getEdges()) {
+                    String sourceId = edge.getSource();
+                    String targetId = edge.getTarget();
                     
-                    sb.append("    ╔═══════════════════════════════════════════════════════════════════╗\n");
-                    sb.append("    ║                    【网侧】网络攻击桥接到端侧                       ║\n");
-                    sb.append("    ╠═══════════════════════════════════════════════════════════════════╣\n");
-                    sb.append("    ║ 🌐 攻击者: ").append(other.get("srcAddress")).append(":").append(other.get("srcPort")).append("\n");
-                    sb.append("    ║    协议: ").append(other.get("protocol")).append(" ").append(other.get("method")).append("\n");
-                    sb.append("    ║    目标: ").append(other.get("destAddress")).append(":").append(other.get("destPort")).append("\n");
-                    if (other.get("url") != null) {
-                        sb.append("    ║    URL: ").append(other.get("url")).append("\n");
+                    if (!nodeMap.containsKey(sourceId) && typeToNodeId.containsKey(sourceId)) {
+                        sourceId = typeToNodeId.get(sourceId);
                     }
-                    if (other.get("ruleName") != null) {
-                        sb.append("    ║    检测: ").append(other.get("ruleName")).append("\n");
+                    if (!nodeMap.containsKey(targetId) && typeToNodeId.containsKey(targetId)) {
+                        targetId = typeToNodeId.get(targetId);
                     }
-                    sb.append("    ╚═══════════════════════════════════════════════════════════════════╝\n");
-                    sb.append("                                 ║\n");
-                    sb.append("                                 ▼ 桥接到端侧进程\n");
-                    sb.append("                                 ║\n");
                     
-                    // 只显示一次，设为null避免重复
-                    networkNode = null;
-                }
-                
-                // 进程盒子
-                sb.append("    ┏").append(boxStyle.repeat(68)).append("┓\n");
-                
-                // 标题行
-                String title = icon + " " + entity.getProcessName() + " (PID:" + entity.getProcessId() + ")";
-                if (isAlarm) title += " ⚠️ 告警节点";
-                if (isRoot) title += " 🎯 根节点";
-                if (isExtend) title += " (扩展节点)";
-                sb.append("    ┃ ").append(String.format("%-66s", title)).append(" ┃\n");
-                
-                // 分隔线
-                sb.append("    ┃").append("─".repeat(68)).append("┃\n");
-                
-                // 用户信息
-                String user = entity.getProcessUserName() != null ? entity.getProcessUserName() : "N/A";
-                sb.append("    ┃  👤 用户: ").append(String.format("%-55s", user)).append(" ┃\n");
-                
-                // 命令行
-                String cmd = entity.getCommandLine() != null ? entity.getCommandLine() : "";
-                if (cmd.length() > 55) {
-                    sb.append("    ┃  📝 命令: ").append(cmd.substring(0, 52)).append("... ┃\n");
-                } else {
-                    sb.append("    ┃  📝 命令: ").append(String.format("%-55s", cmd)).append(" ┃\n");
-                }
-                
-                // 启动时间
-                String startTime = entity.getProcessStartTime() != null ? entity.getProcessStartTime() : "N/A";
-                sb.append("    ┃  🕐 时间: ").append(String.format("%-55s", startTime)).append(" ┃\n");
-                
-                // 威胁等级
-                String threat = node.getNodeThreatSeverity() != null ? node.getNodeThreatSeverity() : "UNKNOWN";
-                String threatIcon = getThreatIcon(threat);
-                sb.append("    ┃  ").append(threatIcon).append(" 威胁: ").append(String.format("%-55s", threat)).append(" ┃\n");
-                
-                // 告警详情
-                if (isAlarm && node.getChainNode().getAlarmNodeInfo() != null) {
-                    AlarmNodeInfo alarm = node.getChainNode().getAlarmNodeInfo();
-                    sb.append("    ┃").append("═".repeat(68)).append("┃\n");
-                    sb.append("    ┃  🚨 告警: ").append(String.format("%-55s", alarm.getName())).append(" ┃\n");
-                    if (alarm.getRuleType() != null) {
-                        sb.append("    ┃     类型: ").append(String.format("%-55s", alarm.getRuleType())).append(" ┃\n");
+                    if (nodeMap.containsKey(sourceId) && nodeMap.containsKey(targetId)) {
+                        parentToChildren.computeIfAbsent(sourceId, k -> new ArrayList<>()).add(targetId);
+                        edgeDescriptions.put(targetId, edge.getVal() != null ? edge.getVal() : "");
                     }
                 }
-                
-                sb.append("    ┗").append(boxStyle.repeat(68)).append("┛\n");
             }
+            
+            // 找到起点节点
+            Map<String, String> childToParent = new HashMap<>();
+            for (Map.Entry<String, List<String>> entry : parentToChildren.entrySet()) {
+                for (String child : entry.getValue()) {
+                    childToParent.put(child, entry.getKey());
+                }
+            }
+            
+            Set<String> startNodes = new HashSet<>();
+            for (String nodeId : nodeMap.keySet()) {
+                if (!childToParent.containsKey(nodeId) && parentToChildren.containsKey(nodeId)) {
+                    startNodes.add(nodeId);
+                }
+            }
+            
+            if (startNodes.isEmpty()) {
+                startNodes.add(rootNode.getNodeId());
+            }
+            
+            // 从起点节点开始，使用树形结构展示（支持同级分支）
+            Set<String> visited = new HashSet<>();
+            for (String startNode : startNodes) {
+                displayTreeFromNode(sb, startNode, nodeMap, parentToChildren, edgeDescriptions, "    ", true, visited);
+            }
+            
             
             // 查找文件节点
             ProcessNode fileNode = null;
@@ -555,6 +596,304 @@ public class ProcessChainVisualizer {
     }
     
     /**
+     * 使用树形结构显示节点（支持同级分支）
+     * 策略：当有多个子节点时，先显示所有第一层子节点（同级），再递归显示每个子节点的子树
+     */
+    private static void displayTreeFromNode(StringBuilder sb, String nodeId, 
+                                             Map<String, ProcessNode> nodeMap,
+                                             Map<String, List<String>> parentToChildren,
+                                             Map<String, String> edgeDescriptions,
+                                             String prefix,
+                                             boolean isLast,
+                                             Set<String> visited) {
+        if (nodeId == null || visited.contains(nodeId)) {
+            return;
+        }
+        
+        ProcessNode node = nodeMap.get(nodeId);
+        if (node == null) {
+            return;
+        }
+        
+        visited.add(nodeId);
+        
+        // 获取子节点列表
+        List<String> children = parentToChildren.get(nodeId);
+        if (children == null || children.isEmpty()) {
+            children = new ArrayList<>();
+        }
+        
+        // 如果有多个子节点，对它们进行排序（优先显示桥接、段链）
+        List<String> sortedChildren = new ArrayList<>(children);
+        sortedChildren.sort((a, b) -> {
+            String descA = edgeDescriptions.get(a);
+            String descB = edgeDescriptions.get(b);
+            
+            boolean isBridgeA = "桥接".equals(descA);
+            boolean isBridgeB = "桥接".equals(descB);
+            if (isBridgeA && !isBridgeB) return -1;
+            if (!isBridgeA && isBridgeB) return 1;
+            
+            boolean isSegmentA = "段链".equals(descA);
+            boolean isSegmentB = "段链".equals(descB);
+            if (isSegmentA && !isSegmentB) return -1;
+            if (!isSegmentA && isSegmentB) return 1;
+            
+            return 0;
+        });
+        
+        // 显示当前节点（使用prefix作为缩进）
+        displayNodeBox(sb, node, prefix);
+        
+        // 如果有子节点，显示连接线和子节点
+        if (!sortedChildren.isEmpty()) {
+            // 连接线（使用基础的37个空格，不加prefix）
+            sb.append("                                 ║\n");
+            
+            // 如果有多个子节点，需要显示分支
+            if (sortedChildren.size() > 1) {
+                // 对于多个分支，每个分支完整显示（连接线 + 节点 + 子树）
+                for (int i = 0; i < sortedChildren.size(); i++) {
+                    String childId = sortedChildren.get(i);
+                    boolean isLastChild = (i == sortedChildren.size() - 1);
+                    String edgeDesc = edgeDescriptions.get(childId);
+                    
+                    // 分支连接符（使用基础的37个空格）
+                    sb.append("                                 ");
+                    if (i == 0) {
+                        sb.append("├─→");
+                    } else if (isLastChild) {
+                        sb.append("└─→");
+                    } else {
+                        sb.append("├─→");
+                    }
+                    
+                    if (edgeDesc != null && !edgeDesc.isEmpty()) {
+                        sb.append(" ").append(edgeDesc);
+                    }
+                    sb.append("\n");
+                    
+                    // 显示子节点前的连接线
+                    String branchIndent = isLastChild ? "    " : "│   ";
+                    sb.append("                                 ").append(branchIndent).append("║\n");
+                    
+                    // 显示子节点本身（缩进为：基础37空格 + 分支缩进）
+                    ProcessNode childNode = nodeMap.get(childId);
+                    if (childNode != null && !visited.contains(childId)) {
+                        visited.add(childId);
+                        displayNodeBox(sb, childNode, "                                 " + branchIndent);
+                    }
+                    
+                    // 递归显示这个子节点的子树（如果存在）
+                    List<String> grandChildren = parentToChildren.get(childId);
+                    if (grandChildren != null && !grandChildren.isEmpty()) {
+                        // 对于这个分支的子树，继续递归显示
+                        for (String grandChildId : grandChildren) {
+                            String grandEdgeDesc = edgeDescriptions.get(grandChildId);
+                            
+                            sb.append("                                 ").append(branchIndent).append("║\n");
+                            sb.append("                                 ").append(branchIndent).append("▼");
+                            if (grandEdgeDesc != null && !grandEdgeDesc.isEmpty()) {
+                                sb.append(" ").append(grandEdgeDesc);
+                            }
+                            sb.append("\n");
+                            sb.append("                                 ").append(branchIndent).append("║\n");
+                            
+                            // 递归显示子树（继续使用相同的缩进）
+                            displayTreeFromNode(sb, grandChildId, nodeMap, parentToChildren, 
+                                              edgeDescriptions, "                                 " + branchIndent, true, visited);
+                        }
+                    }
+                }
+            } else {
+                // 单个子节点：正常显示
+                String childId = sortedChildren.get(0);
+                String edgeDesc = edgeDescriptions.get(childId);
+                
+                sb.append("                                 ▼");
+                if (edgeDesc != null && !edgeDesc.isEmpty()) {
+                    sb.append(" ").append(edgeDesc);
+                }
+                sb.append("\n");
+                sb.append("                                 ║\n");
+                
+                displayTreeFromNode(sb, childId, nodeMap, parentToChildren, edgeDescriptions, 
+                                   prefix, true, visited);
+            }
+        }
+    }
+    
+    /**
+     * 显示节点盒子（根据节点类型显示不同样式）
+     * @param indent 缩进前缀（用于多分支显示）
+     */
+    private static void displayNodeBox(StringBuilder sb, ProcessNode node, String indent) {
+        if (node == null) return;
+        
+        // 判断节点类型
+        boolean isIPNode = (node.getStoryNode() != null && "srcNode".equals(node.getStoryNode().getType()));
+        boolean isNetworkEventNode = "NETWORK".equalsIgnoreCase(node.getLogType());
+        boolean isProcessNode = (node.getIsChainNode() != null && node.getIsChainNode());
+        boolean isFileNode = "FILE".equalsIgnoreCase(node.getLogType());
+        
+        if (isIPNode) {
+            // 显示IP节点（或网络节点）
+            Map<String, Object> nodeInfo = node.getStoryNode().getNode();
+            if (nodeInfo != null) {
+                String ip = (String) nodeInfo.get("ip");
+                String name = (String) nodeInfo.get("name");
+                String type = (String) nodeInfo.get("type");
+                
+                sb.append(indent).append("╔═══════════════════════════════════════════════════════════════════╗\n");
+                if ("attacker".equals(type)) {
+                    sb.append(indent).append("║                    【网侧】攻击者");
+                    if (name != null) {
+                        sb.append(" (").append(name).append(")");
+                    }
+                    sb.append("                                 ║\n");
+                } else if ("victim".equals(type)) {
+                    sb.append(indent).append("║                    【网侧】受害者 (桥接点)                        ║\n");
+                } else if ("server".equals(type)) {
+                    sb.append(indent).append("║                    【网侧】服务器节点");
+                    if (name != null) {
+                        sb.append(" (").append(name).append(")");
+                    }
+                    sb.append("                             ║\n");
+                } else {
+                    sb.append(indent).append("║                    【网侧】网络节点                                    ║\n");
+                }
+                sb.append(indent).append("╠═══════════════════════════════════════════════════════════════════╣\n");
+                if (ip != null) {
+                    sb.append(indent).append("║ 🌐 IP地址: ").append(ip).append("\n");
+                }
+                if (name != null) {
+                    sb.append(indent).append("║ 📍 名称: ").append(name).append("\n");
+                }
+                if (type != null) {
+                    sb.append(indent).append("║    类型: ").append("attacker".equals(type) ? "攻击者" : 
+                             "victim".equals(type) ? "受害者" : 
+                             "server".equals(type) ? "服务器" : type).append("\n");
+                }
+                sb.append(indent).append("╚═══════════════════════════════════════════════════════════════════╝\n");
+            }
+        } else if (isNetworkEventNode && node.getStoryNode() != null && node.getStoryNode().getOther() != null) {
+            // 显示网络事件节点（如webshell上传）
+            Map<String, Object> other = node.getStoryNode().getOther();
+            
+            sb.append(indent).append("╔═══════════════════════════════════════════════════════════════════╗\n");
+            sb.append(indent).append("║                    【网侧】网络攻击事件                             ║\n");
+            sb.append(indent).append("╠═══════════════════════════════════════════════════════════════════╣\n");
+            sb.append(indent).append("║ 🌐 攻击者: ").append(other.get("srcAddress")).append(":").append(other.get("srcPort")).append("\n");
+            sb.append(indent).append("║    协议: ").append(other.get("protocol")).append(" ").append(other.get("method")).append("\n");
+            sb.append(indent).append("║    目标: ").append(other.get("destAddress")).append(":").append(other.get("destPort")).append("\n");
+            if (other.get("url") != null) {
+                sb.append(indent).append("║    URL: ").append(other.get("url")).append("\n");
+            }
+            if (other.get("ruleName") != null) {
+                sb.append(indent).append("║    检测: ").append(other.get("ruleName")).append("\n");
+            }
+            if (other.get("attackTime") != null) {
+                sb.append(indent).append("║    时间: ").append(other.get("attackTime")).append("\n");
+            }
+            String threat = node.getNodeThreatSeverity() != null ? node.getNodeThreatSeverity() : "UNKNOWN";
+            String threatIcon = getThreatIcon(threat);
+            sb.append(indent).append("║    ").append(threatIcon).append(" 威胁: ").append(threat).append("\n");
+            sb.append(indent).append("╚═══════════════════════════════════════════════════════════════════╝\n");
+        } else if (isProcessNode && node.getChainNode() != null && node.getChainNode().getProcessEntity() != null) {
+            // 显示进程节点
+            ProcessEntity entity = node.getChainNode().getProcessEntity();
+            boolean isAlarm = node.getChainNode().getIsAlarm() != null && node.getChainNode().getIsAlarm();
+            boolean isRoot = node.getChainNode().getIsRoot() != null && node.getChainNode().getIsRoot();
+            boolean isExtend = node.getChainNode().getIsExtensionNode() != null && node.getChainNode().getIsExtensionNode();
+            boolean isBroken = node.getChainNode().getIsBroken() != null && node.getChainNode().getIsBroken();
+            
+            String icon = isAlarm ? "🚨" : isRoot ? "⚡" : isExtend ? "🔗" : "💻";
+            String boxStyle = isAlarm ? "━" : "─";
+            
+            sb.append(indent).append("┏").append(boxStyle.repeat(68)).append("┓\n");
+            
+            // 标题行
+            String title = icon + " " + entity.getProcessName() + " (PID:" + entity.getProcessId() + ")";
+            if (isAlarm) title += " ⚠️ 告警节点";
+            if (isRoot) title += " 🎯 根节点";
+            if (isExtend) title += " (扩展节点)";
+            if (isBroken) title += " ⛓️ 断链";
+            sb.append(indent).append("┃ ").append(String.format("%-66s", title)).append(" ┃\n");
+            
+            // 分隔线
+            sb.append(indent).append("┃").append("─".repeat(68)).append("┃\n");
+            
+            // 用户信息
+            String user = entity.getProcessUserName() != null ? entity.getProcessUserName() : "N/A";
+            sb.append(indent).append("┃  👤 用户: ").append(String.format("%-55s", user)).append(" ┃\n");
+            
+            // 命令行
+            String cmd = entity.getCommandLine() != null ? entity.getCommandLine() : "";
+            if (cmd.length() > 55) {
+                sb.append(indent).append("┃  📝 命令: ").append(cmd.substring(0, 52)).append("... ┃\n");
+            } else {
+                sb.append(indent).append("┃  📝 命令: ").append(String.format("%-55s", cmd)).append(" ┃\n");
+            }
+            
+            // 启动时间
+            String startTime = entity.getProcessStartTime() != null ? entity.getProcessStartTime() : "N/A";
+            sb.append(indent).append("┃  🕐 时间: ").append(String.format("%-55s", startTime)).append(" ┃\n");
+            
+            // 威胁等级
+            String threat = node.getNodeThreatSeverity() != null ? node.getNodeThreatSeverity() : "UNKNOWN";
+            String threatIcon = getThreatIcon(threat);
+            sb.append(indent).append("┃  ").append(threatIcon).append(" 威胁: ").append(String.format("%-55s", threat)).append(" ┃\n");
+            
+            // 告警详情
+            if (isAlarm && node.getChainNode().getAlarmNodeInfo() != null) {
+                AlarmNodeInfo alarm = node.getChainNode().getAlarmNodeInfo();
+                sb.append(indent).append("┃").append("═".repeat(68)).append("┃\n");
+                sb.append(indent).append("┃  🚨 告警: ").append(String.format("%-55s", alarm.getName())).append(" ┃\n");
+                if (alarm.getRuleType() != null) {
+                    sb.append(indent).append("┃     类型: ").append(String.format("%-55s", alarm.getRuleType())).append(" ┃\n");
+                }
+            }
+            
+            sb.append(indent).append("┗").append(boxStyle.repeat(68)).append("┛\n");
+        } else if (isFileNode && node.getStoryNode() != null && node.getStoryNode().getOther() != null) {
+            // 显示文件节点
+            Map<String, Object> other = node.getStoryNode().getOther();
+            
+            sb.append(indent).append("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n");
+            sb.append(indent).append("┃ 📄 恶意文件                                                        ┃\n");
+            sb.append(indent).append("┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃\n");
+            sb.append(indent).append("┃    文件名: ").append(other.get("fileName")).append("\n");
+            if (other.get("filePath") != null) {
+                String path = other.get("filePath").toString();
+                if (path.length() > 60) {
+                    sb.append(indent).append("┃    路径: ").append(path.substring(0, 57)).append("...\n");
+                } else {
+                    sb.append(indent).append("┃    路径: ").append(path).append("\n");
+                }
+            }
+            if (other.get("virusName") != null) {
+                sb.append(indent).append("┃    病毒: ").append(other.get("virusName")).append("\n");
+            }
+            if (other.get("fileMd5") != null) {
+                sb.append(indent).append("┃    MD5: ").append(other.get("fileMd5")).append("\n");
+            }
+            String threat = node.getNodeThreatSeverity() != null ? node.getNodeThreatSeverity() : "HIGH";
+            String threatIcon = getThreatIcon(threat);
+            sb.append(indent).append("┃    ").append(threatIcon).append(" 威胁: ").append(threat).append("\n");
+            sb.append(indent).append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n");
+        } else {
+            // 其他类型节点
+            sb.append(indent).append("┏────────────────────────────────────────────────────────────────────┓\n");
+            sb.append(indent).append("┃ 🔹 ").append(node.getNodeId());
+            if (node.getStoryNode() != null && node.getStoryNode().getType() != null) {
+                sb.append(" (").append(node.getStoryNode().getType()).append(")");
+            }
+            sb.append("\n");
+            sb.append(indent).append("┗────────────────────────────────────────────────────────────────────┛\n");
+        }
+    }
+    
+    /**
      * 获取威胁等级对应的图标
      */
     private static String getThreatIcon(String threat) {
@@ -574,9 +913,156 @@ public class ProcessChainVisualizer {
     }
     
     /**
+     * 构建完整的攻击链路径（完全基于边关系）
+     * 策略：找到起点节点（没有入边的节点），然后按照边关系顺序遍历
+     */
+    private static List<ChainStep> buildFullChainPath(String startNodeId, Map<String, ProcessNode> nodeMap, 
+                                                       List<ProcessEdge> edges) {
+        List<ChainStep> result = new ArrayList<>();
+        
+        // 构建类型标识符到节点ID的映射（用于处理 server/victim/attacker 等标识符）
+        Map<String, String> typeToNodeId = new HashMap<>();
+        for (Map.Entry<String, ProcessNode> entry : nodeMap.entrySet()) {
+            ProcessNode node = entry.getValue();
+            if (node.getStoryNode() != null && node.getStoryNode().getNode() != null) {
+                Map<String, Object> nodeInfo = node.getStoryNode().getNode();
+                String type = (String) nodeInfo.get("type");
+                if (type != null) {
+                    typeToNodeId.put(type, entry.getKey());
+                }
+            }
+        }
+        
+        // 转换边关系中的类型标识符为实际的nodeId，并构建完整的边映射
+        Map<String, String> childToParent = new HashMap<>();  // child -> parent
+        Map<String, List<String>> parentToChildren = new HashMap<>();  // parent -> list of children
+        Map<String, String> edgeDescriptions = new HashMap<>();  // child -> edge description
+        
+        if (edges != null) {
+            for (ProcessEdge edge : edges) {
+                String sourceId = edge.getSource();
+                String targetId = edge.getTarget();
+                
+                // 如果source/target是类型标识符（如"server", "victim"），转换为实际的nodeId
+                if (!nodeMap.containsKey(sourceId) && typeToNodeId.containsKey(sourceId)) {
+                    sourceId = typeToNodeId.get(sourceId);
+                    System.out.println("DEBUG: 转换 source " + edge.getSource() + " -> " + sourceId);
+                }
+                if (!nodeMap.containsKey(targetId) && typeToNodeId.containsKey(targetId)) {
+                    targetId = typeToNodeId.get(targetId);
+                    System.out.println("DEBUG: 转换 target " + edge.getTarget() + " -> " + targetId);
+                }
+                
+                // 只有转换后的ID在nodeMap中存在，才添加边关系
+                if (nodeMap.containsKey(sourceId) && nodeMap.containsKey(targetId)) {
+                    childToParent.put(targetId, sourceId);
+                    parentToChildren.computeIfAbsent(sourceId, k -> new ArrayList<>()).add(targetId);
+                    edgeDescriptions.put(targetId, edge.getVal() != null ? edge.getVal() : "");
+                    System.out.println("DEBUG: 添加边 " + sourceId + " -> " + targetId + " (描述: " + edge.getVal() + ")");
+                } else {
+                    System.out.println("DEBUG: 跳过边 " + sourceId + " -> " + targetId + " (节点不存在)");
+                }
+            }
+        }
+        
+        // 找到所有起点节点（没有入边的节点）
+        // 起点节点：不在childToParent的key中（即没有其他节点指向它）
+        Set<String> startNodes = new HashSet<>();
+        for (String nodeId : nodeMap.keySet()) {
+            if (!childToParent.containsKey(nodeId)) {
+                // 如果这个节点有出边（是某个链路的起点），才认为是起点节点
+                if (parentToChildren.containsKey(nodeId) && !parentToChildren.get(nodeId).isEmpty()) {
+                    startNodes.add(nodeId);
+                }
+            }
+        }
+        
+        // 如果没有找到起点节点，使用startNodeId（从根节点开始）
+        if (startNodes.isEmpty()) {
+            startNodes.add(startNodeId);
+            System.out.println("DEBUG: 未找到起点节点，使用startNodeId: " + startNodeId);
+        }
+        
+        System.out.println("DEBUG: 起点节点: " + startNodes);
+        
+        // 从每个起点节点开始，按照边关系深度优先遍历
+        Set<String> visited = new HashSet<>();
+        for (String startNode : startNodes) {
+            buildPathFromEdges(startNode, nodeMap, parentToChildren, edgeDescriptions, result, visited);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 根据边关系递归构建路径
+     */
+    private static void buildPathFromEdges(String nodeId, Map<String, ProcessNode> nodeMap,
+                                           Map<String, List<String>> parentToChildren,
+                                           Map<String, String> edgeDescriptions,
+                                           List<ChainStep> result,
+                                           Set<String> visited) {
+        if (nodeId == null || visited.contains(nodeId)) {
+            return;
+        }
+        
+        ProcessNode node = nodeMap.get(nodeId);
+        if (node == null) {
+            System.out.println("DEBUG: 节点不存在: " + nodeId);
+            return;
+        }
+        
+        visited.add(nodeId);
+        
+        // 获取指向当前节点的边描述
+        // edgeDescriptions存储的是 child -> description，所以直接获取即可
+        String edgeDesc = edgeDescriptions.get(nodeId);
+        
+        result.add(new ChainStep(node, edgeDesc));
+        System.out.println("DEBUG: 添加节点到链路: " + nodeId + " (边描述: " + edgeDesc + ")");
+        
+        // 获取当前节点的所有子节点（通过边关系）
+        List<String> children = parentToChildren.get(nodeId);
+        if (children != null && !children.isEmpty()) {
+            System.out.println("DEBUG: 节点 " + nodeId + " 有 " + children.size() + " 个子节点: " + children);
+            
+            // 如果有多个子节点，优先遍历桥接到端侧的边（边描述为"桥接"的）
+            // 其次遍历其他边，保持边关系的逻辑顺序
+            List<String> sortedChildren = new ArrayList<>(children);
+            sortedChildren.sort((a, b) -> {
+                String descA = edgeDescriptions.get(a);
+                String descB = edgeDescriptions.get(b);
+                
+                // 优先显示"桥接"边
+                boolean isBridgeA = "桥接".equals(descA);
+                boolean isBridgeB = "桥接".equals(descB);
+                
+                if (isBridgeA && !isBridgeB) return -1;
+                if (!isBridgeA && isBridgeB) return 1;
+                
+                // 其次优先显示"段链"边
+                boolean isSegmentA = "段链".equals(descA);
+                boolean isSegmentB = "段链".equals(descB);
+                
+                if (isSegmentA && !isSegmentB) return -1;
+                if (!isSegmentA && isSegmentB) return 1;
+                
+                // 其他情况保持原顺序
+                return 0;
+            });
+            
+            for (String childId : sortedChildren) {
+                buildPathFromEdges(childId, nodeMap, parentToChildren, edgeDescriptions, result, visited);
+            }
+        } else {
+            System.out.println("DEBUG: 节点 " + nodeId + " 没有子节点");
+        }
+    }
+    
+    /**
      * 构建从根节点向上的完整链路（改用迭代方式）
      */
-    private static void buildChainPath(String nodeId, Map<String, ProcessNode> nodeMap, 
+    private static void buildChainPath(String nodeId, Map<String, ProcessNode> nodeMap,
                                        List<ProcessNode> path, Set<String> visited) {
         String currentNodeId = nodeId;
         
@@ -670,10 +1156,25 @@ public class ProcessChainVisualizer {
             }
             
         } else if (node.getStoryNode() != null) {
-            // 故事线节点（网络、文件等）
+            // 故事线节点（网络、文件、IP等）
             StoryNode storyNode = node.getStoryNode();
             
-            if ("NETWORK".equalsIgnoreCase(node.getLogType())) {
+            if ("srcNode".equals(storyNode.getType())) {
+                // IP节点 - 显示IP和类型
+                Map<String, Object> nodeInfo = storyNode.getNode();
+                if (nodeInfo != null) {
+                    String ip = (String) nodeInfo.get("ip");
+                    String type = (String) nodeInfo.get("type");
+                    sb.append("🌐 [IP节点] ").append(ip);
+                    if ("attacker".equals(type)) {
+                        sb.append(" (攻击者)");
+                    } else if ("victim".equals(type)) {
+                        sb.append(" (受害者)");
+                    }
+                } else {
+                    sb.append("[").append(storyNode.getType()).append("] IP节点");
+                }
+            } else if ("NETWORK".equalsIgnoreCase(node.getLogType())) {
                 // 网络节点 - 显示详细信息
                 Map<String, Object> other = storyNode.getOther();
                 if (other != null) {
@@ -923,6 +1424,19 @@ public class ProcessChainVisualizer {
     // ==================== 数据结构类 ====================
     
     /**
+     * 链路步骤，用于表示完整攻击链中的一个节点及其与下一个节点的关系
+     */
+    static class ChainStep {
+        ProcessNode node;
+        String edgeDescription;  // 连接到下一个节点的边描述
+        
+        ChainStep(ProcessNode node, String edgeDescription) {
+            this.node = node;
+            this.edgeDescription = edgeDescription;
+        }
+    }
+    
+    /**
      * 外层数据包装类
      * 用于解析 {data: {IncidentProcessChain}} 格式的JSON
      */
@@ -1034,6 +1548,7 @@ public class ProcessChainVisualizer {
     static class StoryNode {
         private String type;
         private Map<String, Object> other;
+        private Map<String, Object> node;  // 用于IP节点等
         
         // Getters and Setters
         public String getType() { return type; }
@@ -1041,6 +1556,9 @@ public class ProcessChainVisualizer {
         
         public Map<String, Object> getOther() { return other; }
         public void setOther(Map<String, Object> other) { this.other = other; }
+        
+        public Map<String, Object> getNode() { return node; }
+        public void setNode(Map<String, Object> node) { this.node = node; }
     }
     
     static class ProcessEntity {

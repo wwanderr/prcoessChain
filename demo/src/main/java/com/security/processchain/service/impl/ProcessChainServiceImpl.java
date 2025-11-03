@@ -525,11 +525,11 @@ public class ProcessChainServiceImpl {
      * 统一从 storyNode.other.ip 获取（无论 nodeId 是什么）
      */
     private String extractIpFromStoryNode(StoryNode storyNode) {
-        if (storyNode == null || storyNode.getOther() == null) {
+        if (storyNode == null || storyNode.getNode() == null) {
             return null;
         }
         
-        Object ipObj = storyNode.getOther().get("ip");
+        Object ipObj = storyNode.getNode().get("ip");
         if (ipObj != null) {
             String ip = ipObj.toString().trim();
             log.debug("【进程链生成】-> 从 storyNode.other.ip 提取IP: {}", ip);

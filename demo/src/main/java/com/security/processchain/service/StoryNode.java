@@ -1,33 +1,28 @@
 package com.security.processchain.service;
 
+import lombok.Getter;
+
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * 故事线节点
  */
+@Getter
 public class StoryNode {
     private String type;
-    private Map<String, Object> other;
+    private Map<String, Object> node;
     
     public StoryNode() {
-        this.other = new HashMap<>();
+        this.node = new HashMap<>();
     }
-    
-    public String getType() {
-        return type;
-    }
-    
+
     public void setType(String type) {
         this.type = type;
     }
-    
-    public Map<String, Object> getOther() {
-        return other;
-    }
-    
-    public void setOther(Map<String, Object> other) {
-        this.other = other;
+
+    public void setNode(Map<String, Object> node) {
+        this.node = node;
     }
 }
 
