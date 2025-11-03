@@ -114,6 +114,7 @@ public class DataConverter {
         log.setStartTime(getStringValue(map, "startTime"));
         
         // 进程相关字段
+        log.setEventType(getStringValue(map, "eventType"));
         log.setProcessName(getStringValue(map, "processName"));
         log.setProcessId(getStringValue(map, "processId"));
         log.setImage(getStringValue(map, "image"));
@@ -140,6 +141,10 @@ public class DataConverter {
         // 域名相关字段
         log.setRequestDomain(getStringValue(map, "requestDomain"));
         log.setQueryResults(getStringValue(map, "queryResults"));
+        
+          // 注册表相关字段
+        log.setTargetObject(getStringValue(map, "targetObject"));
+        log.setRegValue(getStringValue(map, "regValue"));
         
         // 保存原始数据
         log.setOtherFields(map);
