@@ -1,0 +1,224 @@
+{
+  "data": {
+    "traceIds": ["traceId-test-001"],
+    "hostAddresses": ["10.50.110.193"],
+    "threatSeverity": "HIGH",
+    "nodes": [
+      {
+        "nodeId": "GUID-001-SVCHOST",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "LOW",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": false,
+          "isBroken": false,
+          "isAlarm": false,
+          "isExtensionNode": true,
+          "extensionDepth": 2,
+          "processEntity": {
+            "processGuid": "GUID-001-SVCHOST",
+            "parentProcessGuid": null,
+            "processName": "svchost.exe",
+            "processId": 896,
+            "parentProcessId": 0,
+            "commandLine": "C:\\WINDOWS\\system32\\svchost.exe -k DcomLaunch -p",
+            "image": "C:\\Windows\\System32\\svchost.exe",
+            "processMd5": "3d1034d6ed3daed60816a25c561e8c83",
+            "processUserName": "SYSTEM",
+            "processStartTime": "2025-05-15 18:28:53",
+            "parentProcessName": null
+          }
+        },
+        "childrenCount": 1
+      },
+      {
+        "nodeId": "GUID-002-RUNTIME",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "LOW",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": false,
+          "isBroken": false,
+          "isAlarm": false,
+          "isExtensionNode": true,
+          "extensionDepth": 1,
+          "processEntity": {
+            "processGuid": "GUID-002-RUNTIME",
+            "parentProcessGuid": "GUID-001-SVCHOST",
+            "processName": "RuntimeBroker.exe",
+            "processId": 424,
+            "parentProcessId": 896,
+            "commandLine": "C:\\Windows\\System32\\RuntimeBroker.exe -Embedding",
+            "image": "C:\\Windows\\System32\\RuntimeBroker.exe",
+            "processMd5": "51e04ae0701a1d33fdd89b96d7ce12a4",
+            "processUserName": "DESKTOP-M0S0L3H\\Administrator",
+            "processStartTime": "2025-05-21 07:55:33",
+            "parentProcessName": "svchost.exe"
+          }
+        },
+        "childrenCount": 1
+      },
+      {
+        "nodeId": "GUID-003-PHPSTUDY",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "MEDIUM",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": false,
+          "isBroken": false,
+          "isAlarm": false,
+          "isExtensionNode": false,
+          "extensionDepth": 0,
+          "processEntity": {
+            "processGuid": "GUID-003-PHPSTUDY",
+            "parentProcessGuid": "GUID-002-RUNTIME",
+            "processName": "phpstudy_pro.exe",
+            "processId": 6992,
+            "parentProcessId": 424,
+            "commandLine": "\"C:\\phpstudy_pro\\COM\\phpstudy_pro.exe\"",
+            "image": "C:\\phpstudy_pro\\COM\\phpstudy_pro.exe",
+            "processMd5": "47f5bcae0727743d845fba7220611ae1",
+            "processUserName": "DESKTOP-M0S0L3H\\Administrator",
+            "processStartTime": "2025-05-21 09:48:08",
+            "parentProcessName": "RuntimeBroker.exe"
+          }
+        },
+        "childrenCount": 1
+      },
+      {
+        "nodeId": "GUID-004-XPCGI",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "MEDIUM",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": false,
+          "isBroken": false,
+          "isAlarm": false,
+          "isExtensionNode": false,
+          "extensionDepth": 0,
+          "processEntity": {
+            "processGuid": "GUID-004-XPCGI",
+            "parentProcessGuid": "GUID-003-PHPSTUDY",
+            "processName": "xp.cn_cgi.exe",
+            "processId": 3040,
+            "parentProcessId": 6992,
+            "commandLine": "C:\\phpstudy_pro\\COM\\xp.cn_cgi.exe  ../Extensions/php/php7.3.4nts/php-cgi.exe 9000 1+16",
+            "image": "C:\\phpstudy_pro\\COM\\xp.cn_cgi.exe",
+            "processMd5": "328873cb09b771c6c48f8609400a3e6a",
+            "processUserName": "DESKTOP-M0S0L3H\\Administrator",
+            "processStartTime": "2025-05-21 09:50:31",
+            "parentProcessName": "phpstudy_pro.exe"
+          }
+        },
+        "childrenCount": 1
+      },
+      {
+        "nodeId": "GUID-005-PHPCGI",
+        "logType": "PROCESS",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": true,
+        "chainNode": {
+          "isRoot": true,
+          "isBroken": false,
+          "isAlarm": true,
+          "isExtensionNode": false,
+          "extensionDepth": 0,
+          "alarmNodeInfo": {
+            "name": "发现Backdoor/PHP.WebShell.ek病毒文件创建或执行",
+            "ruleName": "Webshell文件创建检测",
+            "ruleType": "/Malware/Backdoor",
+            "message": "检测到PHP Webshell文件创建",
+            "severity": 7
+          },
+          "processEntity": {
+            "processGuid": "GUID-005-PHPCGI",
+            "parentProcessGuid": "GUID-004-XPCGI",
+            "processName": "php-cgi.exe",
+            "processId": 228,
+            "parentProcessId": 3040,
+            "commandLine": "../Extensions/php/php7.3.4nts/php-cgi.exe",
+            "image": "C:\\phpstudy_pro\\Extensions\\php\\php7.3.4nts\\php-cgi.exe",
+            "processMd5": "5caa626639f9c87c07f04a5c2fa770f4",
+            "processUserName": "DESKTOP-M0S0L3H\\Administrator",
+            "processStartTime": "2025-05-21 09:50:31",
+            "parentProcessName": "xp.cn_cgi.exe"
+          }
+        },
+        "childrenCount": 1
+      },
+      {
+        "nodeId": "FILE-001-WEBSHELL",
+        "logType": "FILE",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": false,
+        "storyNode": {
+          "type": "webshell_file",
+          "other": {
+            "fileName": "bello.php",
+            "filePath": "C:\\phpstudy_pro\\WWW\\pika\\vul\\unsafeupload\\uploads\\bello.php",
+            "fileMd5": "723949106392537a014a6c22862d0f46",
+            "virusName": "Backdoor/PHP.WebShell.ek",
+            "virusType": "Backdoor",
+            "opType": "create",
+            "createTime": "2025-05-23 15:41:00"
+          }
+        },
+        "childrenCount": 0
+      },
+      {
+        "nodeId": "NETWORK-001-UPLOAD",
+        "logType": "NETWORK",
+        "nodeThreatSeverity": "HIGH",
+        "isChainNode": false,
+        "storyNode": {
+          "type": "webshell_upload",
+          "other": {
+            "srcAddress": "10.50.86.151",
+            "srcPort": 51344,
+            "destAddress": "10.50.110.193",
+            "destPort": 80,
+            "protocol": "HTTP",
+            "method": "POST",
+            "url": "/pika/vul/unsafeupload/clientcheck.php",
+            "ruleName": "检测到上传冰蝎webshell文件(PHP)",
+            "attackTime": "2025-05-23 15:31:06"
+          }
+        },
+        "childrenCount": 0
+      }
+    ],
+      "edges": [
+      {
+        "source": "GUID-001-SVCHOST",
+        "target": "GUID-002-RUNTIME",
+        "val": "process_create"
+      },
+      {
+        "source": "GUID-002-RUNTIME",
+        "target": "GUID-003-PHPSTUDY",
+        "val": "process_create"
+      },
+      {
+        "source": "NETWORK-001-UPLOAD",
+        "target": "GUID-001-SVCHOST",
+        "val": "http_request"
+      },
+      {
+        "source": "GUID-003-PHPSTUDY",
+        "target": "GUID-004-XPCGI",
+        "val": "process_create"
+      },
+      {
+        "source": "GUID-004-XPCGI",
+        "target": "GUID-005-PHPCGI",
+        "val": "process_create"
+      },
+      {
+        "source": "GUID-005-PHPCGI",
+        "target": "FILE-001-WEBSHELL",
+        "val": "file_create"
+      }
+    ]
+  }
+}
+

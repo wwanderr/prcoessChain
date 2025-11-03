@@ -214,7 +214,7 @@ public class GenerateTestData {
                 node.parentProcessId = (parentGuid != null) ? (1000 + nodeIndex - 1) : 0;
                 node.layer = layer;
                 node.hostAddress = config.baseIP;
-                node.productVendorName = config.productVendorName;
+                node.productVendorName = config.productVendor;
                 node.traceId = config.traceId;
                 
                 nodes.add(node);
@@ -350,6 +350,7 @@ public class GenerateTestData {
         String traceId;
     }
 }
+
 
 
 
