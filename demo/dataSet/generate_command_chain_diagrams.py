@@ -38,19 +38,58 @@ def build_tree(nodes):
     # 按processGuid索引
     node_map = {node.get('processGuid'): node for node in nodes if node.get('processGuid')}
     
-    # 找根节点
-    root_node = None
-    for node in nodes:
-        if node.get('isRoot') or node.get('processGuid') == node.get('traceId'):
-            root_node = node
-            break
-    
     # 构建父子关系
     children_map = defaultdict(list)
     for node in nodes:
         parent_guid = node.get('parentProcessGuid')
         if parent_guid and parent_guid in node_map:
             children_map[parent_guid].append(node.get('processGuid'))
+    
+    # 找所有顶层节点（没有父节点或父节点不存在的节点）
+    top_level_nodes = []
+    for node in nodes:
+        parent_guid = node.get('parentProcessGuid')
+        if not parent_guid or parent_guid == '' or parent_guid not in node_map:
+            top_level_nodes.append(node)
+    
+    # 如果有多个顶层节点，优先选择：
+    # 1. 既有 traceId == processGuid 又有子节点的
+    # 2. 有 isRoot 标记的
+    # 3. traceId == processGuid 的
+    # 4. 有子节点的
+    root_node = None
+    
+    # 策略1: traceId == processGuid 且有子节点
+    for node in top_level_nodes:
+        guid = node.get('processGuid')
+        if guid == node.get('traceId') and guid in children_map:
+            root_node = node
+            break
+    
+    # 策略2: 有 isRoot 标记
+    if not root_node:
+        for node in top_level_nodes:
+            if node.get('isRoot'):
+                root_node = node
+                break
+    
+    # 策略3: traceId == processGuid
+    if not root_node:
+        for node in top_level_nodes:
+            if node.get('processGuid') == node.get('traceId'):
+                root_node = node
+                break
+    
+    # 策略4: 有子节点的第一个
+    if not root_node:
+        for node in top_level_nodes:
+            if node.get('processGuid') in children_map:
+                root_node = node
+                break
+    
+    # 最后兜底：第一个顶层节点
+    if not root_node and top_level_nodes:
+        root_node = top_level_nodes[0]
     
     return root_node, node_map, children_map
 
