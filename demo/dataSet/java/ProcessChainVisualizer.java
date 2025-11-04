@@ -598,6 +598,7 @@ public class ProcessChainVisualizer {
     /**
      * 使用树形结构显示节点（支持同级分支）
      * 策略：当有多个子节点时，先显示所有第一层子节点（同级），再递归显示每个子节点的子树
+     * 修复：确保所有子节点都被正确遍历，避免遗漏
      */
     private static void displayTreeFromNode(StringBuilder sb, String nodeId, 
                                              Map<String, ProcessNode> nodeMap,
@@ -606,21 +607,31 @@ public class ProcessChainVisualizer {
                                              String prefix,
                                              boolean isLast,
                                              Set<String> visited) {
-        if (nodeId == null || visited.contains(nodeId)) {
+        if (nodeId == null) {
+            System.out.println("WARNING: displayTreeFromNode called with null nodeId");
+            return;
+        }
+        
+        if (visited.contains(nodeId)) {
+            System.out.println("WARNING: 节点 " + nodeId + " 已被访问，跳过（可能存在循环引用）");
             return;
         }
         
         ProcessNode node = nodeMap.get(nodeId);
         if (node == null) {
+            System.out.println("WARNING: 找不到节点 " + nodeId);
             return;
         }
         
         visited.add(nodeId);
+        System.out.println("DEBUG: 正在显示节点 " + nodeId + " (已访问: " + visited.size() + " 个节点)");
         
         // 获取子节点列表
         List<String> children = parentToChildren.get(nodeId);
         if (children == null || children.isEmpty()) {
             children = new ArrayList<>();
+        } else {
+            System.out.println("DEBUG: 节点 " + nodeId + " 有 " + children.size() + " 个子节点: " + children);
         }
         
         // 如果有多个子节点，对它们进行排序（优先显示桥接、段链）
@@ -652,11 +663,14 @@ public class ProcessChainVisualizer {
             
             // 如果有多个子节点，需要显示分支
             if (sortedChildren.size() > 1) {
+                System.out.println("DEBUG: 节点 " + nodeId + " 有多个子节点，显示分支结构");
                 // 对于多个分支，每个分支完整显示（连接线 + 节点 + 子树）
                 for (int i = 0; i < sortedChildren.size(); i++) {
                     String childId = sortedChildren.get(i);
                     boolean isLastChild = (i == sortedChildren.size() - 1);
                     String edgeDesc = edgeDescriptions.get(childId);
+                    
+                    System.out.println("DEBUG: 显示分支 " + (i+1) + "/" + sortedChildren.size() + ": " + childId + " (边描述: " + edgeDesc + ")");
                     
                     // 分支连接符（使用基础的37个空格）
                     sb.append("                                 ");
@@ -679,36 +693,34 @@ public class ProcessChainVisualizer {
                     
                     // 显示子节点本身（缩进为：基础37空格 + 分支缩进）
                     ProcessNode childNode = nodeMap.get(childId);
-                    if (childNode != null && !visited.contains(childId)) {
-                        visited.add(childId);
-                        displayNodeBox(sb, childNode, "                                 " + branchIndent);
-                    }
-                    
-                    // 递归显示这个子节点的子树（如果存在）
-                    List<String> grandChildren = parentToChildren.get(childId);
-                    if (grandChildren != null && !grandChildren.isEmpty()) {
-                        // 对于这个分支的子树，继续递归显示
-                        for (String grandChildId : grandChildren) {
-                            String grandEdgeDesc = edgeDescriptions.get(grandChildId);
+                    if (childNode != null) {
+                        if (!visited.contains(childId)) {
+                            visited.add(childId);
+                            displayNodeBox(sb, childNode, "                                 " + branchIndent);
                             
-                            sb.append("                                 ").append(branchIndent).append("║\n");
-                            sb.append("                                 ").append(branchIndent).append("▼");
-                            if (grandEdgeDesc != null && !grandEdgeDesc.isEmpty()) {
-                                sb.append(" ").append(grandEdgeDesc);
+                            // **修复关键点：递归显示这个子节点的完整子树**
+                            List<String> grandChildren = parentToChildren.get(childId);
+                            if (grandChildren != null && !grandChildren.isEmpty()) {
+                                System.out.println("DEBUG: 子节点 " + childId + " 还有 " + grandChildren.size() + " 个子节点，继续递归");
+                                // 使用递归调用来显示完整子树，而不是手动遍历第一层
+                                sb.append("                                 ").append(branchIndent).append("║\n");
+                                displayTreeFromNodeRecursive(sb, childId, nodeMap, parentToChildren, 
+                                                            edgeDescriptions, "                                 " + branchIndent, 
+                                                            visited);
                             }
-                            sb.append("\n");
-                            sb.append("                                 ").append(branchIndent).append("║\n");
-                            
-                            // 递归显示子树（继续使用相同的缩进）
-                            displayTreeFromNode(sb, grandChildId, nodeMap, parentToChildren, 
-                                              edgeDescriptions, "                                 " + branchIndent, true, visited);
+                        } else {
+                            System.out.println("WARNING: 子节点 " + childId + " 已被访问");
                         }
+                    } else {
+                        System.out.println("WARNING: 找不到子节点 " + childId);
                     }
                 }
             } else {
                 // 单个子节点：正常显示
                 String childId = sortedChildren.get(0);
                 String edgeDesc = edgeDescriptions.get(childId);
+                
+                System.out.println("DEBUG: 显示单个子节点: " + childId + " (边描述: " + edgeDesc + ")");
                 
                 sb.append("                                 ▼");
                 if (edgeDesc != null && !edgeDesc.isEmpty()) {
@@ -719,6 +731,88 @@ public class ProcessChainVisualizer {
                 
                 displayTreeFromNode(sb, childId, nodeMap, parentToChildren, edgeDescriptions, 
                                    prefix, true, visited);
+            }
+        } else {
+            System.out.println("DEBUG: 节点 " + nodeId + " 没有子节点（叶子节点）");
+        }
+    }
+    
+    /**
+     * 递归显示子树的辅助方法（确保所有层级都被正确显示）
+     */
+    private static void displayTreeFromNodeRecursive(StringBuilder sb, String nodeId,
+                                                     Map<String, ProcessNode> nodeMap,
+                                                     Map<String, List<String>> parentToChildren,
+                                                     Map<String, String> edgeDescriptions,
+                                                     String baseIndent,
+                                                     Set<String> visited) {
+        List<String> children = parentToChildren.get(nodeId);
+        if (children == null || children.isEmpty()) {
+            return;
+        }
+        
+        // 排序子节点
+        List<String> sortedChildren = new ArrayList<>(children);
+        sortedChildren.sort((a, b) -> {
+            String descA = edgeDescriptions.get(a);
+            String descB = edgeDescriptions.get(b);
+            boolean isBridgeA = "桥接".equals(descA);
+            boolean isBridgeB = "桥接".equals(descB);
+            if (isBridgeA && !isBridgeB) return -1;
+            if (!isBridgeA && isBridgeB) return 1;
+            boolean isSegmentA = "段链".equals(descA);
+            boolean isSegmentB = "段链".equals(descB);
+            if (isSegmentA && !isSegmentB) return -1;
+            if (!isSegmentA && isSegmentB) return 1;
+            return 0;
+        });
+        
+        for (int i = 0; i < sortedChildren.size(); i++) {
+            String childId = sortedChildren.get(i);
+            boolean isLastChild = (i == sortedChildren.size() - 1);
+            
+            if (visited.contains(childId)) {
+                System.out.println("WARNING: 递归时发现已访问节点 " + childId + "，跳过");
+                continue;
+            }
+            
+            String edgeDesc = edgeDescriptions.get(childId);
+            System.out.println("DEBUG: 递归显示子节点 " + (i+1) + "/" + sortedChildren.size() + ": " + childId);
+            
+            // 显示连接符和边描述
+            if (sortedChildren.size() == 1) {
+                sb.append(baseIndent).append("▼");
+            } else {
+                sb.append(baseIndent);
+                if (i == 0) {
+                    sb.append("├─→");
+                } else if (isLastChild) {
+                    sb.append("└─→");
+                } else {
+                    sb.append("├─→");
+                }
+            }
+            
+            if (edgeDesc != null && !edgeDesc.isEmpty()) {
+                sb.append(" ").append(edgeDesc);
+            }
+            sb.append("\n");
+            sb.append(baseIndent).append(sortedChildren.size() == 1 ? "║" : (isLastChild ? "    ║" : "│   ║")).append("\n");
+            
+            // 显示子节点
+            ProcessNode childNode = nodeMap.get(childId);
+            if (childNode != null) {
+                visited.add(childId);
+                String childIndent = baseIndent + (sortedChildren.size() == 1 ? "" : (isLastChild ? "    " : "│   "));
+                displayNodeBox(sb, childNode, childIndent);
+                
+                // 继续递归显示更深层的子节点
+                List<String> grandChildren = parentToChildren.get(childId);
+                if (grandChildren != null && !grandChildren.isEmpty()) {
+                    sb.append(childIndent).append("║\n");
+                    displayTreeFromNodeRecursive(sb, childId, nodeMap, parentToChildren, 
+                                                edgeDescriptions, childIndent, visited);
+                }
             }
         }
     }
@@ -812,13 +906,21 @@ public class ProcessChainVisualizer {
             
             sb.append(indent).append("┏").append(boxStyle.repeat(68)).append("┓\n");
             
-            // 标题行
+            // 标题行 - 添加 processGuid
             String title = icon + " " + entity.getProcessName() + " (PID:" + entity.getProcessId() + ")";
-            if (isAlarm) title += " ⚠️ 告警节点";
-            if (isRoot) title += " 🎯 根节点";
-            if (isExtend) title += " (扩展节点)";
+            if (entity.getProcessGuid() != null && !entity.getProcessGuid().isEmpty()) {
+                title += " [" + entity.getProcessGuid() + "]";
+            }
+            if (isAlarm) title += " ⚠️ 告警";
+            if (isRoot) title += " 🎯 根";
+            if (isExtend) title += " (扩展)";
             if (isBroken) title += " ⛓️ 断链";
-            sb.append(indent).append("┃ ").append(String.format("%-66s", title)).append(" ┃\n");
+            // 处理超长标题
+            if (title.length() > 66) {
+                sb.append(indent).append("┃ ").append(title.substring(0, 63)).append("... ┃\n");
+            } else {
+                sb.append(indent).append("┃ ").append(String.format("%-66s", title)).append(" ┃\n");
+            }
             
             // 分隔线
             sb.append(indent).append("┃").append("─".repeat(68)).append("┃\n");
@@ -1136,12 +1238,15 @@ public class ProcessChainVisualizer {
                 sb.append("[").append(String.join(",", tags)).append("] ");
             }
             
-            // 进程信息
+            // 进程信息 - 添加 processGuid
             if (chainNode.getProcessEntity() != null) {
                 ProcessEntity entity = chainNode.getProcessEntity();
                 sb.append(entity.getProcessName());
                 if (entity.getProcessId() != null) {
                     sb.append(" (PID:").append(entity.getProcessId()).append(")");
+                }
+                if (entity.getProcessGuid() != null && !entity.getProcessGuid().isEmpty()) {
+                    sb.append(" [").append(entity.getProcessGuid()).append("]");
                 }
                 if (entity.getProcessUserName() != null) {
                     sb.append(" - ").append(entity.getProcessUserName());
