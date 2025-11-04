@@ -49,8 +49,13 @@ def build_tree(nodes):
             trace_id_map[trace_id] = node
     
     # 找根节点 - 优先找标记了isRoot的，或者processGuid==traceId的
+    # 排除网络告警（logType为alert或network）
     root_node = None
     for node in nodes:
+        log_type = node.get('logType', '')
+        # 跳过网络告警
+        if log_type in ['alert', 'network']:
+            continue
         if node.get('isRoot'):
             root_node = node
             break
@@ -61,6 +66,10 @@ def build_tree(nodes):
     # 如果还没找到根节点，找第一个没有processGuid但有traceId的节点（文件日志）
     if not root_node:
         for node in nodes:
+            log_type = node.get('logType', '')
+            # 跳过网络告警
+            if log_type in ['alert', 'network']:
+                continue
             if node.get('traceId') and not node.get('processGuid'):
                 root_node = node
                 # 为根节点添加processGuid以便建立关系

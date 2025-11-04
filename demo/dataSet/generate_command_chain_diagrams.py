@@ -46,10 +46,13 @@ def build_tree(nodes):
             children_map[parent_guid].append(node.get('processGuid'))
     
     # 找所有顶层节点（没有父节点或父节点不存在的节点）
+    # 排除没有processGuid的节点（如网络告警）
     top_level_nodes = []
     for node in nodes:
+        guid = node.get('processGuid')
         parent_guid = node.get('parentProcessGuid')
-        if not parent_guid or parent_guid == '' or parent_guid not in node_map:
+        # 必须有processGuid才能作为根节点候选
+        if guid and (not parent_guid or parent_guid == '' or parent_guid not in node_map):
             top_level_nodes.append(node)
     
     # 如果有多个顶层节点，优先选择：
@@ -66,14 +69,22 @@ def build_tree(nodes):
             root_node = node
             break
     
-    # 策略2: 有 isRoot 标记
+    # 策略2: 有 isRoot 标记且有子节点
+    if not root_node:
+        for node in top_level_nodes:
+            guid = node.get('processGuid')
+            if node.get('isRoot') and guid in children_map:
+                root_node = node
+                break
+    
+    # 策略3: 有 isRoot 标记
     if not root_node:
         for node in top_level_nodes:
             if node.get('isRoot'):
                 root_node = node
                 break
     
-    # 策略3: traceId == processGuid
+    # 策略4: traceId == processGuid
     if not root_node:
         for node in top_level_nodes:
             if node.get('processGuid') == node.get('traceId'):
