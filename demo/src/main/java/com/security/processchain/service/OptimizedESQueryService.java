@@ -15,12 +15,17 @@ import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.sort.SortOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.Calendar;
+import java.util.Date;
 
 /**
  * 优化的ES查询服务实现
@@ -136,6 +141,7 @@ public class OptimizedESQueryService implements ESQueryService {
 
                 searchSourceBuilder.query(boolQuery);
                 searchSourceBuilder.size(maxQuerySize);
+                searchSourceBuilder.sort("startTime", SortOrder.DESC);  // 按 startTime 降序排序
                 searchSourceBuilder.fetchSource(ALARM_INCLUDES, null);  // 只返回需要的字段
                 searchRequest.source(searchSourceBuilder);
 
@@ -437,6 +443,116 @@ public class OptimizedESQueryService implements ESQueryService {
     }
 
     /**
+     * 批量查询日志：输入为 hostAddress -> traceId 的映射，并支持时间范围过滤
+     * 每个host使用其对应告警的startTime的前后10分钟作为查询范围
+     * 
+     * @param hostToTraceId host -> traceId 映射
+     * @param hostToStartTime host -> startTime 映射（告警的startTime）
+     * @return 所有匹配日志的聚合列表
+     */
+    public List<RawLog> batchQueryRawLogsWithTimeRange(
+            Map<String, String> hostToTraceId, 
+            Map<String, String> hostToStartTime) {
+        
+        if (hostToTraceId == null || hostToTraceId.isEmpty()) {
+            log.error("hostToTraceId映射为空");
+            return new ArrayList<>();
+        }
+
+        List<RawLog> allLogs = new ArrayList<>();
+
+        try {
+            log.info("批量查询原始日志（带时间范围）: 映射数量={}", hostToTraceId.size());
+
+            MultiSearchRequest multiSearchRequest = new MultiSearchRequest();
+
+            for (Map.Entry<String, String> entry : hostToTraceId.entrySet()) {
+                String hostAddress = entry.getKey();
+                String traceId = entry.getValue();
+                
+                if (hostAddress == null || hostAddress.trim().isEmpty() ||
+                    traceId == null || traceId.trim().isEmpty()) {
+                    continue;
+                }
+
+                SearchRequest searchRequest = new SearchRequest(logIndex);
+                SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+
+                BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
+                boolQuery.filter(QueryBuilders.termQuery("traceId", traceId));
+                boolQuery.filter(QueryBuilders.termQuery("hostAddress", hostAddress));
+                
+                // 只查询需要的日志类型
+                boolQuery.filter(QueryBuilders.termsQuery("logType", 
+                    com.security.processchain.constants.ProcessChainConstants.LogType.BUILDER_LOG_TYPES));
+
+                // 添加时间范围过滤（告警startTime的前后10分钟）
+                String startTime = hostToStartTime.get(hostAddress);
+                if (startTime != null && !startTime.trim().isEmpty()) {
+                    try {
+                        // 解析告警的startTime
+                        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                        Date alarmTime = sdf.parse(startTime);
+                        
+                        // 计算前后10分钟
+                        Calendar calendar = Calendar.getInstance();
+                        calendar.setTime(alarmTime);
+                        calendar.add(Calendar.MINUTE, -10);
+                        String timeStart = sdf.format(calendar.getTime());
+                        
+                        calendar.setTime(alarmTime);
+                        calendar.add(Calendar.MINUTE, 10);
+                        String timeEnd = sdf.format(calendar.getTime());
+                        
+                        // 添加时间范围过滤
+                        boolQuery.filter(QueryBuilders.rangeQuery("utcTime")
+                            .gte(timeStart)
+                            .lte(timeEnd));
+                        
+                        log.debug("【日志查询】-> host [{}] 时间范围: {} ~ {}", hostAddress, timeStart, timeEnd);
+                        
+                    } catch (ParseException e) {
+                        log.warn("【日志查询】-> host [{}] startTime解析失败: {}, 将不使用时间范围过滤", hostAddress, startTime);
+                    }
+                } else {
+                    log.warn("【日志查询】-> host [{}] 没有startTime信息，将不使用时间范围过滤", hostAddress);
+                }
+
+                searchSourceBuilder.query(boolQuery);
+                searchSourceBuilder.size(maxQuerySize);
+                searchSourceBuilder.fetchSource(LOG_INCLUDES, null);
+                searchRequest.source(searchSourceBuilder);
+
+                multiSearchRequest.add(searchRequest);
+            }
+
+            long startTime = System.currentTimeMillis();
+            MultiSearchResponse multiSearchResponse = esClient.msearch(multiSearchRequest, RequestOptions.DEFAULT);
+            long endTime = System.currentTimeMillis();
+            log.info("【日志查询】-> 批量日志查询（带时间范围）完成，耗时: {}ms", (endTime - startTime));
+
+            MultiSearchResponse.Item[] responses = multiSearchResponse.getResponses();
+            for (MultiSearchResponse.Item item : responses) {
+                if (item.isFailure()) {
+                    log.error("【日志查询】-> 批量日志查询子请求失败: {}", item.getFailureMessage());
+                    continue;
+                }
+                SearchResponse searchResponse = item.getResponse();
+                List<Map<String, Object>> hitMaps = extractHits(searchResponse);
+                List<RawLog> logs = DataConverter.convertToLogList(hitMaps);
+                allLogs.addAll(logs);
+            }
+
+            log.info("【日志查询】-> 批量日志查询总数: {}", allLogs.size());
+            return allLogs;
+
+        } catch (IOException e) {
+            log.error("【日志查询】-> 批量查询原始日志失败: {}", e.getMessage(), e);
+            return allLogs;
+        }
+    }
+
+    /**
      * 单个IP查询EDR告警（实现ESQueryService接口）
      */
     @Override
@@ -459,6 +575,7 @@ public class OptimizedESQueryService implements ESQueryService {
 
             searchSourceBuilder.query(boolQuery);
             searchSourceBuilder.size(maxQuerySize);
+            searchSourceBuilder.sort("startTime", SortOrder.DESC);  // 按 startTime 降序排序
             searchSourceBuilder.fetchSource(ALARM_INCLUDES, null);  // 只返回需要的字段
             searchRequest.source(searchSourceBuilder);
 

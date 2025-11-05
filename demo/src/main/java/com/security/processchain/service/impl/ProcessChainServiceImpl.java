@@ -74,6 +74,7 @@ public class ProcessChainServiceImpl {
 
             // ========== 阶段1: 选择所有告警 ==========
             Map<String, String> hostToTraceId = new HashMap<>();
+            Map<String, String> hostToStartTime = new HashMap<>();  // 记录每个host的告警startTime（用于时间范围查询）
             for (String ip : ips) {
                 try {
                     log.info("【进程链生成】-> 处理IP: {}", ip);
@@ -132,6 +133,12 @@ public class ProcessChainServiceImpl {
                     // 记录 host -> traceId 的映射（一个IP一个traceId）
                     if (firstAlarm.getHostAddress() != null && firstAlarm.getTraceId() != null) {
                         hostToTraceId.put(firstAlarm.getHostAddress(), firstAlarm.getTraceId());
+                        
+                        // 记录 host -> startTime 的映射（因为告警已按startTime降序排序，第一个就是最新的）
+                        if (firstAlarm.getStartTime() != null) {
+                            hostToStartTime.put(firstAlarm.getHostAddress(), firstAlarm.getStartTime());
+                            log.debug("【进程链生成】-> IP [{}] 告警时间: {}", firstAlarm.getHostAddress(), firstAlarm.getStartTime());
+                        }
                     }
                     
                     successCount++;
@@ -146,12 +153,12 @@ public class ProcessChainServiceImpl {
             // ========== 阶段2: 批量查询所有日志 ==========
             if (!hostToTraceId.isEmpty()) {
                 try {
-                    // 使用 host->traceId 映射进行批量查询（MultiSearchRequest方式，每个host查询其对应的traceId）
+                    // 使用 host->traceId 映射进行批量查询，带时间范围过滤（告警startTime前后10分钟）
                     long logQueryStart = System.currentTimeMillis();
-                    allLogs = esQueryService.batchQueryRawLogs(hostToTraceId);
+                    allLogs = esQueryService.batchQueryRawLogsWithTimeRange(hostToTraceId, hostToStartTime);
                     long logQueryTime = System.currentTimeMillis() - logQueryStart;
                     
-                    log.info("【进程链生成】-> 批量日志查询完成: host-traceId映射数={}, 日志总数={}, 耗时={}ms", 
+                    log.info("【进程链生成】-> 批量日志查询完成（带时间范围）: host-traceId映射数={}, 日志总数={}, 耗时={}ms", 
                             hostToTraceId.size(), allLogs.size(), logQueryTime);
                 } catch (Exception e) {
                     log.error("【进程链生成】-> 批量查询日志失败: {}", e.getMessage(), e);
