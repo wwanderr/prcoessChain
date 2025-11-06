@@ -1,7 +1,6 @@
 package com.security.processchain.model;
 
 import com.security.processchain.service.ChainNode;
-import com.security.processchain.service.NodeType;
 import com.security.processchain.service.StoryNode;
 import com.security.processchain.service.ThreatSeverity;
 
@@ -11,9 +10,10 @@ import com.security.processchain.service.ThreatSeverity;
  */
 public class ProcessNode {
     /**
-     * 原始数据类型："file", "network", "domain", "process"
+     * 原始数据类型：直接从日志/告警的logType字段获取
+     * 可能的值："process", "file", "network", "domain", "registry", "alert" 等
      */
-    private NodeType logType;
+    private String logType;
     
     /**
      * 节点风险等级
@@ -52,11 +52,11 @@ public class ProcessNode {
     
     // Getters and Setters
     
-    public NodeType getLogType() {
+    public String getLogType() {
         return logType;
     }
     
-    public void setLogType(NodeType logType) {
+    public void setLogType(String logType) {
         this.logType = logType;
     }
     

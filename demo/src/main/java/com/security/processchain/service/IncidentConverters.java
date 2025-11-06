@@ -52,7 +52,8 @@ public final class IncidentConverters {
         if (logs != null && !logs.isEmpty()) {
             RawLog latestLog = getLatestLog(logs);
             if (latestLog != null && latestLog.getLogType() != null) {
-                finalNode.setLogType(mapToNodeType(latestLog.getLogType()));
+                // 直接使用原始的 logType，不转换为枚举
+                finalNode.setLogType(latestLog.getLogType());
                 
                 // 设置 opType（从日志中获取）
                 finalNode.setOpType(latestLog.getOpType());
@@ -68,7 +69,8 @@ public final class IncidentConverters {
         } else if (isAlarm && alarms != null && !alarms.isEmpty()) {
             RawAlarm firstAlarm = alarms.get(0);
             if (firstAlarm != null && firstAlarm.getLogType() != null) {
-                finalNode.setLogType(mapToNodeType(firstAlarm.getLogType()));
+                // 直接使用原始的 logType，不转换为枚举
+                finalNode.setLogType(firstAlarm.getLogType());
                 
                 // 设置 opType（从告警的 opType 中获取）
                 finalNode.setOpType(firstAlarm.getOpType());
@@ -340,7 +342,9 @@ public final class IncidentConverters {
 
     /**
      * 将字符串logType映射为NodeType枚举
+     * @deprecated 不再使用枚举类型，直接使用String类型的logType以支持更多类型
      */
+    @Deprecated
     public static NodeType mapToNodeType(String logType) {
         if (logType == null) return NodeType.UNKNOWN;
         String t = logType.trim().toLowerCase();
