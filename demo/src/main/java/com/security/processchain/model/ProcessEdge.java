@@ -20,6 +20,13 @@ public class ProcessEdge {
      */
     private String val;
     
+    /**
+     * 无参构造函数，val 默认为"连接"
+     */
+    public ProcessEdge() {
+        this.val = "连接";
+    }
+    
     // Getters and Setters
     
     public String getSource() {

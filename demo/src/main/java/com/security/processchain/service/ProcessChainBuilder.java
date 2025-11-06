@@ -633,6 +633,52 @@ public class ProcessChainBuilder {
     }
     
     /**
+     * 根据目标节点的 logType 和 opType 设置边的 val 值
+     * 
+     * 规则：
+     * - 如果边的 val 不是默认值"连接"（如桥接边、扩展边的特殊值），则不覆盖
+     * - logType=file 且 opType=delete：val = ""（空字符串）
+     * - 其他情况：保持默认值 "连接"（由 ProcessEdge 构造函数设置）
+     * 
+     * @param edge 要设置的边
+     * @param targetNodeId 目标节点ID
+     * @param nodes 已转换的节点列表
+     */
+    private void setEdgeValByTargetNode(
+            com.security.processchain.model.ProcessEdge edge,
+            String targetNodeId,
+            List<com.security.processchain.model.ProcessNode> nodes) {
+        
+        // 如果边的 val 不是默认值"连接"（如桥接边"桥接"、扩展边""等特殊值），则不覆盖
+        String currentVal = edge.getVal();
+        if (currentVal != null && !"连接".equals(currentVal)) {
+            return;  // 保护特殊边（桥接、扩展等）不被覆盖
+        }
+        
+        // 查找目标节点
+        com.security.processchain.model.ProcessNode targetNode = null;
+        for (com.security.processchain.model.ProcessNode node : nodes) {
+            if (node != null && targetNodeId.equals(node.getNodeId())) {
+                targetNode = node;
+                break;
+            }
+        }
+        
+        if (targetNode == null) {
+            return;  // 节点不存在，保持默认值 "连接"
+        }
+        
+        String logType = targetNode.getLogType();
+        String opType = targetNode.getOpType();
+        
+        // 特殊规则：文件删除操作，边的 val 为空字符串
+        if ("file".equalsIgnoreCase(logType) && "delete".equalsIgnoreCase(opType)) {
+            edge.setVal("");
+        }
+        // 其他情况保持默认值 "连接"（已由 ProcessEdge 构造函数设置）
+    }
+    
+    /**
      * 将日志按processGuid索引
      */
     private Map<String, List<RawLog>> indexLogsByProcessGuid(List<RawLog> logs) {
@@ -1091,7 +1137,7 @@ public class ProcessChainBuilder {
                     new com.security.processchain.model.ProcessNode();
             exploreNode.setNodeId(exploreNodeId);
             exploreNode.setIsChainNode(true);
-            exploreNode.setLogType(NodeType.EXPLORE);
+            exploreNode.setLogType("explore");
             
             ChainNode exploreChainNode = new ChainNode();
             exploreChainNode.setIsRoot(true);   // 虚拟根节点
@@ -1381,6 +1427,10 @@ public class ProcessChainBuilder {
             if (result.getEdges() != null) {
                 for (ChainBuilderEdge builderEdge : result.getEdges()) {
                     com.security.processchain.model.ProcessEdge finalEdge = edgeMapper.toIncidentEdge(builderEdge);
+                    
+                    // 根据目标节点设置边的 val 值
+                    setEdgeValByTargetNode(finalEdge, builderEdge.getTarget(), finalNodes);
+                    
                     finalEdges.add(finalEdge);
                 }
             }

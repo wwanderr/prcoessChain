@@ -89,7 +89,12 @@ public final class IncidentConverters {
         ProcessEdge finalEdge = new ProcessEdge();
         finalEdge.setSource(builderEdge.getSource());
         finalEdge.setTarget(builderEdge.getTarget());
-        finalEdge.setVal(builderEdge.getVal());
+        
+        // 只有当 builderEdge 的 val 不为 null 时才设置，否则保留 ProcessEdge 的默认值 "连接"
+        if (builderEdge.getVal() != null) {
+            finalEdge.setVal(builderEdge.getVal());
+        }
+        
         return finalEdge;
     };
 
