@@ -61,6 +61,7 @@ public class DataConverter {
         alarm.setDeviceAssetSubType(getStringValue(map, "deviceAssetSubType"));
         alarm.setAlarmName(getStringValue(map, "alarmName"));
         alarm.setLogType(getStringValue(map, "logType"));
+        alarm.setOpType(getStringValue(map, "opType"));
         
         // 保存原始数据,便于后续扩展
         alarm.setOtherFields(map);

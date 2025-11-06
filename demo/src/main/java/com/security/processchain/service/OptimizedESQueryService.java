@@ -67,6 +67,7 @@ public class OptimizedESQueryService implements ESQueryService {
         "endTime",
         "alarmSource",
         "logType",
+        "opType",
         "otherFields"
     };
 

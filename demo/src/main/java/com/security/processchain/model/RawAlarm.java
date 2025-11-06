@@ -18,6 +18,7 @@ public class RawAlarm {
     private String deviceAssetSubType;
     private String alarmName;
     private String logType;
+    private String opType;
     
     // 其他字段
     private Map<String, Object> otherFields;
@@ -111,6 +112,14 @@ public class RawAlarm {
     
     public void setLogType(String logType) {
         this.logType = logType;
+    }
+    
+    public String getOpType() {
+        return opType;
+    }
+    
+    public void setOpType(String opType) {
+        this.opType = opType;
     }
     
     public Map<String, Object> getOtherFields() {

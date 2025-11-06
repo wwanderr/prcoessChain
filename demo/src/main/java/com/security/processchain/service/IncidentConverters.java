@@ -54,6 +54,9 @@ public final class IncidentConverters {
             if (latestLog != null && latestLog.getLogType() != null) {
                 finalNode.setLogType(mapToNodeType(latestLog.getLogType()));
                 
+                // 设置 opType（从日志中获取）
+                finalNode.setOpType(latestLog.getOpType());
+                
                 // 设置其他实体（文件/外联/域名/注册表）
                 Object entity = convertToEntity(latestLog, latestLog.getLogType());
                 chainNode.setEntity(entity);
@@ -66,6 +69,9 @@ public final class IncidentConverters {
             RawAlarm firstAlarm = alarms.get(0);
             if (firstAlarm != null && firstAlarm.getLogType() != null) {
                 finalNode.setLogType(mapToNodeType(firstAlarm.getLogType()));
+                
+                // 设置 opType（从告警的 opType 中获取）
+                finalNode.setOpType(firstAlarm.getOpType());
             }
         }
 

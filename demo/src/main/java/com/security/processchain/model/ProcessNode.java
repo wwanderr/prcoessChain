@@ -45,6 +45,11 @@ public class ProcessNode {
      */
     private Integer childrenCount;
     
+    /**
+     * 操作类型（从日志或告警的opType中获取）
+     */
+    private String opType;
+    
     // Getters and Setters
     
     public NodeType getLogType() {
@@ -101,6 +106,14 @@ public class ProcessNode {
     
     public void setChildrenCount(Integer childrenCount) {
         this.childrenCount = childrenCount;
+    }
+    
+    public String getOpType() {
+        return opType;
+    }
+    
+    public void setOpType(String opType) {
+        this.opType = opType;
     }
 }
 
