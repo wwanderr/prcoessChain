@@ -6,8 +6,13 @@ package com.security.processchain.service;
 public class RegistryEntity {
     private String targetObject;
     private String regValue;
+    private String targetObjectName;  // targetObject 路径的最后一层
     
-    public RegistryEntity() {}
+    public RegistryEntity() {
+        this.targetObject = "";
+        this.regValue = "";
+        this.targetObjectName = "";
+    }
     
     public String getTargetObject() {
         return targetObject;
@@ -23,6 +28,14 @@ public class RegistryEntity {
     
     public void setRegValue(String regValue) {
         this.regValue = regValue;
+    }
+    
+    public String getTargetObjectName() {
+        return targetObjectName;
+    }
+    
+    public void setTargetObjectName(String targetObjectName) {
+        this.targetObjectName = targetObjectName;
     }
 }
 

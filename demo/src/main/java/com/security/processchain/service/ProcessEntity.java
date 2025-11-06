@@ -14,7 +14,17 @@ public class ProcessEntity {
     private String processUserName;
     private String processName;
     
-    public ProcessEntity() {}
+    public ProcessEntity() {
+        this.opType = "";
+        this.localtime = "";
+        this.processId = "";
+        this.processGuid = "";
+        this.parentProcessGuid = "";
+        this.image = "";
+        this.commandline = "";
+        this.processUserName = "";
+        this.processName = "";
+    }
     
     public String getOpType() {
         return opType;

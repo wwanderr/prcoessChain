@@ -89,12 +89,8 @@ public final class IncidentConverters {
         ProcessEdge finalEdge = new ProcessEdge();
         finalEdge.setSource(builderEdge.getSource());
         finalEdge.setTarget(builderEdge.getTarget());
-        
-        // 只有当 builderEdge 的 val 不为 null 时才设置，否则保留 ProcessEdge 的默认值 "连接"
-        if (builderEdge.getVal() != null) {
-            finalEdge.setVal(builderEdge.getVal());
-        }
-        
+         // val 保持默认值 "连接"（由 ProcessEdge 构造函数设置）
+        // builderEdge.val 始终为 null，不需要处理
         return finalEdge;
     };
 
@@ -159,10 +155,88 @@ public final class IncidentConverters {
             alarmInfo.setDvcAction(getStringFromMap(fields, "dvcAction"));
             alarmInfo.setAlarmDescription(getStringFromMap(fields, "alarmDescription"));
             alarmInfo.setAlarmSource(getStringFromMap(fields, "alarmSource"));
-            alarmInfo.setAlarmResults(getStringFromMap(fields, "alarmResults"));
+            
+            // 映射 alarmResults: OK→成功、FAIL→失败、UNKNOWN→尝试
+            String rawResults = getStringFromMap(fields, "alarmResults");
+            alarmInfo.setAlarmResults(mapAlarmResults(rawResults));
         }
 
         return alarmInfo;
+    }
+    
+    /**
+     * 映射 alarmResults 为中文
+     * OK → 成功
+     * FAIL → 失败
+     * UNKNOWN → 尝试
+     */
+    private static String mapAlarmResults(String results) {
+        if (results == null) return "";
+        String upper = results.trim().toUpperCase();
+        switch (upper) {
+            case "OK":
+                return "成功";
+            case "FAIL":
+                return "失败";
+            case "UNKNOWN":
+                return "尝试";
+            default:
+                return results;  // 保持原值
+        }
+    }
+    
+    /**
+     * 映射文件类型为中文
+     */
+    private static String mapFileType(String fileType) {
+        if (fileType == null) return "";
+        String lower = fileType.trim().toLowerCase();
+        switch (lower) {
+            case "pe":
+                return "可移植可执行文件";
+            case "elf":
+                return "可执行与可链接格式";
+            case "macho":
+                return "Mach 对象文件";
+            case "script":
+                return "脚本文件";
+            case "document":
+                return "文档文件";
+            case "archive":
+                return "压缩/归档文件";
+            case "image":
+                return "图像文件";
+            case "text":
+                return "文本文件";
+            case "lnk":
+                return "快捷方式文件";
+            case "html":
+                return "超文本标记语言文件";
+            case "disk-image":
+                return "磁盘映像文件";
+            case "jar":
+                return "Java 归档文件";
+            case "firmware":
+                return "固件文件";
+            case "virtual":
+                return "虚拟文件";
+            case "corrupted":
+                return "损坏文件";
+            case "unknown":
+                return "未知文件类型";
+            default:
+                return fileType;  // 保持原值
+        }
+    }
+    
+    /**
+     * 将字节转换为 MB 格式
+     * 例如：19969668 → "19.97MB"
+     */
+    private static String formatFileSize(Long bytes) {
+        if (bytes == null) return "";
+        double mb = bytes / (1024.0 * 1024.0);
+        return String.format("%.2fMB", mb);
     }
 
     /**
@@ -205,7 +279,16 @@ public final class IncidentConverters {
         processEntity.setImage(log.getImage());
         processEntity.setCommandline(log.getCommandLine());
         processEntity.setProcessUserName(log.getProcessUserName());
-        processEntity.setProcessName(log.getProcessName());
+        
+        // 处理 processName：
+        // - logType=process 时，为空则显示 "进程.exe"
+        // - logType=file 时，为空则保持空
+        String processName = log.getProcessName();
+        if ((processName == null || processName.trim().isEmpty()) && 
+            "process".equalsIgnoreCase(log.getLogType())) {
+            processName = "进程.exe";
+        }
+        processEntity.setProcessName(processName);
 
         return processEntity;
     }
@@ -255,14 +338,18 @@ public final class IncidentConverters {
         entity.setTargetFilename(log.getTargetFilename());
         entity.setFileName(log.getFileName());
         entity.setFileMd5(log.getFileMd5());
-        entity.setFileType(log.getFileType());
+        
+        // 映射文件类型为中文
+        entity.setFileType(mapFileType(log.getFileType()));
 
+        // 转换文件大小为 MB 格式
         try {
-            if (log.getFileSize() != null) {
-                entity.setFileSize(Long.parseLong(log.getFileSize()));
+            if (log.getFileSize() != null && !log.getFileSize().trim().isEmpty()) {
+                Long bytes = Long.parseLong(log.getFileSize());
+                entity.setFileSize(formatFileSize(bytes));
             }
         } catch (NumberFormatException e) {
-            // 忽略格式错误
+            // 忽略格式错误，保持空字符串
         }
 
         return entity;
@@ -333,7 +420,39 @@ public final class IncidentConverters {
         RegistryEntity entity = new RegistryEntity();
         entity.setTargetObject(log.getTargetObject());
         entity.setRegValue(log.getRegValue());
+        
+        // 提取 targetObject 路径的最后一层
+        String targetObject = log.getTargetObject();
+        if (targetObject != null && !targetObject.trim().isEmpty()) {
+            entity.setTargetObjectName(extractLastPathSegment(targetObject));
+        }
+        
         return entity;
+    }
+    
+    /**
+     * 提取路径的最后一层
+     * 例如："HKU\\S-1-5-21...\\Toolbar\\Locked" → "Locked"
+     */
+    private static String extractLastPathSegment(String path) {
+        if (path == null || path.trim().isEmpty()) {
+            return "";
+        }
+        
+        // 移除末尾的反斜杠（如果有）
+        String trimmed = path.trim();
+        if (trimmed.endsWith("\\")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        
+        // 查找最后一个反斜杠的位置
+        int lastBackslash = trimmed.lastIndexOf('\\');
+        if (lastBackslash >= 0 && lastBackslash < trimmed.length() - 1) {
+            return trimmed.substring(lastBackslash + 1);
+        }
+        
+        // 如果没有反斜杠，返回整个字符串
+        return trimmed;
     }
 
     /**

@@ -7,7 +7,10 @@ public class DomainEntity {
     private String requestDomain;
     private String queryResults;
     
-    public DomainEntity() {}
+    public DomainEntity() {
+        this.requestDomain = "";
+        this.queryResults = "";
+    }
     
     public String getRequestDomain() {
         return requestDomain;

@@ -6,12 +6,19 @@ package com.security.processchain.service;
 public class FileEntity {
     private String filePath;
     private String targetFilename;
-    private Long fileSize;
+    private String fileSize;  // 格式化后的文件大小，如 "19.97MB"
     private String fileMd5;
     private String fileType;
     private String fileName;
     
-    public FileEntity() {}
+    public FileEntity() {
+        this.filePath = "";
+        this.targetFilename = "";
+        this.fileSize = "";
+        this.fileMd5 = "";
+        this.fileType = "";
+        this.fileName = "";
+    }
     
     public String getFilePath() {
         return filePath;
@@ -29,11 +36,11 @@ public class FileEntity {
         this.targetFilename = targetFilename;
     }
     
-    public Long getFileSize() {
+    public String getFileSize() {
         return fileSize;
     }
     
-    public void setFileSize(Long fileSize) {
+    public void setFileSize(String fileSize) {
         this.fileSize = fileSize;
     }
     

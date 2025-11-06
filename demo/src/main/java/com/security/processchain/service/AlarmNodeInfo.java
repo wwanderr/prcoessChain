@@ -11,7 +11,13 @@ public class AlarmNodeInfo {
     private ThreatSeverity threatSeverity;
     private String alarmResults;
     
-    public AlarmNodeInfo() {}
+    public AlarmNodeInfo() {
+        this.alarmName = "";
+        this.dvcAction = "";
+        this.alarmDescription = "";
+        this.alarmSource = "";
+        this.alarmResults = "";
+    }
     
     public String getAlarmName() {
         return alarmName;

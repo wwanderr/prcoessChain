@@ -11,7 +11,11 @@ public class NetworkEntity {
     private Integer destPort;
     private Boolean initiated;
     
-    public NetworkEntity() {}
+    public NetworkEntity() {
+        this.transProtocol = "";
+        this.srcAddress = "";
+        this.destAddress = "";
+    }
     
     public String getTransProtocol() {
         return transProtocol;
