@@ -359,13 +359,22 @@ public class ProcessChainServiceImpl {
             // 6. **关键**：创建桥接边（连接网侧 victim 到端侧根节点）
             // 使用更新后的映射创建桥接边
             if (finalRootMap != null && !finalRootMap.isEmpty()) {
-                List<ProcessEdge> bridgeEdges = createBridgeEdges(
-                        networkNodes, 
+                BridgeResult bridgeResult = createBridgeEdges(
+                        networkNodes,
+                        networkEdges,  // 新增：传入网侧边列表，用于判断 victim 是否为 source
                         hostToTraceId, 
                         finalRootMap);
-                if (bridgeEdges != null && !bridgeEdges.isEmpty()) {
-                    allEdges.addAll(bridgeEdges);
-                    log.info("【进程链生成】-> 添加桥接边数: {}", bridgeEdges.size());
+                
+                // 添加虚拟节点到 allNodes
+                if (bridgeResult.getVirtualNodes() != null && !bridgeResult.getVirtualNodes().isEmpty()) {
+                    allNodes.addAll(bridgeResult.getVirtualNodes());
+                    log.info("【进程链生成】-> 添加虚拟节点数: {}", bridgeResult.getVirtualNodes().size());
+                }
+                
+                // 添加桥接边到 allEdges
+                if (bridgeResult.getBridgeEdges() != null && !bridgeResult.getBridgeEdges().isEmpty()) {
+                    allEdges.addAll(bridgeResult.getBridgeEdges());
+                    log.info("【进程链生成】-> 添加桥接边数: {}", bridgeResult.getBridgeEdges().size());
                 }
             } else {
                 log.warn("【进程链生成】-> 桥接映射为空，无法创建桥接边");
@@ -402,46 +411,78 @@ public class ProcessChainServiceImpl {
     }
     
     /**
-     * 创建网侧到端侧的桥接边
+     * 桥接结果（包含虚拟节点和桥接边）
+     */
+    private static class BridgeResult {
+        private final List<ProcessNode> virtualNodes;
+        private final List<ProcessEdge> bridgeEdges;
+        
+        public BridgeResult(List<ProcessNode> virtualNodes, List<ProcessEdge> bridgeEdges) {
+            this.virtualNodes = virtualNodes != null ? virtualNodes : new ArrayList<>();
+            this.bridgeEdges = bridgeEdges != null ? bridgeEdges : new ArrayList<>();
+        }
+        
+        public List<ProcessNode> getVirtualNodes() {
+            return virtualNodes;
+        }
+        
+        public List<ProcessEdge> getBridgeEdges() {
+            return bridgeEdges;
+        }
+    }
+    
+    /**
+     * 创建网侧到端侧的桥接边（优化版：支持虚拟节点）
      * 
-     * 核心逻辑（优化后）：
+     * 核心逻辑：
      * 1. 遍历网侧节点，找到所有 victim 类型节点（storyNode.type === "victim"）
-     * 2. 从 storyNode.other.ip 提取 victim 的 IP
-     * 3. 通过 hostToTraceId 映射找到该 IP 对应的 traceId
-     * 4. 通过 traceIdToRootNodeMap 映射找到该 traceId 对应的根节点ID（可能是真实根节点或 EXPLORE_ROOT）
-     * 5. 如果找到，创建桥接边（source=victim.nodeId, target=rootNodeId）
-     * 
-     * 优势：
-     * - 不需要遍历所有节点构建 ipToRootNodeIdMap
-     * - 支持 EXPLORE_ROOT 虚拟节点的桥接
-     * - 逻辑更清晰：IP -> traceId -> rootNodeId
+     * 2. 判断 victim 是否在网侧边中作为 source（即 victim -> 其他节点）
+     * 3. 如果 victim 是 source：
+     *    - 创建虚拟节点（logType="virtual"）
+     *    - 创建两条边：victim -> 虚拟节点 -> 端侧根节点
+     * 4. 如果 victim 不是 source（只是 target）：
+     *    - 直接创建桥接边：victim -> 端侧根节点
      * 
      * @param networkNodes 网侧节点列表
+     * @param networkEdges 网侧边列表（用于判断 victim 是否为 source）
      * @param hostToTraceId host到traceId的映射
      * @param traceIdToRootNodeMap traceId到根节点ID的映射
-     * @return 桥接边列表
+     * @return 桥接结果（包含虚拟节点和桥接边）
      */
-    private List<ProcessEdge> createBridgeEdges(
+    private BridgeResult createBridgeEdges(
             List<ProcessNode> networkNodes,
+            List<ProcessEdge> networkEdges,
             Map<String, String> hostToTraceId,
             Map<String, String> traceIdToRootNodeMap) {
         
+        List<ProcessNode> virtualNodes = new ArrayList<>();
         List<ProcessEdge> bridgeEdges = new ArrayList<>();
         
         if (networkNodes == null || networkNodes.isEmpty()) {
             log.debug("【进程链生成】-> 网侧节点为空，无需创建桥接边");
-            return bridgeEdges;
+            return new BridgeResult(virtualNodes, bridgeEdges);
         }
         
         if (hostToTraceId == null || hostToTraceId.isEmpty()) {
             log.warn("【进程链生成】-> hostToTraceId 映射为空，无法创建桥接边");
-            return bridgeEdges;
+            return new BridgeResult(virtualNodes, bridgeEdges);
         }
         
         if (traceIdToRootNodeMap == null || traceIdToRootNodeMap.isEmpty()) {
             log.warn("【进程链生成】-> traceIdToRootNodeMap 映射为空，无法创建桥接边");
-            return bridgeEdges;
+            return new BridgeResult(virtualNodes, bridgeEdges);
         }
+        
+        // ========== 步骤1：构建 victim nodeId -> 是否为 source 的映射 ==========
+        Set<String> victimAsSourceSet = new HashSet<>();
+        if (networkEdges != null) {
+            for (ProcessEdge edge : networkEdges) {
+                if (edge != null && edge.getSource() != null) {
+                    victimAsSourceSet.add(edge.getSource());
+                }
+            }
+        }
+        log.debug("【进程链生成】-> 网侧边中作为 source 的节点数: {}", victimAsSourceSet.size());
         
         log.info("【进程链生成】-> 开始创建桥接边，网侧节点数: {}, hostToTraceId映射数: {}, traceIdToRootNode映射数: {}", 
                 networkNodes.size(), hostToTraceId.size(), traceIdToRootNodeMap.size());
@@ -450,8 +491,9 @@ public class ProcessChainServiceImpl {
         
         int victimCount = 0;
         int bridgedCount = 0;
+        int virtualNodeCount = 0;
         
-        // 遍历网侧节点
+        // ========== 步骤2：遍历网侧节点，处理 victim 节点 ==========
         for (ProcessNode networkNode : networkNodes) {
             // 跳过进程链节点，只处理故事节点
             if (networkNode.getIsChainNode() != null && networkNode.getIsChainNode()) {
@@ -471,18 +513,19 @@ public class ProcessChainServiceImpl {
             }
             
             victimCount++;
+            String victimNodeId = networkNode.getNodeId();
             
-            // 步骤1: 从 storyNode.other.ip 提取 IP
+            // 步骤2.1: 从 storyNode.other.ip 提取 IP
             String victimIp = extractIpFromStoryNode(storyNode);
             
             if (victimIp == null || victimIp.isEmpty()) {
-                log.warn("【进程链生成】-> ❌ 无法从 victim 节点提取IP: nodeId={}", networkNode.getNodeId());
+                log.warn("【进程链生成】-> ❌ 无法从 victim 节点提取IP: nodeId={}", victimNodeId);
                 continue;
             }
             
-            log.debug("【进程链生成】-> victim节点 {} 的IP: {}", networkNode.getNodeId(), victimIp);
+            log.debug("【进程链生成】-> victim节点 {} 的IP: {}", victimNodeId, victimIp);
             
-            // 步骤2: 通过 IP 查找 traceId
+            // 步骤2.2: 通过 IP 查找 traceId
             String traceId = hostToTraceId.get(victimIp);
             
             if (traceId == null || traceId.isEmpty()) {
@@ -492,7 +535,7 @@ public class ProcessChainServiceImpl {
             
             log.debug("【进程链生成】-> IP {} 对应的 traceId: {}", victimIp, traceId);
             
-            // 步骤3: 通过 traceId 查找根节点ID
+            // 步骤2.3: 通过 traceId 查找根节点ID
             String rootNodeId = traceIdToRootNodeMap.get(traceId);
             
             if (rootNodeId == null || rootNodeId.isEmpty()) {
@@ -502,17 +545,49 @@ public class ProcessChainServiceImpl {
             
             log.debug("【进程链生成】-> traceId {} 对应的根节点: {}", traceId, rootNodeId);
             
-            // 步骤4: 创建桥接边
-            ProcessEdge bridgeEdge = new ProcessEdge();
-            bridgeEdge.setSource(networkNode.getNodeId());  // victim 的 nodeId
-            bridgeEdge.setTarget(rootNodeId);               // 端侧根节点的 nodeId（可能是真实根节点或 EXPLORE_ROOT）
-            bridgeEdge.setVal("桥接");                       // 标记为桥接边
+            // ========== 步骤3：判断 victim 是否为 source ==========
+            boolean isSource = victimAsSourceSet.contains(victimNodeId);
             
-            bridgeEdges.add(bridgeEdge);
-            bridgedCount++;
-            
-            log.info("【进程链生成】-> ✅ 创建桥接边 #{}: source={}, target={}, IP={}, traceId={}", 
-                    bridgedCount, networkNode.getNodeId(), rootNodeId, victimIp, traceId);
+            if (isSource) {
+                // ========== 场景A：victim 是 source，需要创建虚拟节点 ==========
+                log.info("【进程链生成】-> victim节点 {} 在网侧边中作为 source，创建虚拟节点", victimNodeId);
+                
+                // 创建虚拟节点
+                ProcessNode virtualNode = createVirtualNode(victimNodeId, victimIp);
+                virtualNodes.add(virtualNode);
+                virtualNodeCount++;
+                
+                // 创建两条边：victim -> 虚拟节点 -> 端侧根节点
+                // 边1: victim -> 虚拟节点
+                ProcessEdge edge1 = new ProcessEdge();
+                edge1.setSource(victimNodeId);
+                edge1.setTarget(virtualNode.getNodeId());
+                edge1.setVal("桥接");
+                bridgeEdges.add(edge1);
+                
+                // 边2: 虚拟节点 -> 端侧根节点
+                ProcessEdge edge2 = new ProcessEdge();
+                edge2.setSource(virtualNode.getNodeId());
+                edge2.setTarget(rootNodeId);
+                edge2.setVal("桥接");
+                bridgeEdges.add(edge2);
+                
+                bridgedCount += 2; // 创建了2条边
+                
+                log.info("【进程链生成】-> ✅ 创建虚拟节点和桥接边: victim={}, virtualNode={}, rootNode={}, IP={}, traceId={}", 
+                        victimNodeId, virtualNode.getNodeId(), rootNodeId, victimIp, traceId);
+            } else {
+                // ========== 场景B：victim 不是 source（只是 target），直接桥接 ==========
+                ProcessEdge bridgeEdge = new ProcessEdge();
+                bridgeEdge.setSource(victimNodeId);
+                bridgeEdge.setTarget(rootNodeId);
+                bridgeEdge.setVal("桥接");
+                bridgeEdges.add(bridgeEdge);
+                bridgedCount++;
+                
+                log.info("【进程链生成】-> ✅ 创建桥接边: source={}, target={}, IP={}, traceId={}", 
+                        victimNodeId, rootNodeId, victimIp, traceId);
+            }
         }
         
         // 最终统计
@@ -520,11 +595,54 @@ public class ProcessChainServiceImpl {
             log.error("【进程链生成】-> ❌❌❌ 发现了 {} 个victim节点，但没有创建任何桥接边！", victimCount);
             log.error("【进程链生成】-> 请检查：1) victim的IP提取  2) hostToTraceId映射  3) traceIdToRootNodeMap映射");
         } else {
-            log.info("【进程链生成】-> ✅ 桥接边创建完成: 发现victim节点={}, 成功创建桥接边={}", 
-                    victimCount, bridgedCount);
+            log.info("【进程链生成】-> ✅ 桥接边创建完成: 发现victim节点={}, 创建虚拟节点={}, 成功创建桥接边={}", 
+                    victimCount, virtualNodeCount, bridgedCount);
         }
         
-        return bridgeEdges;
+        return new BridgeResult(virtualNodes, bridgeEdges);
+    }
+    
+    /**
+     * 创建虚拟节点
+     * 
+     * @param victimNodeId victim 节点的 nodeId
+     * @param victimIp victim 的 IP 地址
+     * @return 虚拟节点
+     */
+    private ProcessNode createVirtualNode(String victimNodeId, String victimIp) {
+        ProcessNode virtualNode = new ProcessNode();
+        
+        // 设置 nodeId：VIRTUAL_BRIDGE_{victimNodeId}
+        String virtualNodeId = "VIRTUAL_BRIDGE_" + victimNodeId;
+        virtualNode.setNodeId(virtualNodeId);
+        
+        // 设置 logType 为 "virtual"（不需要在 NodeType 枚举中添加）
+        virtualNode.setLogType("virtual");
+        
+        // 设置 isChainNode 为 true（作为进程链节点）
+        virtualNode.setIsChainNode(true);
+        
+        // 设置威胁等级为 null（或可以设置为 UNKNOWN）
+        virtualNode.setNodeThreatSeverity(null);
+        
+        // 创建 ChainNode（内容不填充，只设置基本属性）
+        ChainNode chainNode = new ChainNode();
+        chainNode.setIsRoot(false);
+        chainNode.setIsBroken(false);
+        chainNode.setIsAlarm(false);
+        chainNode.setIsExtensionNode(false);
+        chainNode.setExtensionDepth(null);
+        // processEntity、entity、alarmNodeInfo 都不设置（保持为 null）
+        
+        virtualNode.setChainNode(chainNode);
+        virtualNode.setStoryNode(null);
+        
+        // childrenCount 会在后续统一计算，这里不设置
+        
+        log.debug("【进程链生成】-> 创建虚拟节点: nodeId={}, victimNodeId={}, victimIp={}", 
+                virtualNodeId, victimNodeId, victimIp);
+        
+        return virtualNode;
     }
     
     /**
