@@ -473,16 +473,18 @@ public class ProcessChainServiceImpl {
             return new BridgeResult(virtualNodes, bridgeEdges);
         }
         
-        // ========== 步骤1：构建 victim nodeId -> 是否为 source 的映射 ==========
-        Set<String> victimAsSourceSet = new HashSet<>();
+        // ========== 步骤1：构建所有在网侧边中作为 source 的节点集合 ==========
+        // 注意：这个集合包含所有类型的节点（attacker、victim、server等），不仅仅是 victim
+        // 后续会通过遍历 victim 节点并检查其 nodeId 是否在此集合中，来判断该 victim 是否为 source
+        Set<String> nodesAsSourceSet = new HashSet<>();
         if (networkEdges != null) {
             for (ProcessEdge edge : networkEdges) {
                 if (edge != null && edge.getSource() != null) {
-                    victimAsSourceSet.add(edge.getSource());
+                    nodesAsSourceSet.add(edge.getSource());
                 }
             }
         }
-        log.debug("【进程链生成】-> 网侧边中作为 source 的节点数: {}", victimAsSourceSet.size());
+        log.debug("【进程链生成】-> 网侧边中作为 source 的节点数: {}", nodesAsSourceSet.size());
         
         log.info("【进程链生成】-> 开始创建桥接边，网侧节点数: {}, hostToTraceId映射数: {}, traceIdToRootNode映射数: {}", 
                 networkNodes.size(), hostToTraceId.size(), traceIdToRootNodeMap.size());
@@ -546,7 +548,8 @@ public class ProcessChainServiceImpl {
             log.debug("【进程链生成】-> traceId {} 对应的根节点: {}", traceId, rootNodeId);
             
             // ========== 步骤3：判断 victim 是否为 source ==========
-            boolean isSource = victimAsSourceSet.contains(victimNodeId);
+            // 检查当前 victim 的 nodeId 是否在网侧边中作为 source
+            boolean isSource = nodesAsSourceSet.contains(victimNodeId);
             
             if (isSource) {
                 // ========== 场景A：victim 是 source，需要创建虚拟节点 ==========
