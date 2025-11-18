@@ -26,17 +26,29 @@ public class ProcessChainBuilder {
     // 存储所有边
     private List<ChainBuilderEdge> edges;
     
+    // 边去重集合: 使用 "source->target" 作为 key，快速判断边是否已存在
+    private Set<String> edgeKeySet;
+    
     // 根节点集合
     private Set<String> rootNodes;
     
     // 是否找到了根节点
     private boolean foundRootNode;
     
-    // 已访问节点集合,用于检测环
+    // 已访问节点集合,用于检测环（当前递归路径内）
     private Set<String> visitedNodesInPath;
+    
+    // 向上遍历过程中，已完整处理过的节点（图级 visited，避免重复 DFS）
+    private Set<String> globalVisitedUp;
+    
+    // 向下遍历过程中，已完整处理过的节点（图级 visited，避免重复 DFS）
+    private Set<String> globalVisitedDown;
     
     // 网端关联成功的告警eventId集合
     private Set<String> associatedEventIds;
+    
+    // 已经输出过自环告警的节点集合，用于限制自环日志的重复输出
+    private Set<String> selfLoopWarned;
     
     // 断裂节点集合（找不到根节点的最顶端节点）
     private Set<String> brokenNodes;
@@ -50,13 +62,17 @@ public class ProcessChainBuilder {
     public ProcessChainBuilder() {
         this.nodeMap = new HashMap<>();
         this.edges = new ArrayList<>();
+        this.edgeKeySet = new HashSet<>();
         this.rootNodes = new HashSet<>();
         this.foundRootNode = false;
         this.visitedNodesInPath = new HashSet<>();
+        this.globalVisitedUp = new HashSet<>();
+        this.globalVisitedDown = new HashSet<>();
         this.associatedEventIds = new HashSet<>();
         this.brokenNodes = new HashSet<>();
         this.brokenNodeToTraceId = new HashMap<>();
         this.traceIdToRootNodeMap = new HashMap<>();
+        this.selfLoopWarned = new HashSet<>();
     }
     
     /**
@@ -91,6 +107,13 @@ public class ProcessChainBuilder {
         }
         
         try {
+            // 每次构链前重置与本次任务相关的状态，避免跨任务污染
+            this.visitedNodesInPath.clear();
+            this.globalVisitedUp.clear();
+            this.globalVisitedDown.clear();
+            this.edgeKeySet.clear();
+            this.selfLoopWarned.clear();
+            
             log.info("【进程链生成】-> 开始构建进程链: traceIds={}, 告警数={}, 日志数={}", 
                     traceIds, alarms.size(), (logs != null ? logs.size() : 0));
             
@@ -261,12 +284,22 @@ public class ProcessChainBuilder {
         // 向上遍历（如果告警节点不是根节点）
         if (!context.getTraceIds().contains(processGuid)) {
             visitedNodesInPath.clear();
-            traverseUpward(processGuid, context, 0);
+            // 如果该节点在本次任务中已经完整向上遍历过，则不再重复 DFS
+            if (globalVisitedUp.contains(processGuid)) {
+                log.debug("【进程链生成】-> 节点 {} 已完成向上遍历，本次跳过重复 DFS", processGuid);
+            } else {
+                traverseUpward(processGuid, context, 0);
+            }
         }
         
         // 向下遍历
         visitedNodesInPath.clear();
-        traverseDownward(processGuid, context, 0);
+        // 如果该节点在本次任务中已经完整向下遍历过，则不再重复 DFS
+        if (globalVisitedDown.contains(processGuid)) {
+            log.debug("【进程链生成】-> 节点 {} 已完成向下遍历，本次跳过重复 DFS", processGuid);
+        } else {
+            traverseDownward(processGuid, context, 0);
+        }
     }
     
     /**
@@ -327,7 +360,11 @@ public class ProcessChainBuilder {
         // 向上遍历（如果告警节点不是根节点）
         if (!context.getTraceIds().contains(processGuid)) {
             visitedNodesInPath.clear();
-            traverseUpward(processGuid, context, 0);
+            if (globalVisitedUp.contains(processGuid)) {
+                log.debug("【进程链生成】-> 节点 {} 已完成向上遍历，本次跳过重复 DFS", processGuid);
+            } else {
+                traverseUpward(processGuid, context, 0);
+            }
         }
     }
     
@@ -339,15 +376,24 @@ public class ProcessChainBuilder {
     private void traverseUpward(String currentProcessGuid, 
                                ChainTraversalContext context,
                                int depth) {
+        // 图级 visited：如果该节点在本次任务中已经向上遍历过，直接返回，避免重复 DFS
+        if (globalVisitedUp.contains(currentProcessGuid)) {
+            return;
+        }
+        
         // 检查深度限制
         if (depth >= MAX_TRAVERSE_DEPTH) {
             log.warn("【进程链生成】-> 向上遍历达到最大深度限制({}),停止遍历: {}", MAX_TRAVERSE_DEPTH, currentProcessGuid);
+            // 达到深度上限后认为本节点已处理，避免后续重复尝试
+            globalVisitedUp.add(currentProcessGuid);
             return;
         }
         
         // 检查是否已访问(检测环)
         if (visitedNodesInPath.contains(currentProcessGuid)) {
             log.warn("【进程链生成】-> 检测到环,停止遍历: {}", currentProcessGuid);
+            // 检测到环后也认为本节点已处理，避免后续重复尝试
+            globalVisitedUp.add(currentProcessGuid);
             return;
         }
         visitedNodesInPath.add(currentProcessGuid);
@@ -356,6 +402,8 @@ public class ProcessChainBuilder {
         ChainBuilderNode currentNode = nodeMap.get(currentProcessGuid);
         if (currentNode == null) {
             visitedNodesInPath.remove(currentProcessGuid);
+            // 节点不存在，标记为已处理，避免后续重复尝试
+            globalVisitedUp.add(currentProcessGuid);
             return;
         }
         
@@ -369,6 +417,7 @@ public class ProcessChainBuilder {
             log.info("【进程链生成】-> 找到根节点: processGuid={} (匹配traceIds), 记录映射: traceId={} -> rootNodeId={}", 
                     currentProcessGuid, currentProcessGuid, currentProcessGuid);
             visitedNodesInPath.remove(currentProcessGuid);
+            globalVisitedUp.add(currentProcessGuid);
             return;
         }
         
@@ -396,6 +445,7 @@ public class ProcessChainBuilder {
             }
 
             visitedNodesInPath.remove(currentProcessGuid);
+            globalVisitedUp.add(currentProcessGuid);
             return;
         }
         
@@ -431,6 +481,8 @@ public class ProcessChainBuilder {
         
         // 回溯时清理，允许其他路径访问该节点
         visitedNodesInPath.remove(currentProcessGuid);
+        // 当前节点完整处理完毕，标记为已向上遍历
+        globalVisitedUp.add(currentProcessGuid);
     }
     
     /**
@@ -441,15 +493,22 @@ public class ProcessChainBuilder {
     private void traverseDownward(String currentProcessGuid,
                                   ChainTraversalContext context,
                                   int depth) {
+        // 图级 visited：如果该节点在本次任务中已经向下遍历过，直接返回，避免重复 DFS
+        if (globalVisitedDown.contains(currentProcessGuid)) {
+            return;
+        }
+        
         // 检查深度限制
         if (depth >= MAX_TRAVERSE_DEPTH) {
             log.warn("向下遍历达到最大深度限制({}),停止遍历: {}", MAX_TRAVERSE_DEPTH, currentProcessGuid);
+            globalVisitedDown.add(currentProcessGuid);
             return;
         }
         
         // 检查是否已访问(检测环)
         if (visitedNodesInPath.contains(currentProcessGuid)) {
             log.warn("检测到环,停止遍历: {}", currentProcessGuid);
+            globalVisitedDown.add(currentProcessGuid);
             return;
         }
         visitedNodesInPath.add(currentProcessGuid);
@@ -462,6 +521,7 @@ public class ProcessChainBuilder {
         if ((childLogs == null || childLogs.isEmpty()) && 
             (childAlarms == null || childAlarms.isEmpty())) {
             visitedNodesInPath.remove(currentProcessGuid);
+            globalVisitedDown.add(currentProcessGuid);
             return;
         }
         
@@ -521,6 +581,8 @@ public class ProcessChainBuilder {
         }
         
         visitedNodesInPath.remove(currentProcessGuid);
+        // 当前节点完整处理完毕，标记为已向下遍历
+        globalVisitedDown.add(currentProcessGuid);
     }
     
     /**
@@ -615,21 +677,27 @@ public class ProcessChainBuilder {
         
         // ✅ 防止自环：source 不能等于 target
         if (source.equals(target)) {
-            log.warn("【边添加】-> 检测到自环，跳过添加：source=target={}", source);
+            // 仅对同一个 source 记录一次 WARN，避免日志刷屏
+            if (!selfLoopWarned.contains(source)) {
+                log.warn("【边添加】-> 检测到自环，跳过添加：source=target={}", source);
+                selfLoopWarned.add(source);
+            } else {
+                log.debug("【边添加】-> 自环重复出现，已跳过：source=target={}", source);
+            }
             return;
         }
         
-        // 检查边是否已存在
-        for (ChainBuilderEdge edge : edges) {
-            if (edge.getSource().equals(source) && edge.getTarget().equals(target)) {
-                return;
-            }
+        // 使用 edgeKeySet 快速判断边是否已存在，避免 O(E) 遍历
+        String key = source + "->" + target;
+        if (edgeKeySet.contains(key)) {
+            return;
         }
         
         ChainBuilderEdge edge = new ChainBuilderEdge();
         edge.setSource(source);
         edge.setTarget(target);
         edges.add(edge);
+        edgeKeySet.add(key);
     }
     
     /**
