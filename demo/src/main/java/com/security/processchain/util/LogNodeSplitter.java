@@ -155,7 +155,7 @@ public class LogNodeSplitter {
         parentLog.setImage(log.getParentImage());
         parentLog.setCommandLine(log.getParentCommandLine());
         parentLog.setProcessUserName(log.getParentProcessUserName());
-        parentLog.setProcessId(log.getParentProcessId() != null ? log.getParentProcessId().toString() : null);
+        parentLog.setProcessId(log.getParentProcessId());
         parentLog.setLogType("process");
         parentLog.setTraceId(log.getTraceId());
         parentLog.setHostAddress(log.getHostAddress());

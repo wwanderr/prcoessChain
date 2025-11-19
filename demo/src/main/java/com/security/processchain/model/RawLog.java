@@ -24,6 +24,13 @@ public class RawLog {
     private String processUserName;
     private String opType;
     
+    // 父进程相关字段（用于创建虚拟父节点）
+    private String parentProcessName;
+    private String parentProcessId;
+    private String parentImage;
+    private String parentCommandLine;
+    private String parentProcessUserName;
+    
     // 文件相关字段
     private String fileName;
     private String filePath;
@@ -300,6 +307,47 @@ public class RawLog {
     
     public void setOtherFields(Map<String, Object> otherFields) {
         this.otherFields = otherFields;
+    }
+    
+    // 父进程字段的 Getter/Setter
+    public String getParentProcessName() {
+        return parentProcessName;
+    }
+    
+    public void setParentProcessName(String parentProcessName) {
+        this.parentProcessName = parentProcessName;
+    }
+    
+    public String getParentProcessId() {
+        return parentProcessId;
+    }
+    
+    public void setParentProcessId(String parentProcessId) {
+        this.parentProcessId = parentProcessId;
+    }
+    
+    public String getParentImage() {
+        return parentImage;
+    }
+    
+    public void setParentImage(String parentImage) {
+        this.parentImage = parentImage;
+    }
+    
+    public String getParentCommandLine() {
+        return parentCommandLine;
+    }
+    
+    public void setParentCommandLine(String parentCommandLine) {
+        this.parentCommandLine = parentCommandLine;
+    }
+    
+    public String getParentProcessUserName() {
+        return parentProcessUserName;
+    }
+    
+    public void setParentProcessUserName(String parentProcessUserName) {
+        this.parentProcessUserName = parentProcessUserName;
     }
 }
 

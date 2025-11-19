@@ -188,7 +188,7 @@ public class ProcessChainBuilder {
             Set<String> relevantNodes = new HashSet<>();
             
             for (String startNode : startNodes) {
-                ProcessChainGraph.GraphNode node = fullGraph.getNode(startNode);
+                GraphNode node = fullGraph.getNode(startNode);
                 
                 if (node == null) {
                     log.warn("【子图提取】起点节点不存在: {}", startNode);
@@ -260,7 +260,7 @@ public class ProcessChainBuilder {
                 edge.setSource(parts[0]);
                 edge.setTarget(parts[1]);
                 
-                ProcessChainGraph.EdgeInfo edgeInfo = graph.getEdgeInfo(edgeKey);
+                EdgeInfo edgeInfo = graph.getEdgeInfo(edgeKey);
                 if (edgeInfo != null) {
                     edge.setVal(edgeInfo.getLabel());
                 }
@@ -282,7 +282,7 @@ public class ProcessChainBuilder {
     /**
      * 将GraphNode转换为ChainBuilderNode
      */
-    private ChainBuilderNode convertGraphNodeToBuilderNode(ProcessChainGraph.GraphNode graphNode) {
+    private ChainBuilderNode convertGraphNodeToBuilderNode(GraphNode graphNode) {
         ChainBuilderNode node = new ChainBuilderNode();
         
         node.setProcessGuid(graphNode.getNodeId());

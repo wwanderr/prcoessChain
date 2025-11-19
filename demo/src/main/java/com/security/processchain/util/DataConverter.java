@@ -123,6 +123,13 @@ public class DataConverter {
         log.setProcessUserName(getStringValue(map, "processUserName"));
         log.setOpType(getStringValue(map, "opType"));
         
+        // 父进程相关字段（用于创建虚拟父节点）
+        log.setParentProcessName(getStringValue(map, "parentProcessName"));
+        log.setParentProcessId(getStringValue(map, "parentProcessId"));
+        log.setParentImage(getStringValue(map, "parentImage"));
+        log.setParentCommandLine(getStringValue(map, "parentCommandLine"));
+        log.setParentProcessUserName(getStringValue(map, "parentProcessUserName"));
+        
         // 文件相关字段
         log.setFileName(getStringValue(map, "fileName"));
         log.setFilePath(getStringValue(map, "filePath"));
