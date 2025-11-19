@@ -49,22 +49,40 @@ public final class IncidentConverters {
             }
         }
 
+        // ========== 关键修改：根据 nodeType 填充实体字段 ==========
+        String nodeType = builderNode.getNodeType();
+        
         if (logs != null && !logs.isEmpty()) {
             RawLog latestLog = getLatestLog(logs);
-            if (latestLog != null && latestLog.getLogType() != null) {
-                // 直接使用原始的 logType，不转换为枚举
-                finalNode.setLogType(latestLog.getLogType());
-                
-                // 设置 opType（从日志中获取）
-                finalNode.setOpType(latestLog.getOpType());
-                
-                // 设置其他实体（文件/外联/域名/注册表）
-                Object entity = convertToEntity(latestLog, latestLog.getLogType());
-                chainNode.setEntity(entity);
-                
-                // 设置进程实体
-                // 如果是进程节点或其他类型实体能构建，则尝试设置 ProcessEntity
-                chainNode.setProcessEntity(convertToProcessEntity(latestLog, entity));
+            if (latestLog != null) {
+                // 根据 nodeType 决定如何填充实体
+                if ("process".equals(nodeType)) {
+                    // 进程节点（父进程或子进程）
+                    finalNode.setLogType("process");
+                    finalNode.setOpType(latestLog.getOpType());
+                    
+                    // 只设置 processEntity，entity 为 null
+                    chainNode.setProcessEntity(convertToProcessEntityForProcessNode(latestLog));
+                    chainNode.setEntity(null);
+                    
+                } else if (nodeType != null && nodeType.endsWith("_entity")) {
+                    // 实体节点（file_entity, domain_entity, network_entity, registry_entity）
+                    String entityType = nodeType.replace("_entity", "");
+                    finalNode.setLogType(entityType);  // "file", "domain", "network", "registry"
+                    finalNode.setOpType(latestLog.getOpType());
+                    
+                    // 只设置 entity，processEntity 为 null
+                    chainNode.setProcessEntity(null);
+                    chainNode.setEntity(convertToEntity(latestLog, entityType));
+                    
+                } else {
+                    // 兜底逻辑（保持原有逻辑）
+                    finalNode.setLogType(latestLog.getLogType());
+                    finalNode.setOpType(latestLog.getOpType());
+                    Object entity = convertToEntity(latestLog, latestLog.getLogType());
+                    chainNode.setEntity(entity);
+                    chainNode.setProcessEntity(convertToProcessEntity(latestLog, entity));
+                }
             }
         } else if (isAlarm && alarms != null && !alarms.isEmpty()) {
             RawAlarm firstAlarm = alarms.get(0);
@@ -240,7 +258,40 @@ public final class IncidentConverters {
     }
 
     /**
-     * 将原始日志转换为ProcessEntity
+     * 专门用于进程节点的 ProcessEntity 转换（包括虚拟父节点）
+     * 
+     * 这个方法用于新的建图方案中，对已经拆分好的进程节点进行转换
+     * 不再检查 eventType 或 logType，只要有进程信息就转换
+     * 
+     * @param log 原始日志（可能是真实日志，也可能是虚拟父节点的日志）
+     * @return ProcessEntity，如果没有进程信息返回null
+     */
+    private static ProcessEntity convertToProcessEntityForProcessNode(RawLog log) {
+        if (log == null) return null;
+        
+        // 构建 ProcessEntity
+        ProcessEntity processEntity = new ProcessEntity();
+        processEntity.setOpType(log.getOpType());
+        processEntity.setLocaltime(log.getStartTime());
+        processEntity.setProcessId(log.getProcessId());
+        processEntity.setProcessGuid(log.getProcessGuid());
+        processEntity.setParentProcessGuid(log.getParentProcessGuid());
+        processEntity.setImage(log.getImage());
+        processEntity.setCommandline(log.getCommandLine());
+        processEntity.setProcessUserName(log.getProcessUserName());
+        
+        // 处理 processName：为空则显示 "进程.exe"
+        String processName = log.getProcessName();
+        if (processName == null || processName.trim().isEmpty()) {
+            processName = "进程.exe";
+        }
+        processEntity.setProcessName(processName);
+
+        return processEntity;
+    }
+    
+    /**
+     * 将原始日志转换为ProcessEntity（旧方法，保留用于兼容）
      * 
      * 非null条件：
      * 1. 进程节点：eventType = processCreate 且 logType = process

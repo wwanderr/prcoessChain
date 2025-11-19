@@ -38,6 +38,10 @@ public class ChainBuilderNode {
     // importance: 节点重要性分数，用于裁剪时快速判断
     private Double importance = 0.0;
     
+    // nodeType: 节点类型，用于区分进程节点和实体节点
+    // 可能的值："process", "file_entity", "domain_entity", "network_entity", "registry_entity"
+    private String nodeType;
+    
     // 特殊方法（带业务逻辑）
     public void addAlarm(RawAlarm alarm) {
         this.alarms.add(alarm);

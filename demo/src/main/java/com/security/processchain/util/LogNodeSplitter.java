@@ -241,6 +241,14 @@ public class LogNodeSplitter {
     
     /**
      * 生成实体节点ID
+     * 
+     * 格式：processGuid + "_" + 类型 + "_" + hash(唯一标识)
+     * 
+     * 去重规则：
+     * - file: fileMd5 + targetFilename
+     * - domain: requestDomain
+     * - network: destAddress
+     * - registry: targetObject
      */
     private static String generateEntityNodeId(RawLog rawLog) {
         String logType = rawLog.getLogType().toLowerCase();
@@ -248,30 +256,34 @@ public class LogNodeSplitter {
         
         switch (logType) {
             case "file":
-                // file节点ID = processGuid + "_FILE_" + fileMd5 + "_" + targetFilename
+                // file节点ID = processGuid + "_FILE_" + hash(fileMd5 + targetFilename)
+                // 去重规则：fileMd5 + targetFilename
                 String fileMd5 = rawLog.getFileMd5() != null ? rawLog.getFileMd5() : "NOMD5";
-                String filename = rawLog.getTargetFilename() != null ? 
-                    sanitizeForId(rawLog.getTargetFilename()) : "NONAME";
-                return baseId + "_FILE_" + fileMd5 + "_" + filename;
+                String filename = rawLog.getTargetFilename() != null ? rawLog.getTargetFilename() : "NONAME";
+                String fileKey = fileMd5 + "_" + filename;
+                String fileHash = calculateHash(fileKey);
+                return baseId + "_FILE_" + fileHash;
                 
             case "domain":
-                // domain节点ID = processGuid + "_DOMAIN_" + requestDomain
-                String domain = rawLog.getRequestDomain() != null ? 
-                    sanitizeForId(rawLog.getRequestDomain()) : "NODOMAIN";
-                return baseId + "_DOMAIN_" + domain;
+                // domain节点ID = processGuid + "_DOMAIN_" + hash(requestDomain)
+                // 去重规则：requestDomain
+                String domain = rawLog.getRequestDomain() != null ? rawLog.getRequestDomain() : "NODOMAIN";
+                String domainHash = calculateHash(domain);
+                return baseId + "_DOMAIN_" + domainHash;
                 
             case "network":
-                // network节点ID = processGuid + "_NETWORK_" + destAddress
-                String destAddr = rawLog.getDestAddress() != null ? 
-                    sanitizeForId(rawLog.getDestAddress()) : "NOADDR";
-                String destPort = rawLog.getDestPort() != null ? rawLog.getDestPort() : "";
-                return baseId + "_NETWORK_" + destAddr + "_" + destPort;
+                // network节点ID = processGuid + "_NETWORK_" + hash(destAddress)
+                // 去重规则：destAddress
+                String destAddr = rawLog.getDestAddress() != null ? rawLog.getDestAddress() : "NOADDR";
+                String networkHash = calculateHash(destAddr);
+                return baseId + "_NETWORK_" + networkHash;
                 
             case "registry":
-                // registry节点ID = processGuid + "_REGISTRY_" + hashOf(targetObject)
+                // registry节点ID = processGuid + "_REGISTRY_" + hash(targetObject)
+                // 去重规则：targetObject
                 String targetObj = rawLog.getTargetObject() != null ? rawLog.getTargetObject() : "NOOBJ";
-                String objHash = String.valueOf(Math.abs(targetObj.hashCode()));
-                return baseId + "_REGISTRY_" + objHash;
+                String regHash = calculateHash(targetObj);
+                return baseId + "_REGISTRY_" + regHash;
                 
             default:
                 return baseId + "_ENTITY_" + Math.abs(logType.hashCode());
@@ -279,14 +291,29 @@ public class LogNodeSplitter {
     }
     
     /**
-     * 清理字符串用于ID（移除特殊字符）
+     * 计算字符串的短hash（使用MD5的前8位）
+     * 
+     * @param str 输入字符串
+     * @return 8位十六进制hash值
      */
-    private static String sanitizeForId(String str) {
-        if (str == null) {
-            return "";
+    private static String calculateHash(String str) {
+        if (str == null || str.isEmpty()) {
+            return "00000000";
         }
-        // 只保留字母、数字、点、下划线、短横线
-        return str.replaceAll("[^a-zA-Z0-9._-]", "_");
+        
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] hash = md.digest(str.getBytes(StandardCharsets.UTF_8));
+            // 只取前4个字节（8位十六进制）
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 4 && i < hash.length; i++) {
+                sb.append(String.format("%02x", hash[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // 降级方案：使用Java hashCode
+            return String.format("%08x", Math.abs(str.hashCode()));
+        }
     }
     
     /**

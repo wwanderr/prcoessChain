@@ -299,6 +299,7 @@ public class ProcessChainBuilder {
         node.setIsRoot(graphNode.isRoot());
         node.setIsBroken(graphNode.isBroken());
         node.setIsAlarm(graphNode.isAlarm());
+        node.setNodeType(graphNode.getNodeType());  // 传递节点类型
         
         // 复制告警和日志
         if (graphNode.getAlarms() != null) {
