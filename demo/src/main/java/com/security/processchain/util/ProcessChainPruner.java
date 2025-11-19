@@ -31,94 +31,30 @@ public class ProcessChainPruner {
     /** 节点数量上限 */
     private static final int MAX_NODE_COUNT = ProcessChainConstants.Limits.MAX_NODE_COUNT;
     
+    // ========== 已抽取的内部类（现已独立为单独的文件）==========
+    // 为保持向后兼容性，保留内部类作为别名，并标记为 @Deprecated
+    
     /**
-     * 裁剪上下文 - 封装裁剪所需的所有数据
+     * @deprecated 已移动到独立文件 {@link com.security.processchain.util.PruneContext}
      */
-    public static class PruneContext {
-        private final Map<String, ChainBuilderNode> nodeMap;
-        private final List<ChainBuilderEdge> edges;
-        private final Set<String> rootNodes;
-        private final Set<String> associatedEventIds;
-        
+    @Deprecated
+    public static class PruneContext extends com.security.processchain.util.PruneContext {
         public PruneContext(Map<String, ChainBuilderNode> nodeMap,
                           List<ChainBuilderEdge> edges,
                           Set<String> rootNodes,
                           Set<String> associatedEventIds) {
-            // 防御性检查
-            if (nodeMap == null) {
-                throw new IllegalArgumentException("nodeMap cannot be null");
-            }
-            if (edges == null) {
-                throw new IllegalArgumentException("edges cannot be null");
-            }
-            if (rootNodes == null) {
-                throw new IllegalArgumentException("rootNodes cannot be null");
-            }
-            
-            this.nodeMap = nodeMap;
-            this.edges = edges;
-            this.rootNodes = rootNodes;
-            this.associatedEventIds = (associatedEventIds != null) ? associatedEventIds : new HashSet<>();
-        }
-        
-        public Map<String, ChainBuilderNode> getNodeMap() {
-            return nodeMap;
-        }
-        
-        public List<ChainBuilderEdge> getEdges() {
-            return edges;
-        }
-        
-        public Set<String> getRootNodes() {
-            return rootNodes;
-        }
-        
-        public Set<String> getAssociatedEventIds() {
-            return associatedEventIds;
+            super(nodeMap, edges, rootNodes, associatedEventIds);
         }
     }
     
     /**
-     * 裁剪结果
+     * @deprecated 已移动到独立文件 {@link com.security.processchain.util.PruneResult}
      */
-    public static class PruneResult {
-        private final int originalNodeCount;
-        private final int removedNodeCount;
-        private final int removedEdgeCount;
-        private final int mustKeepCount;
-        private final int cascadeKeepCount;
-        
+    @Deprecated
+    public static class PruneResult extends com.security.processchain.util.PruneResult {
         public PruneResult(int originalNodeCount, int removedNodeCount, int removedEdgeCount,
                           int mustKeepCount, int cascadeKeepCount) {
-            this.originalNodeCount = originalNodeCount;
-            this.removedNodeCount = removedNodeCount;
-            this.removedEdgeCount = removedEdgeCount;
-            this.mustKeepCount = mustKeepCount;
-            this.cascadeKeepCount = cascadeKeepCount;
-        }
-        
-        public int getOriginalNodeCount() {
-            return originalNodeCount;
-        }
-        
-        public int getRemovedNodeCount() {
-            return removedNodeCount;
-        }
-        
-        public int getRemovedEdgeCount() {
-            return removedEdgeCount;
-        }
-        
-        public int getMustKeepCount() {
-            return mustKeepCount;
-        }
-        
-        public int getCascadeKeepCount() {
-            return cascadeKeepCount;
-        }
-        
-        public int getFinalNodeCount() {
-            return originalNodeCount - removedNodeCount;
+            super(originalNodeCount, removedNodeCount, removedEdgeCount, mustKeepCount, cascadeKeepCount);
         }
     }
     

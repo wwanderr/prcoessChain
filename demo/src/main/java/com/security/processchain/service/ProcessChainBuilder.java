@@ -245,7 +245,7 @@ public class ProcessChainBuilder {
         
         // 转换节点
         List<ChainBuilderNode> nodes = new ArrayList<>();
-        for (ProcessChainGraph.GraphNode graphNode : graph.getAllNodes()) {
+        for (GraphNode graphNode : graph.getAllNodes()) {
             ChainBuilderNode node = convertGraphNodeToBuilderNode(graphNode);
             nodes.add(node);
         }
@@ -960,273 +960,36 @@ public class ProcessChainBuilder {
         return false;
     }
     
+    // ========== 已抽取的内部类（现已独立为单独的文件）==========
+    // 为保持向后兼容性，保留内部类作为别名，并标记为 @Deprecated
+    
     /**
-     * 链遍历上下文
-     * 封装构建过程中需要的所有索引和配置
+     * @deprecated 已移动到独立文件 {@link com.security.processchain.service.ChainTraversalContext}
      */
-    public static class ChainTraversalContext {
-        // 日志索引
-        private final Map<String, List<RawLog>> logsByProcessGuid;
-        private final Map<String, List<RawLog>> logsByParentProcessGuid;
-        
-        // 告警索引
-        private final Map<String, List<RawAlarm>> alarmsByProcessGuid;
-        private final Map<String, List<RawAlarm>> alarmsByParentProcessGuid;
-        
-        // 溯源配置
-        private final Set<String> traceIds;
-        
+    @Deprecated
+    public static class ChainTraversalContext extends com.security.processchain.service.ChainTraversalContext {
         public ChainTraversalContext(
                 Map<String, List<RawLog>> logsByProcessGuid,
                 Map<String, List<RawLog>> logsByParentProcessGuid,
                 Map<String, List<RawAlarm>> alarmsByProcessGuid,
                 Map<String, List<RawAlarm>> alarmsByParentProcessGuid,
                 Set<String> traceIds) {
-            this.logsByProcessGuid = logsByProcessGuid != null ? logsByProcessGuid : new HashMap<>();
-            this.logsByParentProcessGuid = logsByParentProcessGuid != null ? logsByParentProcessGuid : new HashMap<>();
-            this.alarmsByProcessGuid = alarmsByProcessGuid != null ? alarmsByProcessGuid : new HashMap<>();
-            this.alarmsByParentProcessGuid = alarmsByParentProcessGuid != null ? alarmsByParentProcessGuid : new HashMap<>();
-            this.traceIds = traceIds != null ? traceIds : new HashSet<>();
-        }
-        
-        // Getter 方法
-        public Map<String, List<RawLog>> getLogsByProcessGuid() {
-            return logsByProcessGuid;
-        }
-        
-        public Map<String, List<RawLog>> getLogsByParentProcessGuid() {
-            return logsByParentProcessGuid;
-        }
-        
-        public Map<String, List<RawAlarm>> getAlarmsByProcessGuid() {
-            return alarmsByProcessGuid;
-        }
-        
-        public Map<String, List<RawAlarm>> getAlarmsByParentProcessGuid() {
-            return alarmsByParentProcessGuid;
-        }
-        
-        public Set<String> getTraceIds() {
-            return traceIds;
-        }
-        
-        /**
-         * 检查父节点是否存在（日志或告警）
-         */
-        public boolean hasParentNode(String parentProcessGuid) {
-            if (parentProcessGuid == null || parentProcessGuid.isEmpty()) {
-                return false;
-            }
-            return logsByProcessGuid.containsKey(parentProcessGuid) ||
-                   alarmsByProcessGuid.containsKey(parentProcessGuid);
-        }
-        
-        /**
-         * 获取父节点日志（如果存在）
-         */
-        public List<RawLog> getParentLogs(String parentProcessGuid) {
-            return logsByProcessGuid.get(parentProcessGuid);
-        }
-        
-        /**
-         * 获取父节点告警（如果存在）
-         */
-        public List<RawAlarm> getParentAlarms(String parentProcessGuid) {
-            return alarmsByProcessGuid.get(parentProcessGuid);
-        }
-        
-        /**
-         * 获取子节点日志列表
-         */
-        public List<RawLog> getChildLogs(String processGuid) {
-            return logsByParentProcessGuid.get(processGuid);
-        }
-        
-        /**
-         * 获取子节点告警列表
-         */
-        public List<RawAlarm> getChildAlarms(String processGuid) {
-            return alarmsByParentProcessGuid.get(processGuid);
-        }
-        
-        /**
-         * 检查父节点是否在日志索引中
-         */
-        public boolean hasParentInLogs(String parentProcessGuid) {
-            return parentProcessGuid != null && !parentProcessGuid.isEmpty() &&
-                   logsByProcessGuid.containsKey(parentProcessGuid);
-        }
-        
-        /**
-         * 检查父节点是否在告警索引中
-         */
-        public boolean hasParentInAlarms(String parentProcessGuid) {
-            return parentProcessGuid != null && !parentProcessGuid.isEmpty() &&
-                   alarmsByProcessGuid.containsKey(parentProcessGuid);
+            super(logsByProcessGuid, logsByParentProcessGuid, alarmsByProcessGuid, alarmsByParentProcessGuid, traceIds);
         }
     }
     
     /**
-     * 进程节点内部类
-     * 优化版本：添加了 traceId、hostAddress、isRoot、isBroken、importance 字段
-     * 减少了后续查找和判断的开销
+     * @deprecated 已移动到独立文件 {@link com.security.processchain.service.ChainBuilderNode}
      */
-    public static class ChainBuilderNode {
-        private String processGuid;
-        private String parentProcessGuid;
-        private Boolean isAlarm = false;
-        private List<RawAlarm> alarms = new ArrayList<>();
-        private List<RawLog> logs = new ArrayList<>();
-        
-        // ========== 优化新增字段 ==========
-        // traceId: 节点所属的溯源ID，避免重复从alarms/logs中提取
-        private String traceId;
-        
-        // hostAddress: 节点所属的主机IP，避免重复从alarms/logs中提取
-        private String hostAddress;
-        
-        // isRoot: 是否为根节点，避免重复判断 parentProcessGuid
-        private Boolean isRoot = false;
-        
-        // isBroken: 是否为断链节点，避免重复查找 brokenNodes 集合
-        private Boolean isBroken = false;
-        
-        // importance: 节点重要性分数，用于裁剪时快速判断
-        private Double importance = 0.0;
-        
-        public String getProcessGuid() {
-            return processGuid;
-        }
-        
-        public void setProcessGuid(String processGuid) {
-            this.processGuid = processGuid;
-        }
-        
-        public String getParentProcessGuid() {
-            return parentProcessGuid;
-        }
-        
-        public void setParentProcessGuid(String parentProcessGuid) {
-            this.parentProcessGuid = parentProcessGuid;
-        }
-        
-        public Boolean getIsAlarm() {
-            return isAlarm;
-        }
-        
-        public void setIsAlarm(Boolean isAlarm) {
-            this.isAlarm = isAlarm;
-        }
-        
-        public List<RawAlarm> getAlarms() {
-            return alarms;
-        }
-        
-        public void addAlarm(RawAlarm alarm) {
-            this.alarms.add(alarm);
-            this.isAlarm = true;
-            // 优化：添加告警时自动提取 traceId 和 hostAddress
-            if (alarm != null) {
-                if (this.traceId == null && alarm.getTraceId() != null) {
-                    this.traceId = alarm.getTraceId();
-                }
-                if (this.hostAddress == null && alarm.getHostAddress() != null) {
-                    this.hostAddress = alarm.getHostAddress();
-                }
-            }
-        }
-        
-        public List<RawLog> getLogs() {
-            return logs;
-        }
-        
-        public void addLog(RawLog log) {
-            this.logs.add(log);
-            // 优化：添加日志时自动提取 traceId 和 hostAddress
-            if (log != null) {
-                if (this.traceId == null && log.getTraceId() != null) {
-                    this.traceId = log.getTraceId();
-                }
-                if (this.hostAddress == null && log.getHostAddress() != null) {
-                    this.hostAddress = log.getHostAddress();
-                }
-            }
-        }
-        
-        // ========== 优化字段的 Getter/Setter ==========
-        
-        public String getTraceId() {
-            return traceId;
-        }
-        
-        public void setTraceId(String traceId) {
-            this.traceId = traceId;
-        }
-        
-        public String getHostAddress() {
-            return hostAddress;
-        }
-        
-        public void setHostAddress(String hostAddress) {
-            this.hostAddress = hostAddress;
-        }
-        
-        public Boolean getIsRoot() {
-            return isRoot;
-        }
-        
-        public void setIsRoot(Boolean isRoot) {
-            this.isRoot = isRoot;
-        }
-        
-        public Boolean getIsBroken() {
-            return isBroken;
-        }
-        
-        public void setIsBroken(Boolean isBroken) {
-            this.isBroken = isBroken;
-        }
-        
-        public Double getImportance() {
-            return importance;
-        }
-        
-        public void setImportance(Double importance) {
-            this.importance = importance;
-        }
+    @Deprecated
+    public static class ChainBuilderNode extends com.security.processchain.service.ChainBuilderNode {
     }
     
     /**
-     * 进程边内部类
+     * @deprecated 已移动到独立文件 {@link com.security.processchain.service.ChainBuilderEdge}
      */
-    public static class ChainBuilderEdge {
-        private String source;
-        private String target;
-        private String val;
-        
-        public String getSource() {
-            return source;
-        }
-        
-        public void setSource(String source) {
-            this.source = source;
-        }
-        
-        public String getTarget() {
-            return target;
-        }
-        
-        public void setTarget(String target) {
-            this.target = target;
-        }
-        
-        public String getVal() {
-            return val;
-        }
-        
-        public void setVal(String val) {
-            this.val = val;
-        }
+    @Deprecated
+    public static class ChainBuilderEdge extends com.security.processchain.service.ChainBuilderEdge {
     }
     
     /**
@@ -1365,147 +1128,10 @@ public class ProcessChainBuilder {
     
 
     /**
-     * 进程链构建结果
-     * 优化版本：使用 NodeIndex 替代多个独立集合，简化数据结构
+     * @deprecated 已移动到独立文件 {@link com.security.processchain.service.ProcessChainResult}
      */
-    public static class ProcessChainResult {
-        // 节点索引（包含所有节点及其多维度索引）
-        private NodeIndex nodeIndex = new NodeIndex();
-        
-        // 边列表
-        private List<ChainBuilderEdge> edges = new ArrayList<>();
-        
-        // traceId 到根节点ID的映射
-        private Map<String, String> traceIdToRootNodeMap = new HashMap<>();
-        
-        // 断链节点到 traceId 的映射
-        private Map<String, String> brokenNodeToTraceId = new HashMap<>();
-        
-        // ========== 便捷方法 ==========
-        
-        /**
-         * 获取所有节点列表
-         */
-        public List<ChainBuilderNode> getNodes() {
-            return new ArrayList<>(nodeIndex.getAllNodes());
-        }
-        
-        /**
-         * 设置节点列表（会重建索引）
-         */
-        public void setNodes(List<ChainBuilderNode> nodes) {
-            nodeIndex.clear();
-            if (nodes != null) {
-                for (ChainBuilderNode node : nodes) {
-                    nodeIndex.addNode(node);
-                }
-            }
-        }
-        
-        /**
-         * 获取节点索引
-         */
-        public NodeIndex getNodeIndex() {
-            return nodeIndex;
-        }
-        
-        /**
-         * 获取边列表
-         */
-        public List<ChainBuilderEdge> getEdges() {
-            return edges;
-        }
-        
-        /**
-         * 设置边列表
-         */
-        public void setEdges(List<ChainBuilderEdge> edges) {
-            this.edges = edges;
-        }
-        
-        /**
-         * 是否找到了根节点
-         */
-        public boolean isFoundRootNode() {
-            return !nodeIndex.getRootNodes().isEmpty();
-        }
-        
-        /**
-         * 获取根节点ID集合
-         */
-        public Set<String> getRootNodes() {
-            Set<String> rootNodeIds = new HashSet<>();
-            for (ChainBuilderNode node : nodeIndex.getRootNodes()) {
-                rootNodeIds.add(node.getProcessGuid());
-            }
-            return rootNodeIds;
-        }
-        
-        /**
-         * 设置根节点（已废弃，由 NodeIndex 自动管理）
-         * @deprecated 使用 NodeIndex 自动管理根节点
-         */
-        @Deprecated
-        public void setRootNodes(Set<String> rootNodes) {
-            // 兼容旧代码，不做任何操作
-        }
-        
-        /**
-         * 获取断链节点ID集合
-         */
-        public Set<String> getBrokenNodes() {
-            Set<String> brokenNodeIds = new HashSet<>();
-            for (ChainBuilderNode node : nodeIndex.getBrokenNodes()) {
-                brokenNodeIds.add(node.getProcessGuid());
-            }
-            return brokenNodeIds;
-        }
-        
-        /**
-         * 设置断链节点（已废弃，由 NodeIndex 自动管理）
-         * @deprecated 使用 NodeIndex 自动管理断链节点
-         */
-        @Deprecated
-        public void setBrokenNodes(Set<String> brokenNodes) {
-            // 兼容旧代码，不做任何操作
-        }
-        
-        /**
-         * 获取 traceId 到根节点的映射
-         */
-        public Map<String, String> getTraceIdToRootNodeMap() {
-            return traceIdToRootNodeMap;
-        }
-        
-        /**
-         * 设置 traceId 到根节点的映射
-         */
-        public void setTraceIdToRootNodeMap(Map<String, String> traceIdToRootNodeMap) {
-            this.traceIdToRootNodeMap = traceIdToRootNodeMap;
-        }
-        
-        /**
-         * 设置 foundRootNode（已废弃，由 NodeIndex 自动计算）
-         * @deprecated 使用 isFoundRootNode() 自动计算
-         */
-        @Deprecated
-        public void setFoundRootNode(boolean foundRootNode) {
-            // 兼容旧代码，不做任何操作
-        }
-        
-        /**
-         * 获取断链节点到 traceId 的映射
-         */
-        public Map<String, String> getBrokenNodeToTraceId() {
-            return brokenNodeToTraceId;
-        }
-        
-        /**
-         * 设置断链节点到 traceId 的映射
-         */
-        public void setBrokenNodeToTraceId(Map<String, String> brokenNodeToTraceId) {
-            this.brokenNodeToTraceId = brokenNodeToTraceId;
-        }
+    @Deprecated
+    public static class ProcessChainResult extends com.security.processchain.service.ProcessChainResult {
     }
     
     /**

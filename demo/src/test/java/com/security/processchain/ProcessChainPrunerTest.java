@@ -2,7 +2,8 @@ package com.security.processchain;
 
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
-import com.security.processchain.service.ProcessChainBuilder;
+import com.security.processchain.service.ChainBuilderNode;
+import com.security.processchain.service.ChainBuilderEdge;
 import com.security.processchain.util.ProcessChainPruner;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -32,25 +33,25 @@ public class ProcessChainPrunerTest {
         log.info("=== 测试: 裁剪后根节点必须保留 ===");
         
         // 准备数据：创建一个进程链，有200个节点（超过限制）
-        Map<String, ProcessChainBuilder.ChainBuilderNode> nodeMap = new HashMap<>();
-        List<ProcessChainBuilder.ChainBuilderEdge> edges = new ArrayList<>();
+        Map<String, ChainBuilderNode> nodeMap = new HashMap<>();
+        List<ChainBuilderEdge> edges = new ArrayList<>();
         Set<String> rootNodes = new HashSet<>();
         Set<String> associatedEventIds = new HashSet<>();
         
         // 创建根节点
         String rootGuid = "ROOT_001";
         rootNodes.add(rootGuid);
-        ProcessChainBuilder.ChainBuilderNode rootNode = createNode(rootGuid, null, true, "高");
+        ChainBuilderNode rootNode = createNode(rootGuid, null, true, "高");
         nodeMap.put(rootGuid, rootNode);
         
         // 创建199个子节点（模拟超过限制的情况）
         String parentGuid = rootGuid;
         for (int i = 1; i <= 199; i++) {
             String childGuid = "NODE_" + String.format("%03d", i);
-            ProcessChainBuilder.ChainBuilderNode childNode = createNode(childGuid, parentGuid, false, null);
+            ChainBuilderNode childNode = createNode(childGuid, parentGuid, false, null);
             nodeMap.put(childGuid, childNode);
             
-            ProcessChainBuilder.ChainBuilderEdge edge = createEdge(parentGuid, childGuid);
+            ChainBuilderEdge edge = createEdge(parentGuid, childGuid);
             edges.add(edge);
             
             parentGuid = childGuid;
@@ -82,8 +83,8 @@ public class ProcessChainPrunerTest {
         log.info("=== 测试: 异常时回滚到原始数据 ===");
         
         // 准备正常数据
-        Map<String, ProcessChainBuilder.ChainBuilderNode> nodeMap = new HashMap<>();
-        List<ProcessChainBuilder.ChainBuilderEdge> edges = new ArrayList<>();
+        Map<String, ChainBuilderNode> nodeMap = new HashMap<>();
+        List<ChainBuilderEdge> edges = new ArrayList<>();
         Set<String> rootNodes = new HashSet<>();
         Set<String> associatedEventIds = new HashSet<>();
         
@@ -130,24 +131,24 @@ public class ProcessChainPrunerTest {
         log.info("=== 测试: 裁剪后每个 traceId 只有一个根节点 ===");
         
         // 准备数据：模拟单个 traceId 的场景
-        Map<String, ProcessChainBuilder.ChainBuilderNode> nodeMap = new HashMap<>();
-        List<ProcessChainBuilder.ChainBuilderEdge> edges = new ArrayList<>();
+        Map<String, ChainBuilderNode> nodeMap = new HashMap<>();
+        List<ChainBuilderEdge> edges = new ArrayList<>();
         Set<String> rootNodes = new HashSet<>();
         Set<String> associatedEventIds = new HashSet<>();
         
         // 创建1个根节点
         String rootGuid = "TRACE_001";  // 假设这是 traceId
         rootNodes.add(rootGuid);
-        ProcessChainBuilder.ChainBuilderNode rootNode = createNode(rootGuid, null, true, "高");
+        ChainBuilderNode rootNode = createNode(rootGuid, null, true, "高");
         nodeMap.put(rootGuid, rootNode);
         
         // 创建若干子节点
         for (int i = 1; i <= 50; i++) {
             String childGuid = "NODE_" + String.format("%03d", i);
-            ProcessChainBuilder.ChainBuilderNode childNode = createNode(childGuid, rootGuid, false, null);
+            ChainBuilderNode childNode = createNode(childGuid, rootGuid, false, null);
             nodeMap.put(childGuid, childNode);
             
-            ProcessChainBuilder.ChainBuilderEdge edge = createEdge(rootGuid, childGuid);
+            ChainBuilderEdge edge = createEdge(rootGuid, childGuid);
             edges.add(edge);
         }
         
@@ -185,8 +186,8 @@ public class ProcessChainPrunerTest {
         log.info("=== 测试: 裁剪后与 Explore 节点逻辑兼容 ===");
         
         // 准备数据：创建一个较大的链，模拟裁剪会产生断链的情况
-        Map<String, ProcessChainBuilder.ChainBuilderNode> nodeMap = new HashMap<>();
-        List<ProcessChainBuilder.ChainBuilderEdge> edges = new ArrayList<>();
+        Map<String, ChainBuilderNode> nodeMap = new HashMap<>();
+        List<ChainBuilderEdge> edges = new ArrayList<>();
         Set<String> rootNodes = new HashSet<>();
         Set<String> associatedEventIds = new HashSet<>();
         
@@ -210,7 +211,7 @@ public class ProcessChainPrunerTest {
         
         // 在最后一个节点上添加告警（使其成为必须保留节点）
         String lastGuid = chainGuids.get(chainGuids.size() - 1);
-        ProcessChainBuilder.ChainBuilderNode lastNode = nodeMap.get(lastGuid);
+        ChainBuilderNode lastNode = nodeMap.get(lastGuid);
         RawAlarm alarm = new RawAlarm();
         alarm.setProcessGuid(lastGuid);
         alarm.setThreatSeverity("高");
@@ -232,7 +233,7 @@ public class ProcessChainPrunerTest {
         
         // 验证2：检查断链节点
         Set<String> brokenNodes = new HashSet<>();
-        for (ProcessChainBuilder.ChainBuilderNode node : nodeMap.values()) {
+        for (ChainBuilderNode node : nodeMap.values()) {
             String parentGuidCheck = node.getParentProcessGuid();
             if (parentGuidCheck != null && !parentGuidCheck.trim().isEmpty()) {
                 if (!nodeMap.containsKey(parentGuidCheck) && !rootNodes.contains(node.getProcessGuid())) {
@@ -265,8 +266,8 @@ public class ProcessChainPrunerTest {
         log.info("=== 测试: 网端关联节点必须保留 ===");
         
         // 准备数据
-        Map<String, ProcessChainBuilder.ChainBuilderNode> nodeMap = new HashMap<>();
-        List<ProcessChainBuilder.ChainBuilderEdge> edges = new ArrayList<>();
+        Map<String, ChainBuilderNode> nodeMap = new HashMap<>();
+        List<ChainBuilderEdge> edges = new ArrayList<>();
         Set<String> rootNodes = new HashSet<>();
         Set<String> associatedEventIds = new HashSet<>();
         
@@ -280,7 +281,7 @@ public class ProcessChainPrunerTest {
         String associatedEventId = "EVENT_123";
         associatedEventIds.add(associatedEventId);
         
-        ProcessChainBuilder.ChainBuilderNode associatedNode = createNode(associatedGuid, rootGuid, true, "中");
+        ChainBuilderNode associatedNode = createNode(associatedGuid, rootGuid, true, "中");
         RawAlarm alarm = new RawAlarm();
         alarm.setProcessGuid(associatedGuid);
         alarm.setEventId(associatedEventId);
@@ -316,9 +317,9 @@ public class ProcessChainPrunerTest {
     
     // ========== 辅助方法 ==========
     
-    private ProcessChainBuilder.ChainBuilderNode createNode(String processGuid, String parentProcessGuid, 
+    private ChainBuilderNode createNode(String processGuid, String parentProcessGuid, 
                                                              boolean isAlarm, String severity) {
-        ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+        ChainBuilderNode node = new ChainBuilderNode();
         node.setProcessGuid(processGuid);
         node.setParentProcessGuid(parentProcessGuid);
         node.setIsAlarm(isAlarm);
@@ -341,8 +342,8 @@ public class ProcessChainPrunerTest {
         return node;
     }
     
-    private ProcessChainBuilder.ChainBuilderEdge createEdge(String source, String target) {
-        ProcessChainBuilder.ChainBuilderEdge edge = new ProcessChainBuilder.ChainBuilderEdge();
+    private ChainBuilderEdge createEdge(String source, String target) {
+        ChainBuilderEdge edge = new ChainBuilderEdge();
         edge.setSource(source);
         edge.setTarget(target);
         edge.setVal("1");

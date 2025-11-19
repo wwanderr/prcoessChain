@@ -28,7 +28,7 @@ public class DataStructureOptimizationTest {
         System.out.println("\n========== 测试1：ChainBuilderNode 自动提取字段 ==========");
         
         // 创建节点
-        ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+        ChainBuilderNode node = new ChainBuilderNode();
         node.setProcessGuid("NODE_001");
         node.setParentProcessGuid("PARENT_001");
         
@@ -56,7 +56,7 @@ public class DataStructureOptimizationTest {
         System.out.println("\n========== 测试2：从日志提取字段 ==========");
         
         // 创建节点
-        ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+        ChainBuilderNode node = new ChainBuilderNode();
         node.setProcessGuid("NODE_002");
         
         // 添加日志（应自动提取 traceId 和 hostAddress）
@@ -82,7 +82,7 @@ public class DataStructureOptimizationTest {
         System.out.println("\n========== 测试3：告警优先级测试 ==========");
         
         // 创建节点
-        ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+        ChainBuilderNode node = new ChainBuilderNode();
         node.setProcessGuid("NODE_003");
         
         // 先添加告警
@@ -116,34 +116,34 @@ public class DataStructureOptimizationTest {
         NodeIndex index = new NodeIndex();
         
         // 创建并添加节点
-        ProcessChainBuilder.ChainBuilderNode node1 = createTestNode("NODE_001", "PARENT", "TRACE_A", "192.168.1.100", true, false);
-        ProcessChainBuilder.ChainBuilderNode node2 = createTestNode("NODE_002", "NODE_001", "TRACE_A", "192.168.1.100", false, false);
-        ProcessChainBuilder.ChainBuilderNode node3 = createTestNode("NODE_003", "PARENT", "TRACE_B", "192.168.1.101", false, true);
+        ChainBuilderNode node1 = createTestNode("NODE_001", "PARENT", "TRACE_A", "192.168.1.100", true, false);
+        ChainBuilderNode node2 = createTestNode("NODE_002", "NODE_001", "TRACE_A", "192.168.1.100", false, false);
+        ChainBuilderNode node3 = createTestNode("NODE_003", "PARENT", "TRACE_B", "192.168.1.101", false, true);
         
         index.addNode(node1);
         index.addNode(node2);
         index.addNode(node3);
         
         // 测试按 processGuid 查找
-        ProcessChainBuilder.ChainBuilderNode found = index.getByGuid("NODE_001");
+        ChainBuilderNode found = index.getByGuid("NODE_001");
         assertNotNull("应找到节点", found);
         assertEquals("NODE_001", found.getProcessGuid());
         
         // 测试按 traceId 查找
-        List<ProcessChainBuilder.ChainBuilderNode> traceANodes = index.getByTraceId("TRACE_A");
+        List<ChainBuilderNode> traceANodes = index.getByTraceId("TRACE_A");
         assertEquals("TRACE_A 应有2个节点", 2, traceANodes.size());
         
         // 测试按 hostAddress 查找
-        List<ProcessChainBuilder.ChainBuilderNode> host100Nodes = index.getByHost("192.168.1.100");
+        List<ChainBuilderNode> host100Nodes = index.getByHost("192.168.1.100");
         assertEquals("192.168.1.100 应有2个节点", 2, host100Nodes.size());
         
         // 测试根节点索引
-        Set<ProcessChainBuilder.ChainBuilderNode> rootNodes = index.getRootNodes();
+        Set<ChainBuilderNode> rootNodes = index.getRootNodes();
         assertEquals("应有1个根节点", 1, rootNodes.size());
         assertTrue("NODE_001 应是根节点", rootNodes.contains(node1));
         
         // 测试断链节点索引
-        Set<ProcessChainBuilder.ChainBuilderNode> brokenNodes = index.getBrokenNodes();
+        Set<ChainBuilderNode> brokenNodes = index.getBrokenNodes();
         assertEquals("应有1个断链节点", 1, brokenNodes.size());
         assertTrue("NODE_003 应是断链节点", brokenNodes.contains(node3));
         
@@ -160,7 +160,7 @@ public class DataStructureOptimizationTest {
         NodeIndex index = new NodeIndex();
         
         // 添加节点（初始不是根节点）
-        ProcessChainBuilder.ChainBuilderNode node = createTestNode("NODE_001", "PARENT", "TRACE_A", "192.168.1.100", false, false);
+        ChainBuilderNode node = createTestNode("NODE_001", "PARENT", "TRACE_A", "192.168.1.100", false, false);
         index.addNode(node);
         
         assertEquals("初始应有0个根节点", 0, index.getRootNodes().size());
@@ -186,7 +186,7 @@ public class DataStructureOptimizationTest {
         NodeIndex index = new NodeIndex();
         
         // 添加节点
-        ProcessChainBuilder.ChainBuilderNode node = createTestNode("NODE_001", "PARENT", "TRACE_A", "192.168.1.100", true, false);
+        ChainBuilderNode node = createTestNode("NODE_001", "PARENT", "TRACE_A", "192.168.1.100", true, false);
         index.addNode(node);
         
         assertEquals("初始应有1个节点", 1, index.size());
@@ -211,10 +211,10 @@ public class DataStructureOptimizationTest {
         System.out.println("\n========== 测试7：ProcessChainResult 使用 NodeIndex ==========");
         
         // 创建 ProcessChainResult
-        ProcessChainBuilder.ProcessChainResult result = new ProcessChainBuilder.ProcessChainResult();
+        ProcessChainResult result = new ProcessChainResult();
         
         // 创建节点列表
-        List<ProcessChainBuilder.ChainBuilderNode> nodes = new ArrayList<>();
+        List<ChainBuilderNode> nodes = new ArrayList<>();
         nodes.add(createTestNode("ROOT", null, "TRACE_A", "192.168.1.100", true, false));
         nodes.add(createTestNode("CHILD1", "ROOT", "TRACE_A", "192.168.1.100", false, false));
         nodes.add(createTestNode("BROKEN", "MISSING", "TRACE_A", "192.168.1.100", false, true));
@@ -251,11 +251,11 @@ public class DataStructureOptimizationTest {
         // 创建大量节点
         int nodeCount = 1000;
         NodeIndex index = new NodeIndex();
-        List<ProcessChainBuilder.ChainBuilderNode> nodeList = new ArrayList<>();
+        List<ChainBuilderNode> nodeList = new ArrayList<>();
         
         for (int i = 0; i < nodeCount; i++) {
             String traceId = "TRACE_" + (i % 10); // 10个不同的 traceId
-            ProcessChainBuilder.ChainBuilderNode node = createTestNode(
+            ChainBuilderNode node = createTestNode(
                 "NODE_" + i, 
                 "PARENT_" + i, 
                 traceId, 
@@ -269,13 +269,13 @@ public class DataStructureOptimizationTest {
         
         // 测试 NodeIndex 查找性能（O(1)）
         long start1 = System.nanoTime();
-        List<ProcessChainBuilder.ChainBuilderNode> result1 = index.getByTraceId("TRACE_5");
+        List<ChainBuilderNode> result1 = index.getByTraceId("TRACE_5");
         long time1 = System.nanoTime() - start1;
         
         // 测试遍历查找性能（O(n)）
         long start2 = System.nanoTime();
-        List<ProcessChainBuilder.ChainBuilderNode> result2 = new ArrayList<>();
-        for (ProcessChainBuilder.ChainBuilderNode node : nodeList) {
+        List<ChainBuilderNode> result2 = new ArrayList<>();
+        for (ChainBuilderNode node : nodeList) {
             if ("TRACE_5".equals(node.getTraceId())) {
                 result2.add(node);
             }
@@ -358,12 +358,12 @@ public class DataStructureOptimizationTest {
     
     // ========== 辅助方法 ==========
     
-    private ProcessChainBuilder.ChainBuilderNode createTestNode(
+    private ChainBuilderNode createTestNode(
             String processGuid, String parentProcessGuid, 
             String traceId, String hostAddress,
             boolean isRoot, boolean isBroken) {
         
-        ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+        ChainBuilderNode node = new ChainBuilderNode();
         node.setProcessGuid(processGuid);
         node.setParentProcessGuid(parentProcessGuid);
         node.setTraceId(traceId);
@@ -413,7 +413,7 @@ public class DataStructureOptimizationTest {
         
         // 创建100个节点
         for (int i = 0; i < 100; i++) {
-            ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+            ChainBuilderNode node = new ChainBuilderNode();
             node.setProcessGuid("NODE_" + String.format("%03d", i));
             node.setTraceId("TRACE_001");
             node.setHostAddress("192.168.1." + (i % 256));
@@ -442,7 +442,7 @@ public class DataStructureOptimizationTest {
         // 添加10000个节点
         long startTime = System.currentTimeMillis();
         for (int i = 0; i < nodeCount; i++) {
-            ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+            ChainBuilderNode node = new ChainBuilderNode();
             node.setProcessGuid("NODE_" + String.format("%05d", i));
             node.setTraceId("TRACE_" + (i % 10)); // 10个不同的 traceId
             node.setHostAddress("192.168." + (i % 256) + "." + (i / 256));
@@ -456,7 +456,7 @@ public class DataStructureOptimizationTest {
         startTime = System.currentTimeMillis();
         for (int i = 0; i < 1000; i++) {
             String guid = "NODE_" + String.format("%05d", i * 10);
-            ProcessChainBuilder.ChainBuilderNode node = nodeIndex.getByGuid(guid);
+            ChainBuilderNode node = nodeIndex.getByGuid(guid);
             assertNotNull("应能找到节点", node);
         }
         long queryTime = System.currentTimeMillis() - startTime;
@@ -488,7 +488,7 @@ public class DataStructureOptimizationTest {
         for (int t = 0; t < 5; t++) {
             String traceId = "TRACE_" + String.format("%03d", t);
             for (int i = 0; i < 1000; i++) {
-                ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+                ChainBuilderNode node = new ChainBuilderNode();
                 node.setProcessGuid(traceId + "_NODE_" + String.format("%04d", i));
                 node.setTraceId(traceId);
                 node.setHostAddress("192.168.1.100");
@@ -498,7 +498,7 @@ public class DataStructureOptimizationTest {
         
         // 测试按 traceId 查询
         long startTime = System.currentTimeMillis();
-        List<ProcessChainBuilder.ChainBuilderNode> nodes = nodeIndex.getByTraceId("TRACE_002");
+        List<ChainBuilderNode> nodes = nodeIndex.getByTraceId("TRACE_002");
         long queryTime = System.currentTimeMillis() - startTime;
         
         // 验证
@@ -523,7 +523,7 @@ public class DataStructureOptimizationTest {
         
         for (int h = 0; h < hosts.length; h++) {
             for (int i = 0; i < nodeCounts[h]; i++) {
-                ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+                ChainBuilderNode node = new ChainBuilderNode();
                 node.setProcessGuid(hosts[h] + "_NODE_" + i);
                 node.setTraceId("TRACE_001");
                 node.setHostAddress(hosts[h]);
@@ -551,7 +551,7 @@ public class DataStructureOptimizationTest {
         NodeIndex nodeIndex = new NodeIndex();
         
         // 创建节点
-        ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+        ChainBuilderNode node = new ChainBuilderNode();
         node.setProcessGuid("NODE_001");
         node.setTraceId("TRACE_001");
         node.setHostAddress("192.168.1.100");
@@ -589,7 +589,7 @@ public class DataStructureOptimizationTest {
         
         // 创建3个节点
         for (int i = 1; i <= 3; i++) {
-            ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+            ChainBuilderNode node = new ChainBuilderNode();
             node.setProcessGuid("NODE_" + String.format("%03d", i));
             node.setTraceId("TRACE_001");
             node.setHostAddress("192.168.1.100");
@@ -653,7 +653,7 @@ public class DataStructureOptimizationTest {
         assertEquals("添加 null 节点后大小应为0", 0, nodeIndex.size());
         
         // 测试添加 processGuid 为 null 的节点
-        ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+        ChainBuilderNode node = new ChainBuilderNode();
         node.setProcessGuid(null);
         nodeIndex.addNode(node);
         assertEquals("添加 processGuid 为 null 的节点后大小应为0", 0, nodeIndex.size());
@@ -687,7 +687,7 @@ public class DataStructureOptimizationTest {
         for (String traceId : traceIds) {
             for (String host : hosts) {
                 for (int i = 0; i < 10; i++) {
-                    ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+                    ChainBuilderNode node = new ChainBuilderNode();
                     node.setProcessGuid("NODE_" + String.format("%04d", nodeId++));
                     node.setTraceId(traceId);
                     node.setHostAddress(host);
@@ -726,7 +726,7 @@ public class DataStructureOptimizationTest {
         
         // 创建10000个节点，其中100个是告警节点
         for (int i = 0; i < 10000; i++) {
-            ProcessChainBuilder.ChainBuilderNode node = new ProcessChainBuilder.ChainBuilderNode();
+            ChainBuilderNode node = new ChainBuilderNode();
             node.setProcessGuid("NODE_" + String.format("%05d", i));
             node.setTraceId("TRACE_001");
             node.setHostAddress("192.168.1.100");
@@ -736,7 +736,7 @@ public class DataStructureOptimizationTest {
         
         // 测试查询告警节点性能
         long startTime = System.currentTimeMillis();
-        Set<ProcessChainBuilder.ChainBuilderNode> alarmNodes = nodeIndex.getAlarmNodes();
+        Set<ChainBuilderNode> alarmNodes = nodeIndex.getAlarmNodes();
         long queryTime = System.currentTimeMillis() - startTime;
         
         // 验证
