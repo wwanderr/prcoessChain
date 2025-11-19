@@ -1,6 +1,7 @@
 package com.security.processchain.util;
 
 import com.security.processchain.model.RawLog;
+import com.security.processchain.service.GraphNode;
 import com.security.processchain.service.ProcessChainGraph;
 import lombok.extern.slf4j.Slf4j;
 

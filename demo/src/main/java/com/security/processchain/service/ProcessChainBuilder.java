@@ -3,9 +3,16 @@ package com.security.processchain.service;
 import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
+import com.security.processchain.util.EntityFilterUtil;
 import com.security.processchain.util.ProcessChainPruner;
+import com.security.processchain.util.PruneContext;
+import com.security.processchain.util.PruneResult;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
+
+// 注意：以下类虽然在文件末尾有 @Deprecated 别名定义，但为了避免IDE报错，这里不显式导入
+// 因为它们现在既是独立的类（在 com.security.processchain.service 包中），
+// 又在当前类中有内部类别名，Java允许这种情况
 
 /**
  * 进程链构建器
@@ -139,7 +146,7 @@ public class ProcessChainBuilder {
             
             // 2.1 有告警场景：以告警节点为起点
             if (alarms != null && !alarms.isEmpty()) {
-                for (RawAlarm alarm : alarms) {
+            for (RawAlarm alarm : alarms) {
                     if (alarm != null && alarm.getProcessGuid() != null) {
                         startNodes.add(alarm.getProcessGuid());
                     }
@@ -211,7 +218,7 @@ public class ProcessChainBuilder {
             log.info("【子图提取完成】节点数={}", subgraph.getNodeCount());
             
             // ===== 阶段5：实体过滤 =====
-            com.security.processchain.util.EntityFilterUtil.filterEntityNodesInGraph(subgraph);
+            EntityFilterUtil.filterEntityNodesInGraph(subgraph);
             
             log.info("【实体过滤完成】节点数={}", subgraph.getNodeCount());
             
@@ -682,7 +689,7 @@ public class ProcessChainBuilder {
     private void pruneNodesWithSmartStrategy() {
         try {
             // 创建裁剪上下文
-            ProcessChainPruner.PruneContext context = new ProcessChainPruner.PruneContext(
+            PruneContext context = new PruneContext(
                 nodeMap,
                 edges,
                 rootNodes,
@@ -690,7 +697,7 @@ public class ProcessChainBuilder {
             );
             
             // 执行智能裁剪
-            ProcessChainPruner.PruneResult result = ProcessChainPruner.pruneNodes(context);
+            PruneResult result = ProcessChainPruner.pruneNodes(context);
             
             // 记录裁剪结果
             log.info("【进程链生成】-> 智能裁剪完成: 原始节点={}, 必须保留={}, 级联保留={}, 移除节点={}, 最终节点={}",
@@ -960,38 +967,6 @@ public class ProcessChainBuilder {
         return false;
     }
     
-    // ========== 已抽取的内部类（现已独立为单独的文件）==========
-    // 为保持向后兼容性，保留内部类作为别名，并标记为 @Deprecated
-    
-    /**
-     * @deprecated 已移动到独立文件 {@link com.security.processchain.service.ChainTraversalContext}
-     */
-    @Deprecated
-    public static class ChainTraversalContext extends com.security.processchain.service.ChainTraversalContext {
-        public ChainTraversalContext(
-                Map<String, List<RawLog>> logsByProcessGuid,
-                Map<String, List<RawLog>> logsByParentProcessGuid,
-                Map<String, List<RawAlarm>> alarmsByProcessGuid,
-                Map<String, List<RawAlarm>> alarmsByParentProcessGuid,
-                Set<String> traceIds) {
-            super(logsByProcessGuid, logsByParentProcessGuid, alarmsByProcessGuid, alarmsByParentProcessGuid, traceIds);
-        }
-    }
-    
-    /**
-     * @deprecated 已移动到独立文件 {@link com.security.processchain.service.ChainBuilderNode}
-     */
-    @Deprecated
-    public static class ChainBuilderNode extends com.security.processchain.service.ChainBuilderNode {
-    }
-    
-    /**
-     * @deprecated 已移动到独立文件 {@link com.security.processchain.service.ChainBuilderEdge}
-     */
-    @Deprecated
-    public static class ChainBuilderEdge extends com.security.processchain.service.ChainBuilderEdge {
-    }
-    
     /**
      * 为断链节点添加 Explore 虚拟根节点
      * 
@@ -1127,13 +1102,6 @@ public class ProcessChainBuilder {
     }
     
 
-    /**
-     * @deprecated 已移动到独立文件 {@link com.security.processchain.service.ProcessChainResult}
-     */
-    @Deprecated
-    public static class ProcessChainResult extends com.security.processchain.service.ProcessChainResult {
-    }
-    
     /**
      * 直接构建最终的 IncidentProcessChain（一步到位）
      * 支持多个 traceId 和多个 associatedEventId
