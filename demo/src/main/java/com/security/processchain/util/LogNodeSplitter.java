@@ -35,28 +35,28 @@ public class LogNodeSplitter {
     /**
      * 拆分日志节点
      * 
-     * @param log 原始日志
+     * @param rawLog 原始日志
      * @return 拆分结果
      */
-    public static SplitResult splitLogNode(RawLog log) {
-        if (log == null) {
+    public static SplitResult splitLogNode(RawLog rawLog) {
+        if (rawLog == null) {
             return new SplitResult();
         }
         
-        String logType = log.getLogType();
+        String logType = rawLog.getLogType();
         
         if ("process".equalsIgnoreCase(logType)) {
             // process日志：拆分为父子进程
-            return splitProcessLog(log);
+            return splitProcessLog(rawLog);
             
         } else if (isEntityLogType(logType)) {
             // file/domain/network/registry：拆分为父+子+实体
-            return splitEntityLog(log);
+            return splitEntityLog(rawLog);
             
         } else {
             // 其他类型：不拆分，只创建子节点
             SplitResult result = new SplitResult();
-            result.setChildNode(createNodeFromLog(log, log.getProcessGuid()));
+            result.setChildNode(createNodeFromLog(rawLog, rawLog.getProcessGuid()));
             return result;
         }
     }
@@ -64,21 +64,21 @@ public class LogNodeSplitter {
     /**
      * 拆分process日志
      */
-    private static SplitResult splitProcessLog(RawLog log) {
+    private static SplitResult splitProcessLog(RawLog rawLog) {
         SplitResult result = new SplitResult();
         
         // 1. 创建子进程节点（当前进程）
-        String childGuid = log.getProcessGuid();
-        GraphNode childNode = createNodeFromLog(log, childGuid);
+        String childGuid = rawLog.getProcessGuid();
+        GraphNode childNode = createNodeFromLog(rawLog, childGuid);
         childNode.setNodeType("process");
         result.setChildNode(childNode);
         
         // 2. 创建/关联父进程节点
-        String parentGuid = log.getParentProcessGuid();
+        String parentGuid = rawLog.getParentProcessGuid();
         
         if (parentGuid != null && !parentGuid.isEmpty()) {
             // 创建虚拟父节点（可能会被真实节点合并）
-            GraphNode parentNode = createVirtualParentNode(log);
+            GraphNode parentNode = createVirtualParentNode(rawLog);
             result.setParentNode(parentNode);
             
             // 创建边：父 → 子
@@ -93,19 +93,19 @@ public class LogNodeSplitter {
     /**
      * 拆分实体日志（file/domain/network/registry）
      */
-    private static SplitResult splitEntityLog(RawLog log) {
+    private static SplitResult splitEntityLog(RawLog rawLog) {
         SplitResult result = new SplitResult();
         
         // 1. 创建子进程节点（发起操作的进程）
-        String childGuid = log.getProcessGuid();
-        GraphNode childNode = createNodeFromLog(log, childGuid);
+        String childGuid = rawLog.getProcessGuid();
+        GraphNode childNode = createNodeFromLog(rawLog, childGuid);
         childNode.setNodeType("process");
         result.setChildNode(childNode);
         
         // 2. 创建父进程节点
-        String parentGuid = log.getParentProcessGuid();
+        String parentGuid = rawLog.getParentProcessGuid();
         if (parentGuid != null && !parentGuid.isEmpty()) {
-            GraphNode parentNode = createVirtualParentNode(log);
+            GraphNode parentNode = createVirtualParentNode(rawLog);
             result.setParentNode(parentNode);
             
             // 边1：父 → 子
@@ -113,15 +113,15 @@ public class LogNodeSplitter {
         }
         
         // 3. 创建实体节点
-        String entityNodeId = generateEntityNodeId(log);
-        GraphNode entityNode = createEntityNode(log, entityNodeId);
+        String entityNodeId = generateEntityNodeId(rawLog);
+        GraphNode entityNode = createEntityNode(rawLog, entityNodeId);
         result.setEntityNode(entityNode);
         
         // 边2：子 → 实体
         result.addEdge(childGuid, entityNodeId);
         
-        log.debug("【节点拆分】{}: {} → {} → {}", 
-                log.getLogType(), parentGuid, childGuid, entityNodeId);
+        log.debug("【节点拆分】{}: {} → {} → {}",
+                rawLog.getLogType(), parentGuid, childGuid, entityNodeId);
         
         return result;
     }
@@ -129,37 +129,37 @@ public class LogNodeSplitter {
     /**
      * 创建虚拟父进程节点
      */
-    private static GraphNode createVirtualParentNode(RawLog log) {
+    private static GraphNode createVirtualParentNode(RawLog rawLog) {
         GraphNode parentNode = new GraphNode();
         
         // 设置nodeId = log的parentProcessGuid
-        parentNode.setNodeId(log.getParentProcessGuid());
+        parentNode.setNodeId(rawLog.getParentProcessGuid());
         
         // 计算父进程的parentProcessGuid（hash）
-        String parentParentGuid = calculateParentProcessGuidHash(log);
+        String parentParentGuid = calculateParentProcessGuidHash(rawLog);
         parentNode.setParentProcessGuid(parentParentGuid);
         
         // 标记为虚拟节点
-        parentNode.setIsVirtual(true);
+        parentNode.setVirtual(true);
         parentNode.setNodeType("process");
         
         // 提取traceId和hostAddress
-        parentNode.setTraceId(log.getTraceId());
-        parentNode.setHostAddress(log.getHostAddress());
+        parentNode.setTraceId(rawLog.getTraceId());
+        parentNode.setHostAddress(rawLog.getHostAddress());
         
         // 创建虚拟日志（使用parent字段）
         RawLog parentLog = new RawLog();
-        parentLog.setProcessGuid(log.getParentProcessGuid());
+        parentLog.setProcessGuid(rawLog.getParentProcessGuid());
         parentLog.setParentProcessGuid(parentParentGuid);
-        parentLog.setProcessName(log.getParentProcessName());
-        parentLog.setImage(log.getParentImage());
-        parentLog.setCommandLine(log.getParentCommandLine());
-        parentLog.setProcessUserName(log.getParentProcessUserName());
-        parentLog.setProcessId(log.getParentProcessId());
+        parentLog.setProcessName(rawLog.getParentProcessName());
+        parentLog.setImage(rawLog.getParentImage());
+        parentLog.setCommandLine(rawLog.getParentCommandLine());
+        parentLog.setProcessUserName(rawLog.getParentProcessUserName());
+        parentLog.setProcessId(rawLog.getParentProcessId());
         parentLog.setLogType("process");
-        parentLog.setTraceId(log.getTraceId());
-        parentLog.setHostAddress(log.getHostAddress());
-        parentLog.setStartTime(log.getStartTime());
+        parentLog.setTraceId(rawLog.getTraceId());
+        parentLog.setHostAddress(rawLog.getHostAddress());
+        parentLog.setStartTime(rawLog.getStartTime());
         
         parentNode.addLog(parentLog);
         
@@ -169,16 +169,16 @@ public class LogNodeSplitter {
     /**
      * 从日志创建节点
      */
-    private static GraphNode createNodeFromLog(RawLog log, String nodeId) {
+    private static GraphNode createNodeFromLog(RawLog rawLog, String nodeId) {
         GraphNode node = new GraphNode();
         
         node.setNodeId(nodeId);
-        node.setParentProcessGuid(log.getParentProcessGuid());
-        node.setTraceId(log.getTraceId());
-        node.setHostAddress(log.getHostAddress());
-        node.setNodeType(log.getLogType());
+        node.setParentProcessGuid(rawLog.getParentProcessGuid());
+        node.setTraceId(rawLog.getTraceId());
+        node.setHostAddress(rawLog.getHostAddress());
+        node.setNodeType(rawLog.getLogType());
         
-        node.addLog(log);
+        node.addLog(rawLog);
         
         return node;
     }
@@ -186,18 +186,18 @@ public class LogNodeSplitter {
     /**
      * 创建实体节点
      */
-    private static GraphNode createEntityNode(RawLog log, String entityNodeId) {
+    private static GraphNode createEntityNode(RawLog rawLog, String entityNodeId) {
         GraphNode node = new GraphNode();
         
         node.setNodeId(entityNodeId);
-        node.setTraceId(log.getTraceId());
-        node.setHostAddress(log.getHostAddress());
-        node.setNodeType(log.getLogType() + "_entity");
+        node.setTraceId(rawLog.getTraceId());
+        node.setHostAddress(rawLog.getHostAddress());
+        node.setNodeType(rawLog.getLogType() + "_entity");
         
         // 实体节点没有parentProcessGuid
         node.setParentProcessGuid(null);
         
-        node.addLog(log);
+        node.addLog(rawLog);
         
         return node;
     }
@@ -207,25 +207,25 @@ public class LogNodeSplitter {
      * 
      * 使用字段：parentProcessName + parentProcessUserName + parentImage + parentCommandLine
      */
-    private static String calculateParentProcessGuidHash(RawLog log) {
+    private static String calculateParentProcessGuidHash(RawLog rawLog) {
         StringBuilder sb = new StringBuilder();
         
-        if (log.getParentProcessName() != null) {
-            sb.append(log.getParentProcessName());
+        if (rawLog.getParentProcessName() != null) {
+            sb.append(rawLog.getParentProcessName());
         }
-        if (log.getParentProcessUserName() != null) {
-            sb.append(log.getParentProcessUserName());
+        if (rawLog.getParentProcessUserName() != null) {
+            sb.append(rawLog.getParentProcessUserName());
         }
-        if (log.getParentImage() != null) {
-            sb.append(log.getParentImage());
+        if (rawLog.getParentImage() != null) {
+            sb.append(rawLog.getParentImage());
         }
-        if (log.getParentCommandLine() != null) {
-            sb.append(log.getParentCommandLine());
+        if (rawLog.getParentCommandLine() != null) {
+            sb.append(rawLog.getParentCommandLine());
         }
         
         // 如果所有字段都为空，返回特殊标记
         if (sb.length() == 0) {
-            return "VIRTUAL_PARENT_" + log.getParentProcessGuid();
+            return "VIRTUAL_PARENT_" + rawLog.getParentProcessGuid();
         }
         
         // 计算MD5 hash
@@ -242,34 +242,34 @@ public class LogNodeSplitter {
     /**
      * 生成实体节点ID
      */
-    private static String generateEntityNodeId(RawLog log) {
-        String logType = log.getLogType().toLowerCase();
-        String baseId = log.getProcessGuid();
+    private static String generateEntityNodeId(RawLog rawLog) {
+        String logType = rawLog.getLogType().toLowerCase();
+        String baseId = rawLog.getProcessGuid();
         
         switch (logType) {
             case "file":
                 // file节点ID = processGuid + "_FILE_" + fileMd5 + "_" + targetFilename
-                String fileMd5 = log.getFileMd5() != null ? log.getFileMd5() : "NOMD5";
-                String filename = log.getTargetFilename() != null ? 
-                    sanitizeForId(log.getTargetFilename()) : "NONAME";
+                String fileMd5 = rawLog.getFileMd5() != null ? rawLog.getFileMd5() : "NOMD5";
+                String filename = rawLog.getTargetFilename() != null ? 
+                    sanitizeForId(rawLog.getTargetFilename()) : "NONAME";
                 return baseId + "_FILE_" + fileMd5 + "_" + filename;
                 
             case "domain":
                 // domain节点ID = processGuid + "_DOMAIN_" + requestDomain
-                String domain = log.getRequestDomain() != null ? 
-                    sanitizeForId(log.getRequestDomain()) : "NODOMAIN";
+                String domain = rawLog.getRequestDomain() != null ? 
+                    sanitizeForId(rawLog.getRequestDomain()) : "NODOMAIN";
                 return baseId + "_DOMAIN_" + domain;
                 
             case "network":
                 // network节点ID = processGuid + "_NETWORK_" + destAddress
-                String destAddr = log.getDestAddress() != null ? 
-                    sanitizeForId(log.getDestAddress()) : "NOADDR";
-                String destPort = log.getDestPort() != null ? log.getDestPort() : "";
+                String destAddr = rawLog.getDestAddress() != null ? 
+                    sanitizeForId(rawLog.getDestAddress()) : "NOADDR";
+                String destPort = rawLog.getDestPort() != null ? rawLog.getDestPort() : "";
                 return baseId + "_NETWORK_" + destAddr + "_" + destPort;
                 
             case "registry":
                 // registry节点ID = processGuid + "_REGISTRY_" + hashOf(targetObject)
-                String targetObj = log.getTargetObject() != null ? log.getTargetObject() : "NOOBJ";
+                String targetObj = rawLog.getTargetObject() != null ? rawLog.getTargetObject() : "NOOBJ";
                 String objHash = String.valueOf(Math.abs(targetObj.hashCode()));
                 return baseId + "_REGISTRY_" + objHash;
                 
