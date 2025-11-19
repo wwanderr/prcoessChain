@@ -157,6 +157,7 @@ public class LogNodeSplitter {
         parentLog.setProcessUserName(rawLog.getParentProcessUserName());
         parentLog.setProcessId(rawLog.getParentProcessId());
         parentLog.setLogType("process");
+        parentLog.setOpType("create");  // 虚拟父进程的opType设置为create
         parentLog.setTraceId(rawLog.getTraceId());
         parentLog.setHostAddress(rawLog.getHostAddress());
         parentLog.setStartTime(rawLog.getStartTime());

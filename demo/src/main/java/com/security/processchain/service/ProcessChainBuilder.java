@@ -224,9 +224,10 @@ public class ProcessChainBuilder {
             
             // ===== 阶段6：裁剪（如果需要） =====
             if (subgraph.getNodeCount() > MAX_NODE_COUNT) {
-                log.warn("【智能裁剪】节点数({})超过限制({})", 
+                log.warn("【智能裁剪】节点数({})超过限制({}), 开始裁剪...", 
                         subgraph.getNodeCount(), MAX_NODE_COUNT);
-                // TODO: 实现图裁剪（暂时跳过）
+                pruneGraph(subgraph);
+                log.info("【智能裁剪完成】裁剪后节点数={}", subgraph.getNodeCount());
             }
             
             // ===== 阶段7：转换为输出格式 =====
@@ -241,6 +242,91 @@ public class ProcessChainBuilder {
         } catch (Exception e) {
             log.error("错误: 构建进程链过程异常: {}", e.getMessage(), e);
             return new ProcessChainResult();
+        }
+    }
+    
+    /**
+     * 裁剪图（智能裁剪策略）
+     * 
+     * 策略：
+     * 1. 强制保留：根节点、告警节点、网端关联节点
+     * 2. 级联保留：从关键节点到根节点的完整路径
+     * 3. 选择性保留：如果还有剩余槽位，按重要性选择其他节点
+     * 
+     * @param graph 要裁剪的图
+     */
+    private void pruneGraph(ProcessChainGraph graph) {
+        if (graph == null) {
+            return;
+        }
+        
+        try {
+            // 1. 将图转换为可裁剪的格式
+            Map<String, ChainBuilderNode> nodeMap = new HashMap<>();
+            List<ChainBuilderEdge> edges = new ArrayList<>();
+            
+            // 转换节点
+            for (GraphNode graphNode : graph.getAllNodes()) {
+                ChainBuilderNode node = convertGraphNodeToBuilderNode(graphNode);
+                nodeMap.put(node.getProcessGuid(), node);
+            }
+            
+            // 转换边
+            for (String edgeKey : graph.getAllEdgeKeys()) {
+                String[] parts = edgeKey.split("->");
+                if (parts.length == 2) {
+                    ChainBuilderEdge edge = new ChainBuilderEdge();
+                    edge.setSource(parts[0]);
+                    edge.setTarget(parts[1]);
+                    
+                    EdgeInfo edgeInfo = graph.getEdgeInfo(edgeKey);
+                    if (edgeInfo != null) {
+                        edge.setVal(edgeInfo.getLabel());
+                    }
+                    
+                    edges.add(edge);
+                }
+            }
+            
+            // 2. 创建裁剪上下文
+            PruneContext context = new PruneContext(
+                nodeMap,
+                edges,
+                graph.getRootNodes(),
+                this.associatedEventIds
+            );
+            
+            // 3. 执行裁剪
+            PruneResult result = ProcessChainPruner.pruneNodes(context);
+            
+            log.info("【智能裁剪】原始节点={}, 必须保留={}, 级联保留={}, 移除节点={}, 最终节点={}",
+                     result.getOriginalNodeCount(),
+                     result.getMustKeepCount(),
+                     result.getCascadeKeepCount(),
+                     result.getRemovedNodeCount(),
+                     result.getFinalNodeCount());
+            
+            // 4. 应用裁剪结果到图
+            Set<String> nodesToKeep = nodeMap.keySet();
+            Set<String> nodesToRemove = new HashSet<>();
+            
+            for (GraphNode graphNode : graph.getAllNodes()) {
+                String nodeId = graphNode.getNodeId();
+                if (!nodesToKeep.contains(nodeId)) {
+                    nodesToRemove.add(nodeId);
+                }
+            }
+            
+            // 移除被裁剪的节点
+            for (String nodeId : nodesToRemove) {
+                graph.removeNode(nodeId);
+            }
+            
+            log.info("【图裁剪完成】移除节点数={}", nodesToRemove.size());
+            
+        } catch (Exception e) {
+            log.error("【图裁剪异常】{}", e.getMessage(), e);
+            // 裁剪失败不影响主流程，继续执行
         }
     }
     
