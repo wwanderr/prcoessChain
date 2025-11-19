@@ -13,7 +13,7 @@ public interface NodeMapper {
      * @param builderNode Builder 内部节点
      * @return 最终返回节点
      */
-    ProcessNode toIncidentNode(ProcessChainBuilder.ChainBuilderNode builderNode);
+    ProcessNode toIncidentNode(ChainBuilderNode builderNode);
 }
 
 

@@ -3,6 +3,8 @@ package com.security.processchain.util;
 import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
+import com.security.processchain.service.ChainBuilderEdge;
+import com.security.processchain.service.ChainBuilderNode;
 import com.security.processchain.service.ProcessChainBuilder;
 import lombok.extern.slf4j.Slf4j;
 
@@ -33,13 +35,13 @@ public class ProcessChainPruner {
      * 裁剪上下文 - 封装裁剪所需的所有数据
      */
     public static class PruneContext {
-        private final Map<String, ProcessChainBuilder.ChainBuilderNode> nodeMap;
-        private final List<ProcessChainBuilder.ChainBuilderEdge> edges;
+        private final Map<String, ChainBuilderNode> nodeMap;
+        private final List<ChainBuilderEdge> edges;
         private final Set<String> rootNodes;
         private final Set<String> associatedEventIds;
         
-        public PruneContext(Map<String, ProcessChainBuilder.ChainBuilderNode> nodeMap,
-                          List<ProcessChainBuilder.ChainBuilderEdge> edges,
+        public PruneContext(Map<String, ChainBuilderNode> nodeMap,
+                          List<ChainBuilderEdge> edges,
                           Set<String> rootNodes,
                           Set<String> associatedEventIds) {
             // 防御性检查
@@ -59,11 +61,11 @@ public class ProcessChainPruner {
             this.associatedEventIds = (associatedEventIds != null) ? associatedEventIds : new HashSet<>();
         }
         
-        public Map<String, ProcessChainBuilder.ChainBuilderNode> getNodeMap() {
+        public Map<String, ChainBuilderNode> getNodeMap() {
             return nodeMap;
         }
         
-        public List<ProcessChainBuilder.ChainBuilderEdge> getEdges() {
+        public List<ChainBuilderEdge> getEdges() {
             return edges;
         }
         
@@ -140,8 +142,8 @@ public class ProcessChainPruner {
         log.info("【进程链裁剪】-> 开始智能裁剪，原始节点数: {}", originalNodeCount);
         
         // ===== 安全措施1：备份原始数据 =====
-        Map<String, ProcessChainBuilder.ChainBuilderNode> backupNodeMap = null;
-        List<ProcessChainBuilder.ChainBuilderEdge> backupEdges = null;
+        Map<String, ChainBuilderNode> backupNodeMap = null;
+        List<ChainBuilderEdge> backupEdges = null;
         
         try {
             // 创建备份
@@ -238,7 +240,7 @@ public class ProcessChainPruner {
             
             // ===== 验证2：检查每个根节点的 isRoot 标记 =====
             for (String rootGuid : rootNodes) {
-                ProcessChainBuilder.ChainBuilderNode node = context.getNodeMap().get(rootGuid);
+                ChainBuilderNode node = context.getNodeMap().get(rootGuid);
                 if (node == null) {
                     log.error("【进程链裁剪】-> 验证失败: 根节点不存在 - {}", rootGuid);
                     return false;
@@ -249,7 +251,7 @@ public class ProcessChainPruner {
             
             // ===== 验证3：检查断链节点的父节点是否存在 =====
             int brokenCheckCount = 0;
-            for (ProcessChainBuilder.ChainBuilderNode node : context.getNodeMap().values()) {
+            for (ChainBuilderNode node : context.getNodeMap().values()) {
                 String parentGuid = node.getParentProcessGuid();
                 if (parentGuid != null && !parentGuid.trim().isEmpty()) {
                     // 如果父节点不在 nodeMap 中，说明是断链
@@ -302,9 +304,9 @@ public class ProcessChainPruner {
         int mediumAlarmCount = 0;
         int associatedCount = 0;
         
-        for (Map.Entry<String, ProcessChainBuilder.ChainBuilderNode> entry : context.getNodeMap().entrySet()) {
+        for (Map.Entry<String, ChainBuilderNode> entry : context.getNodeMap().entrySet()) {
             String processGuid = entry.getKey();
-            ProcessChainBuilder.ChainBuilderNode node = entry.getValue();
+            ChainBuilderNode node = entry.getValue();
             
             // 跳过非告警节点
             if (node.getIsAlarm() == null || !node.getIsAlarm()) {
@@ -377,7 +379,7 @@ public class ProcessChainPruner {
         Set<String> result = new HashSet<>(mustKeepNodes);
         Set<String> visited = new HashSet<>();
         
-        Map<String, ProcessChainBuilder.ChainBuilderNode> nodeMap = context.getNodeMap();
+        Map<String, ChainBuilderNode> nodeMap = context.getNodeMap();
         Set<String> rootNodes = context.getRootNodes();
         
         int totalAdded = 0;
@@ -398,7 +400,7 @@ public class ProcessChainPruner {
             while (current != null && depth < MAX_TRAVERSE_DEPTH) {
                 visited.add(current);
                 
-                ProcessChainBuilder.ChainBuilderNode node = nodeMap.get(current);
+                ChainBuilderNode node = nodeMap.get(current);
                 if (node == null) {
                     log.debug("【进程链裁剪】-> 节点不存在: {}, 停止追溯", current);
                     break;
@@ -531,11 +533,11 @@ public class ProcessChainPruner {
         
         // 移除节点
         int removedNodeCount = 0;
-        Iterator<Map.Entry<String, ProcessChainBuilder.ChainBuilderNode>> nodeIterator = 
+        Iterator<Map.Entry<String, ChainBuilderNode>> nodeIterator = 
             context.getNodeMap().entrySet().iterator();
         
         while (nodeIterator.hasNext()) {
-            Map.Entry<String, ProcessChainBuilder.ChainBuilderNode> entry = nodeIterator.next();
+            Map.Entry<String, ChainBuilderNode> entry = nodeIterator.next();
             if (!nodesToKeep.contains(entry.getKey())) {
                 nodeIterator.remove();
                 removedNodeCount++;
@@ -544,10 +546,10 @@ public class ProcessChainPruner {
         
         // 移除边
         int removedEdgeCount = 0;
-        Iterator<ProcessChainBuilder.ChainBuilderEdge> edgeIterator = context.getEdges().iterator();
+        Iterator<ChainBuilderEdge> edgeIterator = context.getEdges().iterator();
         
         while (edgeIterator.hasNext()) {
-            ProcessChainBuilder.ChainBuilderEdge edge = edgeIterator.next();
+            ChainBuilderEdge edge = edgeIterator.next();
             
             String source = edge.getSource();
             String target = edge.getTarget();
@@ -581,9 +583,9 @@ public class ProcessChainPruner {
     private static Map<String, Integer> calculateNodeScores(PruneContext context) {
         Map<String, Integer> scores = new HashMap<>();
         
-        for (Map.Entry<String, ProcessChainBuilder.ChainBuilderNode> entry : context.getNodeMap().entrySet()) {
+        for (Map.Entry<String, ChainBuilderNode> entry : context.getNodeMap().entrySet()) {
             String processGuid = entry.getKey();
-            ProcessChainBuilder.ChainBuilderNode node = entry.getValue();
+            ChainBuilderNode node = entry.getValue();
             
             int score = 0;
             
@@ -629,7 +631,7 @@ public class ProcessChainPruner {
                 
                 // 4. 根据节点的连接数加分(度中心性)
                 int connectionCount = 0;
-                for (ProcessChainBuilder.ChainBuilderEdge edge : context.getEdges()) {
+                for (ChainBuilderEdge edge : context.getEdges()) {
                     if (edge == null) {
                         continue;
                     }

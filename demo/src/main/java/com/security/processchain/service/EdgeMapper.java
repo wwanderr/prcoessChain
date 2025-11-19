@@ -13,7 +13,7 @@ public interface EdgeMapper {
      * @param builderEdge Builder 内部边
      * @return 最终返回边
      */
-    ProcessEdge toIncidentEdge(ProcessChainBuilder.ChainBuilderEdge builderEdge);
+    ProcessEdge toIncidentEdge(ChainBuilderEdge builderEdge);
 }
 
 

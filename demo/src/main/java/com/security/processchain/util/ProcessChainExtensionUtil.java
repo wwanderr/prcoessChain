@@ -3,6 +3,7 @@ package com.security.processchain.util;
 import com.security.processchain.model.ProcessEdge;
 import com.security.processchain.model.ProcessNode;
 import com.security.processchain.model.RawLog;
+import com.security.processchain.service.ChainBuilderNode;
 import com.security.processchain.service.IncidentConverters;
 import com.security.processchain.service.OptimizedESQueryService;
 import com.security.processchain.service.ProcessChainBuilder;
@@ -484,7 +485,7 @@ public class ProcessChainExtensionUtil {
      */
     private static ProcessNode convertLogsToNode(String guid, List<RawLog> logs) {
         // ========== 步骤1：创建构建器节点 ==========
-        ProcessChainBuilder.ChainBuilderNode builderNode = new ProcessChainBuilder.ChainBuilderNode();
+        ChainBuilderNode builderNode = new ChainBuilderNode();
         builderNode.setProcessGuid(guid);
         
         // ========== 步骤2：添加日志数据 ==========

@@ -31,10 +31,19 @@ public class IpMappingRelation {
      */
     private Map<String, String> logs;
     
+    /**
+     * 端侧受害者IP和traceId的映射（新增）
+     * 用于无告警场景：通过IP获取traceId去查询日志
+     * key: 端侧IP (hostAddress)
+     * value: traceId
+     */
+    private Map<String, String> ipToTraceIds;
+    
     public IpMappingRelation() {
         this.ipAndAssociation = new HashMap<>();
         this.alarmIps = new HashMap<>();
         this.logs = new HashMap<>();
+        this.ipToTraceIds = new HashMap<>();
     }
     
     /**
@@ -146,6 +155,14 @@ public class IpMappingRelation {
     public void setLogs(Map<String, String> logs) {
         this.logs = (logs != null) ? logs : new HashMap<>();
     }
+    
+    public Map<String, String> getIpToTraceIds() {
+        return ipToTraceIds;
+    }
+    
+    public void setIpToTraceIds(Map<String, String> ipToTraceIds) {
+        this.ipToTraceIds = (ipToTraceIds != null) ? ipToTraceIds : new HashMap<>();
+    }
 
 
     @Override
@@ -154,6 +171,7 @@ public class IpMappingRelation {
                 "ipCount=" + (ipAndAssociation != null ? ipAndAssociation.size() : 0) +
                 ", associatedCount=" + (alarmIps != null ? alarmIps.size() : 0) +
                 ", logsCount=" + (logs != null ? logs.size() : 0) +
+                ", ipToTraceIdsCount=" + (ipToTraceIds != null ? ipToTraceIds.size() : 0) +
                 '}';
     }
 }

@@ -1,6 +1,6 @@
 package com.security.processchain.service;
 
-import com.security.processchain.service.ProcessChainBuilder.ChainBuilderNode;
+import com.security.processchain.service.ChainBuilderNode;
 import java.util.*;
 
 /**

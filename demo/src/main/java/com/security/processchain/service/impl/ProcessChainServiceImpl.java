@@ -95,8 +95,28 @@ public class ProcessChainServiceImpl {
 
                     List<RawAlarm> alarms = allAlarmsMap.getOrDefault(ip, new ArrayList<>());
                     if (alarms.isEmpty()) {
-                        log.warn("【进程链生成】-> IP [{}] 没有查询到告警数据，跳过", ip);
-                        failureCount++;
+                        log.warn("【进程链生成】-> IP [{}] 没有查询到告警数据", ip);
+                        
+                        // ========== 无告警场景：尝试通过ipToTraceIds获取traceId ==========
+                        String traceIdFromMapping = null;
+                        if (ipMappingRelation.getIpToTraceIds() != null) {
+                            traceIdFromMapping = ipMappingRelation.getIpToTraceIds().get(ip);
+                        }
+                        
+                        if (traceIdFromMapping != null && !traceIdFromMapping.isEmpty()) {
+                            log.info("【无告警场景】-> IP [{}] 通过ipToTraceIds找到traceId: {}", ip, traceIdFromMapping);
+                            
+                            // 收集traceId和host（后续批量查询日志）
+                            allTraceIds.add(traceIdFromMapping);
+                            allHostAddresses.add(ip);
+                            
+                            successCount++;
+                            log.info("【无告警场景】-> IP [{}] 将以日志为基准进行溯源", ip);
+                        } else {
+                            log.warn("【无告警场景】-> IP [{}] 无ipToTraceIds映射，跳过", ip);
+                            failureCount++;
+                        }
+                        
                         continue;
                     }
 
@@ -172,9 +192,17 @@ public class ProcessChainServiceImpl {
             log.info("【进程链生成】-> traceIds: {}", allTraceIds);
             log.info("【进程链生成】-> associatedEventIds: {}", allAssociatedEventIds);
             
+            // ========== 收集无告警场景的起点日志eventId ==========
+            Set<String> startLogEventIds = new HashSet<>();
+            if (ipMappingRelation.getLogs() != null) {
+                startLogEventIds.addAll(ipMappingRelation.getLogs().values());
+                startLogEventIds.removeIf(eventId -> eventId == null || eventId.trim().isEmpty());
+            }
+            log.info("【进程链生成】-> startLogEventIds: {}", startLogEventIds);
+            
             ProcessChainBuilder builder = new ProcessChainBuilder();
             IncidentProcessChain endpointChain = builder.buildIncidentChain(
-                    allSelectedAlarms, allLogs, allTraceIds, allAssociatedEventIds,
+                    allSelectedAlarms, allLogs, allTraceIds, allAssociatedEventIds, startLogEventIds,
                     IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER);
             
             // ✅ 优化：单独获取 traceIdToRootNodeMap（不作为 IncidentProcessChain 的一部分）
