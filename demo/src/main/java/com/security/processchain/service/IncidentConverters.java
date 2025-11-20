@@ -40,15 +40,6 @@ public final class IncidentConverters {
         chainNode.setIsRoot(isRoot);
         chainNode.setIsBroken(false);
 
-        if (isAlarm) {
-            RawAlarm latestAlarm = getLatestAlarm(alarms);
-            if (latestAlarm != null) {
-                AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(latestAlarm);
-                chainNode.setAlarmNodeInfo(alarmInfo);
-                finalNode.setNodeThreatSeverity(mapToThreatSeverity(latestAlarm.getThreatSeverity()));
-            }
-        }
-
         // ========== 关键修改：根据 nodeType 填充实体字段 ==========
         String nodeType = builderNode.getNodeType();
         
@@ -57,19 +48,32 @@ public final class IncidentConverters {
             if (latestLog != null) {
                 // 根据 nodeType 决定如何填充实体
                 if ("process".equals(nodeType)) {
-                    // 进程节点（父进程或子进程）
+                    // ========== 进程节点：设置告警信息和进程实体 ==========
                     finalNode.setLogType("process");
                     finalNode.setOpType(latestLog.getOpType());
+                    
+                    // 进程节点才设置告警信息
+                    if (isAlarm) {
+                        RawAlarm latestAlarm = getLatestAlarm(alarms);
+                        if (latestAlarm != null) {
+                            AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(latestAlarm);
+                            chainNode.setAlarmNodeInfo(alarmInfo);
+                            finalNode.setNodeThreatSeverity(mapToThreatSeverity(latestAlarm.getThreatSeverity()));
+                        }
+                    }
                     
                     // 只设置 processEntity，entity 为 null
                     chainNode.setProcessEntity(convertToProcessEntityForProcessNode(latestLog));
                     chainNode.setEntity(null);
                     
                 } else if (nodeType != null && nodeType.endsWith("_entity")) {
-                    // 实体节点（file_entity, domain_entity, network_entity, registry_entity）
+                    // ========== 实体节点：只设置实体信息，不设置告警和进程实体 ==========
                     String entityType = nodeType.replace("_entity", "");
                     finalNode.setLogType(entityType);  // "file", "domain", "network", "registry"
                     finalNode.setOpType(latestLog.getOpType());
+                    
+                    // 实体节点不设置告警信息
+                    chainNode.setAlarmNodeInfo(null);
                     
                     // 只设置 entity，processEntity 为 null
                     chainNode.setProcessEntity(null);
@@ -79,12 +83,24 @@ public final class IncidentConverters {
                     // 兜底逻辑（保持原有逻辑）
                     finalNode.setLogType(latestLog.getLogType());
                     finalNode.setOpType(latestLog.getOpType());
+                    
+                    // 兜底逻辑也可能有告警
+                    if (isAlarm) {
+                        RawAlarm latestAlarm = getLatestAlarm(alarms);
+                        if (latestAlarm != null) {
+                            AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(latestAlarm);
+                            chainNode.setAlarmNodeInfo(alarmInfo);
+                            finalNode.setNodeThreatSeverity(mapToThreatSeverity(latestAlarm.getThreatSeverity()));
+                        }
+                    }
+                    
                     Object entity = convertToEntity(latestLog, latestLog.getLogType());
                     chainNode.setEntity(entity);
                     chainNode.setProcessEntity(convertToProcessEntity(latestLog, entity));
                 }
             }
         } else if (isAlarm && alarms != null && !alarms.isEmpty()) {
+            // 只有告警没有日志的情况
             RawAlarm firstAlarm = alarms.get(0);
             if (firstAlarm != null && firstAlarm.getLogType() != null) {
                 // 直接使用原始的 logType，不转换为枚举
@@ -92,6 +108,11 @@ public final class IncidentConverters {
                 
                 // 设置 opType（从告警的 opType 中获取）
                 finalNode.setOpType(firstAlarm.getOpType());
+                
+                // 设置告警信息
+                AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(firstAlarm);
+                chainNode.setAlarmNodeInfo(alarmInfo);
+                finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
             }
         }
 
@@ -137,25 +158,59 @@ public final class IncidentConverters {
 
     /**
      * 选择时间最近的日志
+     * 优先选择非虚拟日志，避免虚拟父节点的日志（opType=create）覆盖真实日志
      */
     private static RawLog getLatestLog(List<RawLog> logs) {
         if (logs == null || logs.isEmpty()) {
             return null;
         }
-        RawLog latest = null;
+        
+        // 第一步：区分虚拟日志和真实日志
+        RawLog latestRealLog = null;
+        RawLog latestVirtualLog = null;
+        
         for (RawLog logItem : logs) {
             if (logItem == null) continue;
-            if (latest == null) {
-                latest = logItem;
-                continue;
-            }
-            String a = logItem.getStartTime();
-            String b = latest.getStartTime();
-            if (a != null && (b == null || a.compareTo(b) > 0)) {
-                latest = logItem;
+            
+            if (isVirtualLog(logItem)) {
+                // 虚拟日志
+                if (latestVirtualLog == null) {
+                    latestVirtualLog = logItem;
+                } else {
+                    String a = logItem.getStartTime();
+                    String b = latestVirtualLog.getStartTime();
+                    if (a != null && (b == null || a.compareTo(b) > 0)) {
+                        latestVirtualLog = logItem;
+                    }
+                }
+            } else {
+                // 真实日志
+                if (latestRealLog == null) {
+                    latestRealLog = logItem;
+                } else {
+                    String a = logItem.getStartTime();
+                    String b = latestRealLog.getStartTime();
+                    if (a != null && (b == null || a.compareTo(b) > 0)) {
+                        latestRealLog = logItem;
+                    }
+                }
             }
         }
-        return latest;
+        
+        // 第二步：优先返回真实日志，没有真实日志才返回虚拟日志
+        return latestRealLog != null ? latestRealLog : latestVirtualLog;
+    }
+    
+    /**
+     * 判断是否为虚拟日志
+     * 虚拟日志是在节点拆分时为虚拟父节点创建的日志
+     */
+    private static boolean isVirtualLog(RawLog rawLog) {
+        if (rawLog == null) return false;
+        
+        String eventId = rawLog.getEventId();
+        // 虚拟日志的 eventId 以 "VIRTUAL_LOG_" 开头
+        return eventId != null && eventId.startsWith("VIRTUAL_LOG_");
     }
 
     /**

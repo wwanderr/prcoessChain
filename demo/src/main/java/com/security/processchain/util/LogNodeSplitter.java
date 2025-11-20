@@ -88,14 +88,30 @@ public class LogNodeSplitter {
         String parentGuid = rawLog.getParentProcessGuid();
         
         if (parentGuid != null && !parentGuid.isEmpty()) {
-            // 创建虚拟父节点（可能会被真实节点合并）
-            GraphNode parentNode = createVirtualParentNode(rawLog);
+            // ⚠️ 检测根节点：processGuid == parentProcessGuid
+            boolean isRootNode = childGuid.equals(parentGuid);
+            
+            GraphNode parentNode;
+            String actualParentNodeId;
+            
+            if (isRootNode) {
+                // 根节点：为虚拟父节点生成特殊ID，避免与子节点冲突
+                actualParentNodeId = generateVirtualRootParentId(parentGuid);
+                parentNode = createVirtualParentNode(rawLog, actualParentNodeId);
+                log.debug("【节点拆分】根节点检测: childGuid={} == parentGuid={}, 生成虚拟父节点ID={}", 
+                         childGuid, parentGuid, actualParentNodeId);
+            } else {
+                // 非根节点：使用原始parentGuid
+                actualParentNodeId = parentGuid;
+                parentNode = createVirtualParentNode(rawLog, actualParentNodeId);
+            }
+            
             result.setParentNode(parentNode);
             
-            // 创建边：父 → 子
-            result.addEdge(parentGuid, childGuid);
+            // 创建边：父 → 子（使用实际的父节点ID）
+            result.addEdge(actualParentNodeId, childGuid);
             
-            log.debug("【节点拆分】process: {} → {}", parentGuid, childGuid);
+            log.debug("【节点拆分】process: {} → {}", actualParentNodeId, childGuid);
         }
         
         return result;
@@ -116,11 +132,28 @@ public class LogNodeSplitter {
         // 2. 创建父进程节点
         String parentGuid = rawLog.getParentProcessGuid();
         if (parentGuid != null && !parentGuid.isEmpty()) {
-            GraphNode parentNode = createVirtualParentNode(rawLog);
+            // ⚠️ 检测根节点：processGuid == parentProcessGuid
+            boolean isRootNode = childGuid.equals(parentGuid);
+            
+            GraphNode parentNode;
+            String actualParentNodeId;
+            
+            if (isRootNode) {
+                // 根节点：为虚拟父节点生成特殊ID，避免与子节点冲突
+                actualParentNodeId = generateVirtualRootParentId(parentGuid);
+                parentNode = createVirtualParentNode(rawLog, actualParentNodeId);
+                log.debug("【节点拆分】根节点检测: childGuid={} == parentGuid={}, 生成虚拟父节点ID={}", 
+                         childGuid, parentGuid, actualParentNodeId);
+            } else {
+                // 非根节点：使用原始parentGuid
+                actualParentNodeId = parentGuid;
+                parentNode = createVirtualParentNode(rawLog, actualParentNodeId);
+            }
+            
             result.setParentNode(parentNode);
             
-            // 边1：父 → 子
-            result.addEdge(parentGuid, childGuid);
+            // 边1：父 → 子（使用实际的父节点ID）
+            result.addEdge(actualParentNodeId, childGuid);
         }
         
         // 3. 创建实体节点
@@ -140,11 +173,18 @@ public class LogNodeSplitter {
     /**
      * 创建虚拟父进程节点
      */
-    private static GraphNode createVirtualParentNode(RawLog rawLog) {
+    /**
+     * 创建虚拟父进程节点
+     * 
+     * @param rawLog 原始日志
+     * @param actualParentNodeId 实际的父节点ID（可能是原始parentGuid，也可能是生成的虚拟ID）
+     * @return 虚拟父节点
+     */
+    private static GraphNode createVirtualParentNode(RawLog rawLog, String actualParentNodeId) {
         GraphNode parentNode = new GraphNode();
         
-        // 设置nodeId = log的parentProcessGuid
-        parentNode.setNodeId(rawLog.getParentProcessGuid());
+        // 设置nodeId = 实际的父节点ID
+        parentNode.setNodeId(actualParentNodeId);
         
         // 计算父进程的parentProcessGuid（hash）
         String parentParentGuid = calculateParentProcessGuidHash(rawLog);
@@ -160,7 +200,7 @@ public class LogNodeSplitter {
         
         // 创建虚拟日志（使用parent字段）
         RawLog parentLog = new RawLog();
-        parentLog.setProcessGuid(rawLog.getParentProcessGuid());
+        parentLog.setProcessGuid(actualParentNodeId);  // 使用实际的父节点ID
         parentLog.setParentProcessGuid(parentParentGuid);
         parentLog.setProcessName(rawLog.getParentProcessName());
         parentLog.setImage(rawLog.getParentImage());
@@ -172,6 +212,9 @@ public class LogNodeSplitter {
         parentLog.setTraceId(rawLog.getTraceId());
         parentLog.setHostAddress(rawLog.getHostAddress());
         parentLog.setStartTime(rawLog.getStartTime());
+        
+        // ⚠️ 重要：标记为虚拟日志，避免在日志选择时被优先选择
+        parentLog.setEventId("VIRTUAL_LOG_" + actualParentNodeId);
         
         parentNode.addLog(parentLog);
         
@@ -300,6 +343,27 @@ public class LogNodeSplitter {
             default:
                 return baseId + "_ENTITY_" + Math.abs(logType.hashCode());
         }
+    }
+    
+    /**
+     * 为根节点生成虚拟父节点ID
+     * 
+     * 根节点特征：processGuid == parentProcessGuid
+     * 为避免与子节点ID冲突，生成特殊的父节点ID
+     * 
+     * @param originalParentGuid 原始的parentProcessGuid
+     * @return 虚拟父节点ID，格式：VIRTUAL_ROOT_PARENT_<hash>
+     */
+    private static String generateVirtualRootParentId(String originalParentGuid) {
+        if (originalParentGuid == null || originalParentGuid.isEmpty()) {
+            return "VIRTUAL_ROOT_PARENT_UNKNOWN";
+        }
+        
+        // 使用原始GUID + "ROOT_PARENT" 计算hash
+        String hashInput = originalParentGuid + "_ROOT_PARENT";
+        String hash = calculateHash(hashInput);
+        
+        return "VIRTUAL_ROOT_PARENT_" + hash;
     }
     
     /**

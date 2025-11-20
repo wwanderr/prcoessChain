@@ -68,13 +68,13 @@ public class ProcessChainGraphBuilder {
         if (logs != null) {
             Map<String, GraphNode> virtualParents = new HashMap<>();
             
-            for (RawLog log : logs) {
-                if (log == null || log.getProcessGuid() == null) {
+            for (RawLog rawLog : logs) {
+                if (rawLog == null || rawLog.getProcessGuid() == null) {
                     continue;
                 }
                 
                 // 使用拆分逻辑
-                SplitResult splitResult = LogNodeSplitter.splitLogNode(log);
+                SplitResult splitResult = LogNodeSplitter.splitLogNode(rawLog);
                 
                 // 添加子节点（必有）
                 if (splitResult.getChildNode() != null) {
@@ -107,10 +107,16 @@ public class ProcessChainGraphBuilder {
                         // 虚拟父节点：暂存，后续合并
                         if (!virtualParents.containsKey(parentId)) {
                             virtualParents.put(parentId, parentNode);
+                            log.debug("【建图-父节点】暂存虚拟父节点: parentId={}, isVirtual={}", 
+                                    parentId, parentNode.isVirtual());
                         }
                     } else if (!graph.hasNode(parentId)) {
                         // 真实父节点：直接添加
                         graph.addNode(parentNode);
+                        log.debug("【建图-父节点】添加真实父节点: parentId={}, isVirtual={}", 
+                                parentId, parentNode.isVirtual());
+                    } else {
+                        log.debug("【建图-父节点】父节点已存在，跳过: parentId={}", parentId);
                     }
                 }
                 
@@ -129,6 +135,10 @@ public class ProcessChainGraphBuilder {
             }
             
             // 阶段2.5：处理虚拟父节点
+            log.info("【建图-阶段2.5】处理虚拟父节点: 暂存数量={}", virtualParents.size());
+            int addedVirtualParentCount = 0;
+            int replacedVirtualParentCount = 0;
+            
             for (Map.Entry<String, GraphNode> entry : virtualParents.entrySet()) {
                 String parentId = entry.getKey();
                 GraphNode virtualParent = entry.getValue();
@@ -136,12 +146,18 @@ public class ProcessChainGraphBuilder {
                 if (!graph.hasNode(parentId)) {
                     // 没有真实节点，添加虚拟节点
                     graph.addNode(virtualParent);
-                    log.debug("【建图】添加虚拟父节点: {}", parentId);
+                    addedVirtualParentCount++;
+                    log.debug("【建图】添加虚拟父节点: parentId={}, nodeType={}", 
+                            parentId, virtualParent.getNodeType());
                 } else {
                     // 已有真实节点，不需要添加虚拟节点
-                    log.debug("【建图】虚拟父节点被真实节点替代: {}", parentId);
+                    replacedVirtualParentCount++;
+                    log.debug("【建图】虚拟父节点被真实节点替代: parentId={}", parentId);
                 }
             }
+            
+            log.info("【建图-阶段2.5】虚拟父节点处理完成: 添加={}, 替代={}", 
+                    addedVirtualParentCount, replacedVirtualParentCount);
             
             // 统计各类型节点数量
             int processNodeCount = 0;
@@ -259,8 +275,8 @@ public class ProcessChainGraphBuilder {
         
         // ✅ 告警节点：直接添加所有日志，不受限制
         if (targetNode.isAlarm()) {
-            for (RawLog log : newLogs) {
-                targetNode.addLog(log);
+            for (RawLog rawLog : newLogs) {
+                targetNode.addLog(rawLog);
             }
             log.debug("【建图-日志累积优化】告警节点 {} 添加所有日志: {}", 
                      targetNode.getNodeId(), newLogs.size());
@@ -272,9 +288,9 @@ public class ProcessChainGraphBuilder {
         int addedCount = 0;
         int skippedCount = 0;
         
-        for (RawLog log : newLogs) {
+        for (RawLog rawLog : newLogs) {
             if (currentLogCount < MAX_LOGS_PER_NODE) {
-                targetNode.addLog(log);
+                targetNode.addLog(rawLog);
                 currentLogCount++;
                 addedCount++;
             } else {
