@@ -109,7 +109,7 @@ public class ProcessChainGraphBuilder {
                         
                         // ✅ 如果是特殊根节点，记录虚拟根父节点映射
                         if (isSpecialRootNode) {
-                            graph.getVirtualRootParentMap().put(childGuid, actualParentNodeId);
+                            graph.addVirtualRootParentMapping(childGuid, actualParentNodeId);
                             log.info("【建图-特殊根节点】检测到 processGuid==parentProcessGuid==traceId: " +
                                     "子根节点={}, 虚拟父节点={}, traceId={}", 
                                     childGuid, actualParentNodeId, traceId);

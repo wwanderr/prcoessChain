@@ -179,6 +179,21 @@ public class ProcessChainGraph {
     }
     
     /**
+     * 添加虚拟根父节点映射
+     * 用于 processGuid==parentProcessGuid==traceId 的场景
+     * 
+     * @param childRootNodeId 子根节点ID
+     * @param virtualParentNodeId 虚拟父节点ID
+     */
+    public void addVirtualRootParentMapping(String childRootNodeId, String virtualParentNodeId) {
+        if (childRootNodeId == null || virtualParentNodeId == null) {
+            return;
+        }
+        virtualRootParentMap.put(childRootNodeId, virtualParentNodeId);
+        log.debug("【映射添加】虚拟根父节点: {} -> {}", childRootNodeId, virtualParentNodeId);
+    }
+    
+    /**
      * 获取节点
      */
     public GraphNode getNode(String nodeId) {
