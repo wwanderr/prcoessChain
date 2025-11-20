@@ -67,6 +67,10 @@ public class ProcessChainBuilder {
     // traceId 到根节点ID的映射（用于网端桥接）
     private Map<String, String> traceIdToRootNodeMap;
     
+    // 虚拟根父节点映射：子根节点ID -> 虚拟父节点ID
+    // 用于 processGuid==parentProcessGuid==traceId 的场景
+    private Map<String, String> virtualRootParentMap;
+    
     public ProcessChainBuilder() {
         this.nodeMap = new HashMap<>();
         this.edges = new ArrayList<>();
@@ -80,6 +84,7 @@ public class ProcessChainBuilder {
         this.brokenNodes = new HashSet<>();
         this.brokenNodeToTraceId = new HashMap<>();
         this.traceIdToRootNodeMap = new HashMap<>();
+        this.virtualRootParentMap = new HashMap<>();
         this.selfLoopWarned = new HashSet<>();
     }
     
@@ -101,10 +106,7 @@ public class ProcessChainBuilder {
      * @return 子根节点ID -> 虚拟父节点ID的映射（返回副本，防止外部修改）
      */
     public Map<String, String> getVirtualRootParentMap() {
-        if (result != null && result.getGraph() != null) {
-            return result.getGraph().getVirtualRootParentMap();
-        }
-        return new HashMap<>();
+        return new HashMap<>(virtualRootParentMap);
     }
     
     /**
@@ -309,14 +311,15 @@ public class ProcessChainBuilder {
             this.brokenNodeToTraceId = result.getBrokenNodeToTraceId();
             this.rootNodes = result.getRootNodes();
             this.brokenNodes = result.getBrokenNodes();
+            this.virtualRootParentMap = subgraph.getVirtualRootParentMap();  // ✅ 同步虚拟根父节点映射
             
             log.info("进程链构建完成: 节点数={}, 边数={}, 根节点数={}, 断裂节点数={}", 
                     result.getNodes().size(), result.getEdges().size(), 
                     result.getRootNodes().size(), result.getBrokenNodes().size());
             
-            log.info("关键映射同步完成: traceIdToRootNodeMap={}, brokenNodeToTraceId={}, rootNodes={}, brokenNodes={}", 
+            log.info("关键映射同步完成: traceIdToRootNodeMap={}, brokenNodeToTraceId={}, rootNodes={}, brokenNodes={}, virtualRootParentMap={}", 
                     this.traceIdToRootNodeMap.size(), this.brokenNodeToTraceId.size(), 
-                    this.rootNodes.size(), this.brokenNodes.size());
+                    this.rootNodes.size(), this.brokenNodes.size(), this.virtualRootParentMap.size());
             
             // ⚠️ 调试：输出映射详情
             if (this.traceIdToRootNodeMap.isEmpty()) {
@@ -1330,6 +1333,13 @@ public class ProcessChainBuilder {
             if (this.traceIdToRootNodeMap == null || this.traceIdToRootNodeMap.isEmpty()) {
                 this.traceIdToRootNodeMap = result.getTraceIdToRootNodeMap();
                 log.info("【进程链生成】-> 从 result 同步 traceIdToRootNodeMap: {}", this.traceIdToRootNodeMap);
+            }
+            
+            // ✅ 同步 virtualRootParentMap（确保网端桥接能够获取）
+            // buildProcessChain 内部已经同步过，但这里再次确认
+            if (this.virtualRootParentMap == null || this.virtualRootParentMap.isEmpty()) {
+                // virtualRootParentMap 不在 result 中，已经在 buildProcessChain 中同步
+                log.debug("【进程链生成】-> virtualRootParentMap: {}", this.virtualRootParentMap);
             }
             
             // 转换为最终的 IncidentProcessChain
