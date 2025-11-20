@@ -322,31 +322,53 @@ public class ProcessChainGraph {
                             log.debug("【根节点识别】原根节点 {} 的 isRoot 改为 false", oldRootNodeId);
                         }
                     }
-                } else if (node.getParentProcessGuid() != null && 
-                    !node.getParentProcessGuid().isEmpty()) {
-                    // 有parentProcessGuid但找不到父节点 -> 断链
-                    brokenNodes.add(nodeId);
-                    node.setIsBroken(true);
-                    
-                    // 记录断链节点的traceId
-                    String traceId = node.getTraceId();
-                    if (traceId != null) {
-                        brokenNodeToTraceId.put(nodeId, traceId);
-                    }
-                    
-                    log.debug("【断链识别】找到断链节点: {} (入度0，有parentGuid), traceId={}", 
-                            nodeId, traceId);
-                } else {
-                    // ✅ 入度为0且没有parentGuid -> 也是根节点
+                } 
+                // ✅ 新增：检查是否是根节点（processGuid == traceId）
+                // 即使节点有 parentProcessGuid，只要 processGuid == traceId，就是根节点，不是断链
+                else if (nodeId.equals(node.getTraceId())) {
                     rootNodes.add(nodeId);
                     node.setIsRoot(true);
-                    
-                    // 建立 traceId → rootNodeId 映射
-                    String traceId = node.getTraceId();
-                    if (traceId != null && !traceIdToRootNodeMap.containsKey(traceId)) {
-                        traceIdToRootNodeMap.put(traceId, nodeId);
-                        log.debug("【根节点识别】找到根节点: {} (入度0，无parentGuid), traceId={}", 
-                                nodeId, traceId);
+                    traceIdToRootNodeMap.put(nodeId, nodeId);
+                    log.debug("【根节点识别】找到根节点: {} (processGuid==traceId), 虽有parentGuid={} 但不是断链", 
+                            nodeId, node.getParentProcessGuid());
+                }
+                else {
+                    if (node.getParentProcessGuid() != null && 
+                        !node.getParentProcessGuid().isEmpty()) {
+                        
+                        // ✅ 新增：检查父节点是否是虚拟节点
+                        // 如果 parentProcessGuid 以 VIRTUAL_ 开头，说明父节点是虚拟节点，可能还没创建，不应标记为断链
+                        if (node.getParentProcessGuid().startsWith("VIRTUAL_ROOT_PARENT_") ||
+                            node.getParentProcessGuid().startsWith("VIRTUAL_PARENT_")) {
+                            log.debug("【根节点识别】跳过虚拟父节点的子节点: nodeId={}, virtualParentGuid={}, 等待虚拟节点创建后建立关系", 
+                                    nodeId, node.getParentProcessGuid());
+                            // 不标记为断链，也不标记为根节点，等待后续处理
+                        } else {
+                            // 有parentProcessGuid但找不到父节点 -> 断链
+                            brokenNodes.add(nodeId);
+                            node.setIsBroken(true);
+                            
+                            // 记录断链节点的traceId
+                            String traceId = node.getTraceId();
+                            if (traceId != null) {
+                                brokenNodeToTraceId.put(nodeId, traceId);
+                            }
+                            
+                            log.debug("【断链识别】找到断链节点: {} (入度0，有parentGuid={}), traceId={}", 
+                                    nodeId, node.getParentProcessGuid(), traceId);
+                        }
+                    } else {
+                        // ✅ 入度为0且没有parentGuid -> 也是根节点
+                        rootNodes.add(nodeId);
+                        node.setIsRoot(true);
+                        
+                        // 建立 traceId → rootNodeId 映射
+                        String traceId = node.getTraceId();
+                        if (traceId != null && !traceIdToRootNodeMap.containsKey(traceId)) {
+                            traceIdToRootNodeMap.put(traceId, nodeId);
+                            log.debug("【根节点识别】找到根节点: {} (入度0，无parentGuid), traceId={}", 
+                                    nodeId, traceId);
+                        }
                     }
                 }
             }
