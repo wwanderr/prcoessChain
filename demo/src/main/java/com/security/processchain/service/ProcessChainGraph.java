@@ -265,9 +265,10 @@ public class ProcessChainGraph {
                         brokenNodeToTraceId.put(nodeId, traceId);
                     }
                     
-                    log.debug("【断链识别】找到断链节点: {} (入度0，有parentGuid)", nodeId);
+                    log.debug("【断链识别】找到断链节点: {} (入度0，有parentGuid), traceId={}", 
+                            nodeId, traceId);
                 } else {
-                    // ✅ 入度为0且没有parentGuid -> 也是根节点
+                    // ✅ 入度为0且没有parentGuid -> 也是根节点（虚拟父节点）
                     rootNodes.add(nodeId);
                     node.setIsRoot(true);
                     
@@ -284,7 +285,15 @@ public class ProcessChainGraph {
         
         log.info("【图分析】根节点数={}, 断链节点数={}, traceId映射数={}", 
                 rootNodes.size(), brokenNodes.size(), traceIdToRootNodeMap.size());
-        log.info("【图分析】traceIdToRootNodeMap: {}", traceIdToRootNodeMap);
+        
+        // ⚠️ 如果有断链节点，映射可能为空（需要后续创建EXPLORE节点）
+        if (!brokenNodes.isEmpty() && traceIdToRootNodeMap.isEmpty()) {
+            log.warn("【图分析】⚠️ 检测到断链节点，但traceIdToRootNodeMap为空，将在后续创建EXPLORE节点");
+            log.warn("【图分析】断链节点列表: {}", brokenNodes);
+            log.warn("【图分析】brokenNodeToTraceId: {}", brokenNodeToTraceId);
+        } else {
+            log.info("【图分析】traceIdToRootNodeMap: {}", traceIdToRootNodeMap);
+        }
     }
     
     /**

@@ -301,62 +301,57 @@ public class EntityFilterUtil {
     
     /**
      * 过滤file节点
-     * 规则：优先保留优先后缀，告警节点优先，保留前3个
+     * 规则：
+     * 1. 优先后缀（.exe .dll等）+ opType=create → 全部保留
+     * 2. 其他文件 → 保留最早的3个
      */
     private static List<GraphNode> filterFileNodes(
             List<GraphNode> nodes, int limit) {
         
-        if (nodes.size() <= limit) {
-            return nodes;
-        }
-        
-        // 1. 分类：优先后缀 vs 普通文件
+        // 1. 分类：优先文件（后缀+create） vs 普通文件
         List<GraphNode> priorityFiles = new ArrayList<>();
         List<GraphNode> normalFiles = new ArrayList<>();
         
         for (GraphNode node : nodes) {
             String filename = extractFilename(node);
-            if (hasPriorityExtension(filename)) {
+            String opType = extractOpType(node);
+            
+            // 优先后缀 + opType=create → 全部保留
+            if (hasPriorityExtension(filename) && "create".equalsIgnoreCase(opType)) {
                 priorityFiles.add(node);
             } else {
                 normalFiles.add(node);
             }
         }
         
-        // 2. 排序：告警节点优先，然后按时间
-        Comparator<GraphNode> comparator = (a, b) -> {
-            // 告警节点优先
-            if (a.isAlarm() != b.isAlarm()) {
-                return a.isAlarm() ? -1 : 1;
-            }
-            // 按时间排序（最新的）
-            return compareByTime(a, b, false);
-        };
+        log.debug("【文件过滤】优先文件(后缀+create)数={}, 普通文件数={}", 
+                priorityFiles.size(), normalFiles.size());
         
-        priorityFiles.sort(comparator);
-        normalFiles.sort(comparator);
+        // 2. 优先文件全部保留
+        List<GraphNode> result = new ArrayList<>(priorityFiles);
         
-        // 3. 选择节点
-        List<GraphNode> result = new ArrayList<>();
-        
-        // 先加入优先文件
-        for (GraphNode node : priorityFiles) {
-            if (result.size() >= limit) break;
-            result.add(node);
+        // 3. 普通文件保留最早的3个
+        if (!normalFiles.isEmpty()) {
+            // 按时间升序排序（最早的在前）
+            normalFiles.sort((a, b) -> compareByTime(a, b, true));
+            
+            // 取前3个
+            int count = Math.min(limit, normalFiles.size());
+            result.addAll(normalFiles.subList(0, count));
+            
+            log.debug("【文件过滤】普通文件保留最早的{}个", count);
         }
         
-        // 如果还有空位，加入普通文件
-        for (GraphNode node : normalFiles) {
-            if (result.size() >= limit) break;
-            result.add(node);
-        }
+        log.debug("【文件过滤】最终保留文件数={} (优先{}个 + 普通{}个)", 
+                result.size(), priorityFiles.size(), 
+                Math.min(limit, normalFiles.size()));
         
         return result;
     }
     
     /**
      * 过滤domain节点
-     * 规则：保留最新的5个
+     * 规则：保留最早的5个
      */
     private static List<GraphNode> filterDomainNodes(
             List<GraphNode> nodes, int limit) {
@@ -365,8 +360,8 @@ public class EntityFilterUtil {
             return nodes;
         }
         
-        // 按时间降序排序（最新的在前）
-        nodes.sort((a, b) -> compareByTime(a, b, false));
+        // ✅ 修改：按时间升序排序（最早的在前）
+        nodes.sort((a, b) -> compareByTime(a, b, true));
         
         return nodes.stream()
                 .limit(limit)
@@ -375,7 +370,7 @@ public class EntityFilterUtil {
     
     /**
      * 过滤network节点
-     * 规则：保留最新的5个
+     * 规则：保留最早的5个
      */
     private static List<GraphNode> filterNetworkNodes(
             List<GraphNode> nodes, int limit) {
@@ -384,8 +379,8 @@ public class EntityFilterUtil {
             return nodes;
         }
         
-        // 与domain相同，保留最新的
-        nodes.sort((a, b) -> compareByTime(a, b, false));
+        // ✅ 修改：与domain相同，保留最早的
+        nodes.sort((a, b) -> compareByTime(a, b, true));
         
         return nodes.stream()
                 .limit(limit)
@@ -447,6 +442,18 @@ public class EntityFilterUtil {
         }
         
         return filename != null ? filename : "";
+    }
+    
+    /**
+     * 提取opType
+     */
+    private static String extractOpType(GraphNode node) {
+        if (node.getLogs() == null || node.getLogs().isEmpty()) {
+            return "";
+        }
+        
+        RawLog log = node.getLogs().get(0);
+        return log.getOpType() != null ? log.getOpType() : "";
     }
     
     /**

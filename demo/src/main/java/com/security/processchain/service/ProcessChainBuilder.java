@@ -156,28 +156,56 @@ public class ProcessChainBuilder {
             }
             // 2.2 无告警场景：使用指定日志的processGuid作为起点
             else if (startLogEventIds != null && !startLogEventIds.isEmpty()) {
+                log.info("【无告警场景】开始处理起点日志: startLogEventIds={}", startLogEventIds);
+                log.info("【无告警场景】日志总数={}", logs != null ? logs.size() : 0);
+                
                 // 根据eventId找到对应的日志，获取其processGuid
                 Map<String, String> eventIdToProcessGuid = new HashMap<>();
                 
-                if (logs != null) {
-                    for (RawLog log : logs) {
-                        if (log != null && log.getEventId() != null && 
-                            startLogEventIds.contains(log.getEventId())) {
-                            eventIdToProcessGuid.put(log.getEventId(), log.getProcessGuid());
+                if (logs == null || logs.isEmpty()) {
+                    log.error("【无告警场景】❌ 日志列表为空，无法找到起点日志！");
+                } else {
+                    int matchedCount = 0;
+                    for (RawLog rawLog : logs) {
+                        if (rawLog == null) continue;
+                        
+                        String logEventId = rawLog.getEventId();
+                        if (logEventId != null && startLogEventIds.contains(logEventId)) {
+                            eventIdToProcessGuid.put(logEventId, rawLog.getProcessGuid());
+                            matchedCount++;
+                            log.info("【无告警场景】✅ 找到匹配日志: eventId={}, processGuid={}", 
+                                    logEventId, rawLog.getProcessGuid());
                         }
                     }
+                    log.info("【无告警场景】匹配的日志数: {}/{}", matchedCount, startLogEventIds.size());
                 }
                 
                 // 在图中找到对应的节点
                 for (String eventId : startLogEventIds) {
                     String processGuid = eventIdToProcessGuid.get(eventId);
-                    if (processGuid != null && fullGraph.hasNode(processGuid)) {
-                        startNodes.add(processGuid);
-                        log.info("【无告警场景】找到起点日志: eventId={}, processGuid={}", 
-                                eventId, processGuid);
-                    } else {
-                        log.warn("【无告警场景】未找到起点日志对应的节点: eventId={}", eventId);
+                    
+                    if (processGuid == null) {
+                        log.warn("【无告警场景】❌ eventId [{}] 在日志中找不到对应的processGuid", eventId);
+                        continue;
                     }
+                    
+                    if (!fullGraph.hasNode(processGuid)) {
+                        log.warn("【无告警场景】❌ processGuid [{}] 在图中不存在 (eventId={})", 
+                                processGuid, eventId);
+                        log.warn("【无告警场景】图中现有节点数: {}", fullGraph.getNodeCount());
+                        continue;
+                    }
+                    
+                    startNodes.add(processGuid);
+                    log.info("【无告警场景】✅ 添加起点节点: eventId={}, processGuid={}", 
+                            eventId, processGuid);
+                }
+                
+                if (startNodes.isEmpty()) {
+                    log.error("【无告警场景】❌ 没有找到任何有效的起点节点！");
+                    log.error("  - 提供的eventIds: {}", startLogEventIds);
+                    log.error("  - 匹配到的processGuids: {}", eventIdToProcessGuid.keySet());
+                    log.error("  - 图中节点数: {}", fullGraph.getNodeCount());
                 }
                 
                 log.info("【无告警场景】使用指定日志作为起点: eventIds={}, 节点数={}", 
@@ -190,6 +218,26 @@ public class ProcessChainBuilder {
             }
             
             log.info("【起点节点】共 {} 个起点", startNodes.size());
+            
+            // ✅ 临时兜底：如果 startNodes 为空，使用根节点
+            if (startNodes.isEmpty()) {
+                log.error("【紧急排查】startNodes 为空，无法生成进程链！");
+                log.error("  - alarms数量: {}", alarms != null ? alarms.size() : 0);
+                log.error("  - logs数量: {}", logs != null ? logs.size() : 0);
+                log.error("  - startLogEventIds数量: {}", startLogEventIds != null ? startLogEventIds.size() : 0);
+                log.error("  - startLogEventIds内容: {}", startLogEventIds);
+                log.error("  - 图节点数: {}", fullGraph.getNodeCount());
+                log.error("  - 根节点数: {}", fullGraph.getRootNodes().size());
+                
+                // 兜底方案：使用根节点
+                if (!fullGraph.getRootNodes().isEmpty()) {
+                    startNodes.addAll(fullGraph.getRootNodes());
+                    log.warn("【兜底方案】使用 {} 个根节点作为起点", startNodes.size());
+                } else {
+                    log.error("【致命错误】图中没有根节点，无法生成进程链！");
+                    return new ProcessChainResult();  // 返回空结果
+                }
+            }
             
             // ===== 阶段3：子图提取（遍历） =====
             // 从告警/起点日志出发，提取所有连通的节点
