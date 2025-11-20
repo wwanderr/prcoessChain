@@ -413,7 +413,23 @@ public class ProcessChainGraph {
             result.addAll(downwardNodes);
         }
         
-        log.info("【全树遍历】总节点数: {}", result.size());
+        // 统计各类型节点数量
+        int processCount = 0;
+        int entityCount = 0;
+        for (String nodeId : result) {
+            GraphNode node = nodes.get(nodeId);
+            if (node != null) {
+                String nodeType = node.getNodeType();
+                if (nodeType != null && nodeType.endsWith("_entity")) {
+                    entityCount++;
+                } else {
+                    processCount++;
+                }
+            }
+        }
+        
+        log.info("【全树遍历】总节点数: {}, 进程节点: {}, 实体节点: {}", 
+                result.size(), processCount, entityCount);
         
         return result;
     }

@@ -47,14 +47,25 @@ public class LogNodeSplitter {
         
         if ("process".equalsIgnoreCase(logType)) {
             // process日志：拆分为父子进程
+            log.debug("【LogNodeSplitter】识别为process日志: processGuid={}", rawLog.getProcessGuid());
             return splitProcessLog(rawLog);
             
         } else if (isEntityLogType(logType)) {
             // file/domain/network/registry：拆分为父+子+实体
-            return splitEntityLog(rawLog);
+            log.info("【LogNodeSplitter】识别为实体日志: logType={}, processGuid={}", logType, rawLog.getProcessGuid());
+            SplitResult result = splitEntityLog(rawLog);
+            if (result.getEntityNode() != null) {
+                log.info("【LogNodeSplitter】实体节点已创建: entityNodeId={}, entityNodeType={}", 
+                        result.getEntityNode().getNodeId(), result.getEntityNode().getNodeType());
+            } else {
+                log.error("【LogNodeSplitter】❌ 实体节点创建失败: logType={}, processGuid={}", 
+                        logType, rawLog.getProcessGuid());
+            }
+            return result;
             
         } else {
             // 其他类型：不拆分，只创建子节点
+            log.warn("【LogNodeSplitter】未识别的日志类型: logType={}, processGuid={}", logType, rawLog.getProcessGuid());
             SplitResult result = new SplitResult();
             result.setChildNode(createNodeFromLog(rawLog, rawLog.getProcessGuid()));
             return result;

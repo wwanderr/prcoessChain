@@ -83,7 +83,15 @@ public class ProcessChainGraphBuilder {
                     // 如果子节点已存在（告警节点），合并信息
                     if (graph.hasNode(childNode.getNodeId())) {
                         GraphNode existing = graph.getNode(childNode.getNodeId());
-                        // ✅ 合并日志（带数量限制）
+                        
+                        // ✅ 如果告警节点的 nodeType 不是 "process"，但日志节点是 "process"
+                        // 保持告警节点的类型（告警类型优先）
+                        if (!"process".equals(existing.getNodeType()) && "process".equals(childNode.getNodeType())) {
+                            log.debug("【建图】保持告警节点类型: nodeId={}, 告警nodeType={}, 日志nodeType={}", 
+                                    existing.getNodeId(), existing.getNodeType(), childNode.getNodeType());
+                        }
+                        
+                        // 合并日志（带数量限制）
                         mergeLogsWithLimit(existing, childNode.getLogs());
                     } else {
                         graph.addNode(childNode);
@@ -108,7 +116,10 @@ public class ProcessChainGraphBuilder {
                 
                 // 添加实体节点
                 if (splitResult.getEntityNode() != null) {
-                    graph.addNode(splitResult.getEntityNode());
+                    GraphNode entityNode = splitResult.getEntityNode();
+                    graph.addNode(entityNode);
+                    log.info("【建图-实体节点】添加实体节点: nodeId={}, nodeType={}", 
+                            entityNode.getNodeId(), entityNode.getNodeType());
                 }
                 
                 // 添加边
@@ -132,7 +143,35 @@ public class ProcessChainGraphBuilder {
                 }
             }
             
-            log.info("【建图】日志节点添加完成: 节点总数={}", graph.getNodeCount());
+            // 统计各类型节点数量
+            int processNodeCount = 0;
+            int entityNodeCount = 0;
+            int fileEntityCount = 0;
+            int domainEntityCount = 0;
+            int networkEntityCount = 0;
+            int registryEntityCount = 0;
+            
+            for (GraphNode node : graph.getAllNodes()) {
+                String nodeType = node.getNodeType();
+                if (nodeType != null && nodeType.endsWith("_entity")) {
+                    entityNodeCount++;
+                    if (nodeType.equals("file_entity")) {
+                        fileEntityCount++;
+                    } else if (nodeType.equals("domain_entity")) {
+                        domainEntityCount++;
+                    } else if (nodeType.equals("network_entity")) {
+                        networkEntityCount++;
+                    } else if (nodeType.equals("registry_entity")) {
+                        registryEntityCount++;
+                    }
+                } else {
+                    processNodeCount++;
+                }
+            }
+            
+            log.info("【建图】日志节点添加完成: 节点总数={}, 进程节点={}, 实体节点={} (file={}, domain={}, network={}, registry={})", 
+                    graph.getNodeCount(), processNodeCount, entityNodeCount,
+                    fileEntityCount, domainEntityCount, networkEntityCount, registryEntityCount);
         }
         
         // 阶段3：建立父子边（对于没有通过拆分添加边的节点）
@@ -179,7 +218,18 @@ public class ProcessChainGraphBuilder {
         node.setParentProcessGuid(alarm.getParentProcessGuid());
         node.setTraceId(alarm.getTraceId());
         node.setHostAddress(alarm.getHostAddress());
-        node.setNodeType("process");
+        
+        // ✅ 从告警中获取 logType
+        String logType = alarm.getLogType();
+        if (logType == null || logType.isEmpty()) {
+            // 如果告警没有 logType，默认为 process
+            logType = "process";
+            log.debug("【建图】告警没有logType，默认设置为process: processGuid={}", alarm.getProcessGuid());
+        }
+        node.setNodeType(logType);
+        
+        log.debug("【建图】从告警创建节点: processGuid={}, logType={}, nodeType={}", 
+                alarm.getProcessGuid(), alarm.getLogType(), node.getNodeType());
         
         node.addAlarm(alarm);
         
