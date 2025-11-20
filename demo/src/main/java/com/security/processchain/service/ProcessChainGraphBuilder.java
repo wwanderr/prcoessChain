@@ -2,21 +2,25 @@ package com.security.processchain.service;
 
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
-import com.security.processchain.util.EdgePair;
-import com.security.processchain.util.LogNodeSplitter;
-import com.security.processchain.util.SplitResult;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.*;
 
 /**
- * 进程链图构建器
+ * 进程链图构建器（晚拆分方案）
  * 
  * 职责：
- * 1. 从原始数据（告警+日志）构建完整的图
- * 2. 应用节点拆分规则
- * 3. 合并虚拟节点和真实节点
- * 4. 返回完整的图结构
+ * 1. 从原始数据（告警+日志）构建进程链图（只包含进程节点）
+ * 2. 创建虚拟父进程节点（如果需要）
+ * 3. 建立进程间的父子关系
+ * 4. 返回完整的进程链图
+ * 
+ * 注意：
+ * - 不再在建图阶段拆分实体节点
+ * - 实体节点的提取推迟到裁剪后进行（由 EntityExtractor 负责）
+ * - 日志（包括实体类型日志）都保留在进程节点上
  */
 @Slf4j
 public class ProcessChainGraphBuilder {
@@ -64,7 +68,7 @@ public class ProcessChainGraphBuilder {
             log.info("【建图】告警节点添加完成: {}", graph.getNodeCount());
         }
         
-        // 阶段2：添加日志节点（带拆分）
+        // 阶段2：添加日志节点（只构建进程链，不拆分实体）
         if (logs != null) {
             Map<String, GraphNode> virtualParents = new HashMap<>();
             
@@ -73,64 +77,44 @@ public class ProcessChainGraphBuilder {
                     continue;
                 }
                 
-                // 使用拆分逻辑
-                SplitResult splitResult = LogNodeSplitter.splitLogNode(rawLog);
+                String childGuid = rawLog.getProcessGuid();
+                String parentGuid = rawLog.getParentProcessGuid();
                 
-                // 添加子节点（必有）
-                if (splitResult.getChildNode() != null) {
-                    GraphNode childNode = splitResult.getChildNode();
+                // 1. 创建或合并子进程节点
+                if (!graph.hasNode(childGuid)) {
+                    // 创建新的进程节点
+                    GraphNode childNode = createNodeFromLog(rawLog);
+                    graph.addNode(childNode);
+                } else {
+                    // 节点已存在，合并日志
+                    GraphNode existing = graph.getNode(childGuid);
+                    mergeLogsWithLimit(existing, Collections.singletonList(rawLog));
+                }
+                
+                // 2. 处理父进程节点（如果有）
+                if (parentGuid != null && !parentGuid.isEmpty()) {
+                    // 检测根节点：processGuid == parentProcessGuid
+                    boolean isRootNode = childGuid.equals(parentGuid);
                     
-                    // 如果子节点已存在（告警节点），合并信息
-                    if (graph.hasNode(childNode.getNodeId())) {
-                        GraphNode existing = graph.getNode(childNode.getNodeId());
-                        
-                        // ✅ 如果告警节点的 nodeType 不是 "process"，但日志节点是 "process"
-                        // 保持告警节点的类型（告警类型优先）
-                        if (!"process".equals(existing.getNodeType()) && "process".equals(childNode.getNodeType())) {
-                            log.debug("【建图】保持告警节点类型: nodeId={}, 告警nodeType={}, 日志nodeType={}", 
-                                    existing.getNodeId(), existing.getNodeType(), childNode.getNodeType());
-                        }
-                        
-                        // 合并日志（带数量限制）
-                        mergeLogsWithLimit(existing, childNode.getLogs());
+                    String actualParentNodeId;
+                    if (isRootNode) {
+                        // 根节点：为虚拟父节点生成特殊ID，避免与子节点冲突
+                        actualParentNodeId = generateVirtualRootParentId(parentGuid);
                     } else {
-                        graph.addNode(childNode);
+                        // 非根节点：使用原始parentGuid
+                        actualParentNodeId = parentGuid;
                     }
-                }
-                
-                // 处理父节点（可能为虚拟节点）
-                if (splitResult.getParentNode() != null) {
-                    GraphNode parentNode = splitResult.getParentNode();
-                    String parentId = parentNode.getNodeId();
                     
-                    if (parentNode.isVirtual()) {
-                        // 虚拟父节点：暂存，后续合并
-                        if (!virtualParents.containsKey(parentId)) {
-                            virtualParents.put(parentId, parentNode);
-                            log.debug("【建图-父节点】暂存虚拟父节点: parentId={}, isVirtual={}", 
-                                    parentId, parentNode.isVirtual());
-                        }
-                    } else if (!graph.hasNode(parentId)) {
-                        // 真实父节点：直接添加
-                        graph.addNode(parentNode);
-                        log.debug("【建图-父节点】添加真实父节点: parentId={}, isVirtual={}", 
-                                parentId, parentNode.isVirtual());
-                    } else {
-                        log.debug("【建图-父节点】父节点已存在，跳过: parentId={}", parentId);
+                    // 创建或暂存虚拟父节点
+                    if (!graph.hasNode(actualParentNodeId) && !virtualParents.containsKey(actualParentNodeId)) {
+                        GraphNode virtualParent = createVirtualParentNode(rawLog, actualParentNodeId);
+                        virtualParents.put(actualParentNodeId, virtualParent);
+                        log.debug("【建图-父节点】暂存虚拟父节点: parentId={}, isRoot={}", 
+                                actualParentNodeId, isRootNode);
                     }
-                }
-                
-                // 添加实体节点
-                if (splitResult.getEntityNode() != null) {
-                    GraphNode entityNode = splitResult.getEntityNode();
-                    graph.addNode(entityNode);
-                    log.info("【建图-实体节点】添加实体节点: nodeId={}, nodeType={}", 
-                            entityNode.getNodeId(), entityNode.getNodeType());
-                }
-                
-                // 添加边
-                for (EdgePair edge : splitResult.getEdges()) {
-                    graph.addEdge(edge.getSource(), edge.getTarget());
+                    
+                    // 创建边：父 → 子
+                    graph.addEdge(actualParentNodeId, childGuid);
                 }
             }
             
@@ -147,8 +131,7 @@ public class ProcessChainGraphBuilder {
                     // 没有真实节点，添加虚拟节点
                     graph.addNode(virtualParent);
                     addedVirtualParentCount++;
-                    log.debug("【建图】添加虚拟父节点: parentId={}, nodeType={}", 
-                            parentId, virtualParent.getNodeType());
+                    log.debug("【建图】添加虚拟父节点: parentId={}", parentId);
                 } else {
                     // 已有真实节点，不需要添加虚拟节点
                     replacedVirtualParentCount++;
@@ -159,35 +142,7 @@ public class ProcessChainGraphBuilder {
             log.info("【建图-阶段2.5】虚拟父节点处理完成: 添加={}, 替代={}", 
                     addedVirtualParentCount, replacedVirtualParentCount);
             
-            // 统计各类型节点数量
-            int processNodeCount = 0;
-            int entityNodeCount = 0;
-            int fileEntityCount = 0;
-            int domainEntityCount = 0;
-            int networkEntityCount = 0;
-            int registryEntityCount = 0;
-            
-            for (GraphNode node : graph.getAllNodes()) {
-                String nodeType = node.getNodeType();
-                if (nodeType != null && nodeType.endsWith("_entity")) {
-                    entityNodeCount++;
-                    if (nodeType.equals("file_entity")) {
-                        fileEntityCount++;
-                    } else if (nodeType.equals("domain_entity")) {
-                        domainEntityCount++;
-                    } else if (nodeType.equals("network_entity")) {
-                        networkEntityCount++;
-                    } else if (nodeType.equals("registry_entity")) {
-                        registryEntityCount++;
-                    }
-                } else {
-                    processNodeCount++;
-                }
-            }
-            
-            log.info("【建图】日志节点添加完成: 节点总数={}, 进程节点={}, 实体节点={} (file={}, domain={}, network={}, registry={})", 
-                    graph.getNodeCount(), processNodeCount, entityNodeCount,
-                    fileEntityCount, domainEntityCount, networkEntityCount, registryEntityCount);
+            log.info("【建图】日志节点添加完成: 进程节点总数={}", graph.getNodeCount());
         }
         
         // 阶段3：建立父子边（对于没有通过拆分添加边的节点）
@@ -250,6 +205,151 @@ public class ProcessChainGraphBuilder {
         node.addAlarm(alarm);
         
         return node;
+    }
+    
+    /**
+     * 从日志创建进程节点
+     */
+    private GraphNode createNodeFromLog(RawLog rawLog) {
+        GraphNode node = new GraphNode();
+        
+        node.setNodeId(rawLog.getProcessGuid());
+        node.setParentProcessGuid(rawLog.getParentProcessGuid());
+        node.setTraceId(rawLog.getTraceId());
+        node.setHostAddress(rawLog.getHostAddress());
+        
+        // 所有节点都设置为 process 类型（实体日志也保留在进程节点上）
+        node.setNodeType("process");
+        
+        node.addLog(rawLog);
+        
+        return node;
+    }
+    
+    /**
+     * 创建虚拟父进程节点
+     * 
+     * @param rawLog 原始日志
+     * @param actualParentNodeId 实际的父节点ID（可能是原始parentGuid，也可能是生成的虚拟ID）
+     * @return 虚拟父节点
+     */
+    private GraphNode createVirtualParentNode(RawLog rawLog, String actualParentNodeId) {
+        GraphNode parentNode = new GraphNode();
+        
+        // 设置nodeId = 实际的父节点ID
+        parentNode.setNodeId(actualParentNodeId);
+        
+        // 计算父进程的parentProcessGuid（hash）
+        String parentParentGuid = calculateParentProcessGuidHash(rawLog);
+        parentNode.setParentProcessGuid(parentParentGuid);
+        
+        // 标记为虚拟节点
+        parentNode.setVirtual(true);
+        parentNode.setNodeType("process");
+        
+        // 提取traceId和hostAddress
+        parentNode.setTraceId(rawLog.getTraceId());
+        parentNode.setHostAddress(rawLog.getHostAddress());
+        
+        // 创建虚拟日志（使用parent字段）
+        RawLog parentLog = new RawLog();
+        parentLog.setProcessGuid(actualParentNodeId);
+        parentLog.setParentProcessGuid(parentParentGuid);
+        parentLog.setProcessName(rawLog.getParentProcessName());
+        parentLog.setImage(rawLog.getParentImage());
+        parentLog.setCommandLine(rawLog.getParentCommandLine());
+        parentLog.setProcessUserName(rawLog.getParentProcessUserName());
+        parentLog.setProcessId(rawLog.getParentProcessId());
+        parentLog.setLogType("process");
+        parentLog.setOpType("create");
+        parentLog.setTraceId(rawLog.getTraceId());
+        parentLog.setHostAddress(rawLog.getHostAddress());
+        parentLog.setStartTime(rawLog.getStartTime());
+        
+        // 标记为虚拟日志
+        parentLog.setEventId("VIRTUAL_LOG_" + actualParentNodeId);
+        
+        parentNode.addLog(parentLog);
+        
+        return parentNode;
+    }
+    
+    /**
+     * 计算父进程的parentProcessGuid（hash）
+     */
+    private String calculateParentProcessGuidHash(RawLog rawLog) {
+        StringBuilder sb = new StringBuilder();
+        
+        if (rawLog.getParentProcessName() != null) {
+            sb.append(rawLog.getParentProcessName());
+        }
+        if (rawLog.getParentProcessUserName() != null) {
+            sb.append(rawLog.getParentProcessUserName());
+        }
+        if (rawLog.getParentImage() != null) {
+            sb.append(rawLog.getParentImage());
+        }
+        if (rawLog.getParentCommandLine() != null) {
+            sb.append(rawLog.getParentCommandLine());
+        }
+        
+        if (sb.length() == 0) {
+            return "VIRTUAL_PARENT_" + rawLog.getParentProcessGuid();
+        }
+        
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] hash = md.digest(sb.toString().getBytes(StandardCharsets.UTF_8));
+            return "HASH_" + bytesToHex(hash);
+        } catch (Exception e) {
+            return "HASH_" + Math.abs(sb.toString().hashCode());
+        }
+    }
+    
+    /**
+     * 为根节点生成虚拟父节点ID
+     */
+    private String generateVirtualRootParentId(String originalParentGuid) {
+        if (originalParentGuid == null || originalParentGuid.isEmpty()) {
+            return "VIRTUAL_ROOT_PARENT_UNKNOWN";
+        }
+        
+        String hashInput = originalParentGuid + "_ROOT_PARENT";
+        String hash = calculateHash(hashInput);
+        
+        return "VIRTUAL_ROOT_PARENT_" + hash;
+    }
+    
+    /**
+     * 计算字符串的短hash
+     */
+    private String calculateHash(String str) {
+        if (str == null || str.isEmpty()) {
+            return "00000000";
+        }
+        
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] hash = md.digest(str.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 4 && i < hash.length; i++) {
+                sb.append(String.format("%02x", hash[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return String.format("%08x", Math.abs(str.hashCode()));
+        }
+    }
+    
+    /**
+     * 字节数组转十六进制字符串
+     */
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
     
     /**

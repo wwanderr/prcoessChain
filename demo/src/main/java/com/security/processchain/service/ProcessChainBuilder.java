@@ -3,6 +3,7 @@ package com.security.processchain.service;
 import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
+import com.security.processchain.util.EntityExtractor;
 import com.security.processchain.util.EntityFilterUtil;
 import com.security.processchain.util.ProcessChainPruner;
 import com.security.processchain.util.PruneContext;
@@ -215,22 +216,29 @@ public class ProcessChainBuilder {
             // ===== 阶段4：提取子图 =====
             ProcessChainGraph subgraph = fullGraph.extractSubgraph(relevantNodes);
             
-            log.info("【子图提取完成】节点数={}", subgraph.getNodeCount());
+            log.info("【子图提取完成】进程节点数={}", subgraph.getNodeCount());
             
-            // ===== 阶段5：实体过滤 =====
-            EntityFilterUtil.filterEntityNodesInGraph(subgraph);
-            
-            log.info("【实体过滤完成】节点数={}", subgraph.getNodeCount());
-            
-            // ===== 阶段6：裁剪（如果需要） =====
+            // ===== 阶段5：裁剪（如果需要）=====
+            // 注意：此时只有进程节点，裁剪更高效
             if (subgraph.getNodeCount() > MAX_NODE_COUNT) {
-                log.warn("【智能裁剪】节点数({})超过限制({}), 开始裁剪...", 
+                log.warn("【智能裁剪】进程节点数({})超过限制({}), 开始裁剪...", 
                         subgraph.getNodeCount(), MAX_NODE_COUNT);
                 pruneGraph(subgraph);
-                log.info("【智能裁剪完成】裁剪后节点数={}", subgraph.getNodeCount());
+                log.info("【智能裁剪完成】裁剪后进程节点数={}", subgraph.getNodeCount());
             }
             
-            // ===== 阶段7：转换为输出格式 =====
+            // ===== 阶段6：实体提取（晚拆分） =====
+            // 在裁剪后的进程链上提取实体节点，避免实体节点断链
+            EntityExtractor.extractEntitiesFromGraph(subgraph);
+            
+            log.info("【实体提取完成】节点总数={}", subgraph.getNodeCount());
+            
+            // ===== 阶段7：实体过滤 =====
+            EntityFilterUtil.filterEntityNodesInGraph(subgraph);
+            
+            log.info("【实体过滤完成】最终节点数={}", subgraph.getNodeCount());
+            
+            // ===== 阶段8：转换为输出格式 =====
             ProcessChainResult result = convertGraphToResult(subgraph, traceIds);
             
             // ✅ 关键修复：将图中的关键映射同步到 ProcessChainBuilder 的实例变量
