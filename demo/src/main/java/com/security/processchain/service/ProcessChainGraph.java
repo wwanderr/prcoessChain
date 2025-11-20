@@ -58,6 +58,10 @@ public class ProcessChainGraph {
     /** 断链节点到traceId的映射 */
     private Map<String, String> brokenNodeToTraceId;
     
+    /** 虚拟根父节点映射：子根节点ID -> 虚拟父节点ID
+     * 用于 processGuid == parentProcessGuid == traceId 的场景 */
+    private Map<String, String> virtualRootParentMap;
+    
     public ProcessChainGraph() {
         this.nodes = new HashMap<>();
         this.outEdges = new HashMap<>();
@@ -70,6 +74,7 @@ public class ProcessChainGraph {
         this.alarmNodes = new HashSet<>();
         this.traceIdToRootNodeMap = new HashMap<>();
         this.brokenNodeToTraceId = new HashMap<>();
+        this.virtualRootParentMap = new HashMap<>();
     }
     
     // ========== 基础操作 ==========
@@ -526,6 +531,7 @@ public class ProcessChainGraph {
         // 复制映射关系
         subgraph.traceIdToRootNodeMap.putAll(traceIdToRootNodeMap);
         subgraph.brokenNodeToTraceId.putAll(brokenNodeToTraceId);
+        subgraph.virtualRootParentMap.putAll(virtualRootParentMap);
         
         return subgraph;
     }
@@ -562,6 +568,10 @@ public class ProcessChainGraph {
     
     public Map<String, String> getBrokenNodeToTraceId() {
         return new HashMap<>(brokenNodeToTraceId);
+    }
+    
+    public Map<String, String> getVirtualRootParentMap() {
+        return new HashMap<>(virtualRootParentMap);
     }
     
     public EdgeInfo getEdgeInfo(String edgeKey) {

@@ -79,6 +79,7 @@ public class ProcessChainGraphBuilder {
                 
                 String childGuid = rawLog.getProcessGuid();
                 String parentGuid = rawLog.getParentProcessGuid();
+                String traceId = rawLog.getTraceId();
                 
                 // 1. 创建或合并子进程节点
                 if (!graph.hasNode(childGuid)) {
@@ -96,10 +97,23 @@ public class ProcessChainGraphBuilder {
                     // 检测根节点：processGuid == parentProcessGuid
                     boolean isRootNode = childGuid.equals(parentGuid);
                     
+                    // ✅ 检测特殊根节点：processGuid == parentProcessGuid == traceId
+                    boolean isSpecialRootNode = isRootNode && 
+                                                 traceId != null && 
+                                                 childGuid.equals(traceId);
+                    
                     String actualParentNodeId;
                     if (isRootNode) {
                         // 根节点：为虚拟父节点生成特殊ID，避免与子节点冲突
                         actualParentNodeId = generateVirtualRootParentId(parentGuid);
+                        
+                        // ✅ 如果是特殊根节点，记录虚拟根父节点映射
+                        if (isSpecialRootNode) {
+                            graph.getVirtualRootParentMap().put(childGuid, actualParentNodeId);
+                            log.info("【建图-特殊根节点】检测到 processGuid==parentProcessGuid==traceId: " +
+                                    "子根节点={}, 虚拟父节点={}, traceId={}", 
+                                    childGuid, actualParentNodeId, traceId);
+                        }
                     } else {
                         // 非根节点：使用原始parentGuid
                         actualParentNodeId = parentGuid;
@@ -109,8 +123,8 @@ public class ProcessChainGraphBuilder {
                     if (!graph.hasNode(actualParentNodeId) && !virtualParents.containsKey(actualParentNodeId)) {
                         GraphNode virtualParent = createVirtualParentNode(rawLog, actualParentNodeId);
                         virtualParents.put(actualParentNodeId, virtualParent);
-                        log.debug("【建图-父节点】暂存虚拟父节点: parentId={}, isRoot={}", 
-                                actualParentNodeId, isRootNode);
+                        log.debug("【建图-父节点】暂存虚拟父节点: parentId={}, isRoot={}, isSpecial={}", 
+                                actualParentNodeId, isRootNode, isSpecialRootNode);
                     }
                     
                     // 创建边：父 → 子
@@ -132,11 +146,15 @@ public class ProcessChainGraphBuilder {
                     // 没有真实节点，添加虚拟节点
                     graph.addNode(virtualParent);
                     addedVirtualParentCount++;
-                    log.debug("【建图】添加虚拟父节点: parentId={}", parentId);
+                    log.debug("【建图】添加虚拟父节点: parentId={}, 日志数={}", 
+                            parentId, virtualParent.getLogs().size());
                 } else {
-                    // 已有真实节点，不需要添加虚拟节点
+                    // 已有真实节点，合并虚拟节点的日志到真实节点
+                    GraphNode realNode = graph.getNode(parentId);
+                    mergeLogsWithLimit(realNode, virtualParent.getLogs());
                     replacedVirtualParentCount++;
-                    log.debug("【建图】虚拟父节点被真实节点替代: parentId={}", parentId);
+                    log.debug("【建图】虚拟父节点被真实节点替代，已合并日志: parentId={}, 虚拟日志数={}, 真实节点总日志数={}", 
+                            parentId, virtualParent.getLogs().size(), realNode.getLogs().size());
                 }
             }
             

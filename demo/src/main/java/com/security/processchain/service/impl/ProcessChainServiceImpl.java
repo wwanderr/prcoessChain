@@ -208,6 +208,9 @@ public class ProcessChainServiceImpl {
             // ✅ 优化：单独获取 traceIdToRootNodeMap（不作为 IncidentProcessChain 的一部分）
             Map<String, String> traceIdToRootNodeMap = builder.getTraceIdToRootNodeMap();
             
+            // ✅ 获取虚拟根父节点映射（用于 processGuid==parentProcessGuid==traceId 的场景）
+            Map<String, String> virtualRootParentMap = builder.getVirtualRootParentMap();
+            
             // 设置 traceIds 和 hostAddresses
             if (endpointChain != null) {
                 endpointChain.setTraceIds(new ArrayList<>(allTraceIds));
@@ -242,8 +245,8 @@ public class ProcessChainServiceImpl {
                 return endpointChain;
             }
             
-            // ✅ 优化：将 traceIdToRootNodeMap 作为参数传递，而不是从 IncidentProcessChain 中获取
-            return mergeNetworkAndEndpointChain(networkChain, endpointChain, hostToTraceId, traceIdToRootNodeMap);
+            // ✅ 优化：将 traceIdToRootNodeMap 和 virtualRootParentMap 作为参数传递
+            return mergeNetworkAndEndpointChain(networkChain, endpointChain, hostToTraceId, traceIdToRootNodeMap, virtualRootParentMap);
 
         } catch (Exception e) {
             log.error("【进程链生成】-> 批量生成进程链失败: {}", e.getMessage(), e);
@@ -344,7 +347,8 @@ public class ProcessChainServiceImpl {
             Pair<List<ProcessNode>, List<ProcessEdge>> networkChain,
             IncidentProcessChain endpointChain,
             Map<String, String> hostToTraceId,
-            Map<String, String> traceIdToRootNodeMap) {
+            Map<String, String> traceIdToRootNodeMap,
+            Map<String, String> virtualRootParentMap) {
         
         log.info("【进程链生成】-> ========================================");
         log.info("【进程链生成】-> 开始合并网侧和端侧进程链");
@@ -391,7 +395,8 @@ public class ProcessChainServiceImpl {
                         networkNodes,
                         networkEdges,  // 新增：传入网侧边列表，用于判断 victim 是否为 source
                         hostToTraceId, 
-                        finalRootMap);
+                        finalRootMap,
+                        virtualRootParentMap);  // 新增：虚拟根父节点映射
                 
                 // 添加虚拟节点到 allNodes
                 if (bridgeResult.getVirtualNodes() != null && !bridgeResult.getVirtualNodes().isEmpty()) {
@@ -470,18 +475,21 @@ public class ProcessChainServiceImpl {
      *    - 创建两条边：victim -> 虚拟节点 -> 端侧根节点
      * 4. 如果 victim 不是 source（只是 target）：
      *    - 直接创建桥接边：victim -> 端侧根节点
+     * 5. 对于 processGuid==parentProcessGuid==traceId 的场景，使用虚拟根父节点作为桥接目标
      * 
      * @param networkNodes 网侧节点列表
      * @param networkEdges 网侧边列表（用于判断 victim 是否为 source）
      * @param hostToTraceId host到traceId的映射
      * @param traceIdToRootNodeMap traceId到根节点ID的映射
+     * @param virtualRootParentMap 子根节点ID到虚拟父节点ID的映射
      * @return 桥接结果（包含虚拟节点和桥接边）
      */
     private BridgeResult createBridgeEdges(
             List<ProcessNode> networkNodes,
             List<ProcessEdge> networkEdges,
             Map<String, String> hostToTraceId,
-            Map<String, String> traceIdToRootNodeMap) {
+            Map<String, String> traceIdToRootNodeMap,
+            Map<String, String> virtualRootParentMap) {
         
         List<ProcessNode> virtualNodes = new ArrayList<>();
         List<ProcessEdge> bridgeEdges = new ArrayList<>();
@@ -574,6 +582,14 @@ public class ProcessChainServiceImpl {
             }
             
             log.debug("【进程链生成】-> traceId {} 对应的根节点: {}", traceId, rootNodeId);
+            
+            // ✅ 步骤2.4: 检查是否有虚拟根父节点（processGuid==parentProcessGuid==traceId 的场景）
+            if (virtualRootParentMap != null && virtualRootParentMap.containsKey(rootNodeId)) {
+                String virtualParentNodeId = virtualRootParentMap.get(rootNodeId);
+                log.info("【进程链生成-桥接】-> 检测到特殊根节点，使用虚拟父节点: 子根节点={}, 虚拟父节点={}", 
+                        rootNodeId, virtualParentNodeId);
+                rootNodeId = virtualParentNodeId;  // 使用虚拟父节点作为桥接目标
+            }
             
             // ========== 步骤3：判断 victim 是否为 source ==========
             // 检查当前 victim 的 nodeId 是否在网侧边中作为 source

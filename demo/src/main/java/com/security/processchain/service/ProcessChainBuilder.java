@@ -94,6 +94,20 @@ public class ProcessChainBuilder {
     }
     
     /**
+     * 获取虚拟根父节点映射
+     * 用于网端桥接时，对于 processGuid==parentProcessGuid==traceId 的场景，
+     * 使用虚拟父节点作为桥接目标
+     * 
+     * @return 子根节点ID -> 虚拟父节点ID的映射（返回副本，防止外部修改）
+     */
+    public Map<String, String> getVirtualRootParentMap() {
+        if (result != null && result.getGraph() != null) {
+            return result.getGraph().getVirtualRootParentMap();
+        }
+        return new HashMap<>();
+    }
+    
+    /**
      * 构建进程链（建图方案）
      * 
      * @param alarms 选举出的告警组
