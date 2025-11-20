@@ -233,9 +233,20 @@ public class ProcessChainBuilder {
             // ===== 阶段7：转换为输出格式 =====
             ProcessChainResult result = convertGraphToResult(subgraph, traceIds);
             
+            // ✅ 关键修复：将图中的关键映射同步到 ProcessChainBuilder 的实例变量
+            // 这样外部可以通过 getter 方法获取这些映射
+            this.traceIdToRootNodeMap = result.getTraceIdToRootNodeMap();
+            this.brokenNodeToTraceId = result.getBrokenNodeToTraceId();
+            this.rootNodes = result.getRootNodes();
+            this.brokenNodes = result.getBrokenNodes();
+            
             log.info("进程链构建完成: 节点数={}, 边数={}, 根节点数={}, 断裂节点数={}", 
                     result.getNodes().size(), result.getEdges().size(), 
                     result.getRootNodes().size(), result.getBrokenNodes().size());
+            
+            log.info("关键映射同步完成: traceIdToRootNodeMap={}, brokenNodeToTraceId={}, rootNodes={}, brokenNodes={}", 
+                    this.traceIdToRootNodeMap.size(), this.brokenNodeToTraceId.size(), 
+                    this.rootNodes.size(), this.brokenNodes.size());
             
             return result;
             
@@ -1234,6 +1245,13 @@ public class ProcessChainBuilder {
             // 构建内部结果
             ProcessChainResult result = buildProcessChain(alarms, logs, traceIds, associatedEventIds, startLogEventIds);
             
+            // ✅ 同步 traceIdToRootNodeMap（确保在没有断链节点时也能获取）
+            // buildProcessChain 内部已经同步过，这里再次确认
+            if (this.traceIdToRootNodeMap == null || this.traceIdToRootNodeMap.isEmpty()) {
+                this.traceIdToRootNodeMap = result.getTraceIdToRootNodeMap();
+                log.info("【进程链生成】-> 从 result 同步 traceIdToRootNodeMap: {}", this.traceIdToRootNodeMap);
+            }
+            
             // 转换为最终的 IncidentProcessChain
             IncidentProcessChain incidentChain = new IncidentProcessChain();
             
@@ -1279,9 +1297,13 @@ public class ProcessChainBuilder {
                         traceIds, result.getTraceIdToRootNodeMap(), 
                         result.getBrokenNodeToTraceId());
                 
-                // ✅ 关键修复：将更新后的 traceIdToRootNodeMap 同步回 ProcessChainBuilder 的成员变量
-                // 因为 addExploreNodesForBrokenChains() 会更新 result 中的映射
+                // ✅ 关键修复：将更新后的映射同步回 ProcessChainBuilder 的成员变量
+                // 因为 addExploreNodesForBrokenChains() 会更新 result 中的 traceIdToRootNodeMap
                 this.traceIdToRootNodeMap = result.getTraceIdToRootNodeMap();
+                this.brokenNodeToTraceId = result.getBrokenNodeToTraceId();
+                
+                log.info("【进程链生成】-> Explore节点添加后，映射更新: traceIdToRootNodeMap={}", 
+                        this.traceIdToRootNodeMap);
             }
             
             incidentChain.setNodes(finalNodes);
