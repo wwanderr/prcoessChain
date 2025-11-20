@@ -114,6 +114,7 @@ public class ProcessChainGraphBuilder {
                     }
                     
                     // 创建边：父 → 子
+                    log.debug("【建图-阶段2】创建边: {} → {} (父→子)", actualParentNodeId, childGuid);
                     graph.addEdge(actualParentNodeId, childGuid);
                 }
             }
@@ -148,16 +149,42 @@ public class ProcessChainGraphBuilder {
         // 阶段3：建立父子边（对于没有通过拆分添加边的节点）
         // 这一步主要处理告警节点的父子关系
         if (alarms != null) {
+            int addedEdgeCount = 0;
+            int skippedEdgeCount = 0;
+            int skippedVirtualCount = 0;
+            
             for (RawAlarm alarm : alarms) {
                 String childGuid = alarm.getProcessGuid();
                 String parentGuid = alarm.getParentProcessGuid();
                 
                 if (parentGuid != null && !parentGuid.isEmpty() && 
                     graph.hasNode(parentGuid) && graph.hasNode(childGuid)) {
-                    // 只有当父子节点都存在时，才添加边
-                    graph.addEdge(parentGuid, childGuid);
+                    
+                    // ✅ 检查是否会形成环（反向边已存在）
+                    if (graph.hasEdge(childGuid, parentGuid)) {
+                        log.warn("【建图-阶段3】⚠️ 检测到反向边已存在，跳过以避免环路:");
+                        log.warn("  - 已存在: {} → {} (子→父)", childGuid, parentGuid);
+                        log.warn("  - 尝试创建: {} → {} (父→子)", parentGuid, childGuid);
+                        log.warn("  - 告警信息: processGuid={}, parentProcessGuid={}", childGuid, parentGuid);
+                        skippedVirtualCount++;
+                        continue;
+                    }
+                    
+                    // ✅ 检查边是否已存在（避免创建重复边）
+                    if (!graph.hasEdge(parentGuid, childGuid)) {
+                        log.info("【建图-阶段3】准备添加告警节点边: {} → {} (父→子)", parentGuid, childGuid);
+                        graph.addEdge(parentGuid, childGuid);
+                        addedEdgeCount++;
+                        log.debug("【建图-阶段3】添加告警节点边完成: {} → {}", parentGuid, childGuid);
+                    } else {
+                        skippedEdgeCount++;
+                        log.debug("【建图-阶段3】跳过已存在的边: {} → {}", parentGuid, childGuid);
+                    }
                 }
             }
+            
+            log.info("【建图-阶段3】告警节点边处理完成: 添加={}, 跳过已存在={}, 跳过虚拟节点环={}", 
+                    addedEdgeCount, skippedEdgeCount, skippedVirtualCount);
         }
         
         // 阶段4：图分析

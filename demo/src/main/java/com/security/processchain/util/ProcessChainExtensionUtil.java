@@ -11,6 +11,7 @@ import com.security.processchain.service.ProcessEntity;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 进程链扩展工具类
@@ -249,9 +250,26 @@ public class ProcessChainExtensionUtil {
                 return originalRootId; // 查询为空，无法扩展
             }
             
+            // ========== ✅ 关键修复：过滤掉不同 traceId 的日志 ==========
+            // 扩展溯源必须在同一个 traceId 内进行，不能跨 traceId
+            List<RawLog> filteredLogs = extensionLogs.stream()
+                    .filter(rawLog -> traceId.equals(rawLog.getTraceId()))
+                    .collect(Collectors.toList());
+            
+            int filteredCount = extensionLogs.size() - filteredLogs.size();
+            if (filteredCount > 0) {
+                log.warn("【扩展溯源】-> 过滤掉 {} 条不同 traceId 的日志 (期望traceId={}, 查询结果包含其他traceId)", 
+                        filteredCount, traceId);
+            }
+            
+            if (filteredLogs.isEmpty()) {
+                log.warn("【扩展溯源】-> 过滤后无日志，无法扩展 (所有查询到的日志都不属于traceId={})", traceId);
+                return originalRootId;
+            }
+            
             // ========== 步骤5：按 processGuid 分组 ==========
             // 将日志按进程GUID分组，方便后续构建节点
-            Map<String, List<RawLog>> logsByGuid = groupLogsByProcessGuid(extensionLogs);
+            Map<String, List<RawLog>> logsByGuid = groupLogsByProcessGuid(filteredLogs);
             
             // ========== 步骤6：递归构建扩展链 ==========
             // 从父节点开始，递归向上构建扩展链，返回最顶端节点ID
@@ -340,6 +358,7 @@ public class ProcessChainExtensionUtil {
         edge.setTarget(childGuid);     // 子节点
         edge.setVal("");              // 边的值（暂时为空）
         allEdges.add(edge);
+        log.info("【扩展溯源】创建边: {} → {} (父→子, depth={})", currentGuid, childGuid, depth);
         
         // ========== 步骤3：检查是否继续向上递归 ==========
         List<RawLog> logs = logsByGuid.get(currentGuid);

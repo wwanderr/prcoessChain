@@ -103,6 +103,17 @@ public class ProcessChainGraph {
     }
     
     /**
+     * 检查边是否存在
+     */
+    public boolean hasEdge(String source, String target) {
+        if (source == null || target == null) {
+            return false;
+        }
+        String edgeKey = source + "->" + target;
+        return edgeProperties.containsKey(edgeKey);
+    }
+    
+    /**
      * 添加边
      */
     public void addEdge(String source, String target) {
@@ -126,7 +137,24 @@ public class ProcessChainGraph {
         // 检查是否已存在
         String edgeKey = source + "->" + target;
         if (edgeProperties.containsKey(edgeKey)) {
+            log.debug("【建图】边已存在，跳过: {} → {}", source, target);
             return;  // 边已存在
+        }
+        
+        // ✅ 检测潜在的反向边（环）
+        String reverseEdgeKey = target + "->" + source;
+        if (edgeProperties.containsKey(reverseEdgeKey)) {
+            log.warn("【建图】⚠️ 检测到反向边！将创建环路:");
+            log.warn("  - 已存在边: {} → {}", target, source);
+            log.warn("  - 尝试创建: {} → {}", source, target);
+            log.warn("  - 这将形成环: {} ⇄ {}", source, target);
+            
+            // 打印堆栈，帮助定位是谁创建的这条边
+            StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+            log.warn("  - 调用栈:");
+            for (int i = 2; i < Math.min(8, stack.length); i++) {
+                log.warn("    {}", stack[i]);
+            }
         }
         
         // 添加到出边表
