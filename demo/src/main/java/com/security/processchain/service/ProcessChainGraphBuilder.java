@@ -190,13 +190,14 @@ public class ProcessChainGraphBuilder {
      * 合并日志（带数量限制）
      * 
      * 功能：
-     * 1. 告警日志：总是保留，不受数量限制
-     * 2. 普通日志：检查数量上限（MAX_LOGS_PER_NODE）
+     * 1. 告警节点：所有日志都保留，不受数量限制
+     * 2. 非告警节点：检查数量上限（MAX_LOGS_PER_NODE）
      * 3. 达到上限时记录警告
      * 
      * 性能优化：
      * - 防止单个节点累积过多日志（如10万条）
      * - 避免序列化耗时和前端渲染卡顿
+     * - 告警节点优先保留所有信息
      * 
      * @param targetNode 目标节点
      * @param newLogs 要合并的新日志
@@ -206,20 +207,22 @@ public class ProcessChainGraphBuilder {
             return;
         }
         
+        // ✅ 告警节点：直接添加所有日志，不受限制
+        if (targetNode.isAlarm()) {
+            for (RawLog log : newLogs) {
+                targetNode.addLog(log);
+            }
+            log.debug("【建图-日志累积优化】告警节点 {} 添加所有日志: {}", 
+                     targetNode.getNodeId(), newLogs.size());
+            return;
+        }
+        
+        // ⚠️ 非告警节点：应用数量限制
         int currentLogCount = targetNode.getLogs().size();
         int addedCount = 0;
         int skippedCount = 0;
-        boolean hasWarned = false;
         
         for (RawLog log : newLogs) {
-            // 告警日志：总是保留（不受数量限制）
-            if (isAlarmLog(log)) {
-                targetNode.addLog(log);
-                addedCount++;
-                continue;
-            }
-            
-            // 普通日志：检查数量限制
             if (currentLogCount < MAX_LOGS_PER_NODE) {
                 targetNode.addLog(log);
                 currentLogCount++;
@@ -227,10 +230,9 @@ public class ProcessChainGraphBuilder {
             } else {
                 skippedCount++;
                 // 只在第一次达到上限时记录警告
-                if (!hasWarned) {
-                    log.warn("【建图-日志累积优化】节点 {} 的日志数已达上限({}), 后续非告警日志将被忽略", 
+                if (skippedCount == 1) {
+                    log.warn("【建图-日志累积优化】非告警节点 {} 的日志数已达上限({}), 后续日志将被忽略", 
                              targetNode.getNodeId(), MAX_LOGS_PER_NODE);
-                    hasWarned = true;
                 }
             }
         }
@@ -239,40 +241,6 @@ public class ProcessChainGraphBuilder {
             log.info("【建图-日志累积优化】节点 {} 合并完成: 新增={}, 跳过={}, 当前总数={}", 
                      targetNode.getNodeId(), addedCount, skippedCount, targetNode.getLogs().size());
         }
-    }
-    
-    /**
-     * 判断是否是告警日志
-     * 
-     * 判断规则：
-     * 1. 有alarmId字段
-     * 2. 有threatSeverity字段
-     * 3. ruleType以"/"开头（告警规则格式）
-     * 
-     * @param log 日志对象
-     * @return true表示是告警日志
-     */
-    private boolean isAlarmLog(RawLog log) {
-        if (log == null) {
-            return false;
-        }
-        
-        // 方式1：检查是否有告警ID
-        if (log.getAlarmId() != null && !log.getAlarmId().isEmpty()) {
-            return true;
-        }
-        
-        // 方式2：检查告警严重等级
-        if (log.getThreatSeverity() != null && !log.getThreatSeverity().isEmpty()) {
-            return true;
-        }
-        
-        // 方式3：检查ruleType（以/开头的通常是告警规则，如 /Malware/Backdoor）
-        if (log.getRuleType() != null && log.getRuleType().startsWith("/")) {
-            return true;
-        }
-        
-        return false;
     }
 }
 
