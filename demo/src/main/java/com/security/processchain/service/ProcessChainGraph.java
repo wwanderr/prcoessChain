@@ -238,6 +238,8 @@ public class ProcessChainGraph {
     public void identifyRootNodes(Set<String> traceIds) {
         rootNodes.clear();
         brokenNodes.clear();
+        traceIdToRootNodeMap.clear();
+        brokenNodeToTraceId.clear();
         
         for (String nodeId : nodes.keySet()) {
             GraphNode node = nodes.get(nodeId);
@@ -264,11 +266,25 @@ public class ProcessChainGraph {
                     }
                     
                     log.debug("【断链识别】找到断链节点: {} (入度0，有parentGuid)", nodeId);
+                } else {
+                    // ✅ 入度为0且没有parentGuid -> 也是根节点
+                    rootNodes.add(nodeId);
+                    node.setIsRoot(true);
+                    
+                    // 建立 traceId → rootNodeId 映射
+                    String traceId = node.getTraceId();
+                    if (traceId != null && !traceIdToRootNodeMap.containsKey(traceId)) {
+                        traceIdToRootNodeMap.put(traceId, nodeId);
+                        log.debug("【根节点识别】找到根节点: {} (入度0，无parentGuid), traceId={}", 
+                                nodeId, traceId);
+                    }
                 }
             }
         }
         
-        log.info("【图分析】根节点数={}, 断链节点数={}", rootNodes.size(), brokenNodes.size());
+        log.info("【图分析】根节点数={}, 断链节点数={}, traceId映射数={}", 
+                rootNodes.size(), brokenNodes.size(), traceIdToRootNodeMap.size());
+        log.info("【图分析】traceIdToRootNodeMap: {}", traceIdToRootNodeMap);
     }
     
     /**

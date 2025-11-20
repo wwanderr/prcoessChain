@@ -256,6 +256,16 @@ public class ProcessChainBuilder {
                     this.traceIdToRootNodeMap.size(), this.brokenNodeToTraceId.size(), 
                     this.rootNodes.size(), this.brokenNodes.size());
             
+            // ⚠️ 调试：输出映射详情
+            if (this.traceIdToRootNodeMap.isEmpty()) {
+                log.warn("【映射检查】⚠️ traceIdToRootNodeMap 为空！");
+                log.warn("  - 图中的映射: {}", subgraph.getTraceIdToRootNodeMap());
+                log.warn("  - result中的映射: {}", result.getTraceIdToRootNodeMap());
+                log.warn("  - 根节点列表: {}", this.rootNodes);
+            } else {
+                log.info("【映射检查】✅ traceIdToRootNodeMap: {}", this.traceIdToRootNodeMap);
+            }
+            
             return result;
             
         } catch (Exception e) {
