@@ -402,6 +402,35 @@ public class ProcessChainServiceImpl {
                 if (bridgeResult.getVirtualNodes() != null && !bridgeResult.getVirtualNodes().isEmpty()) {
                     allNodes.addAll(bridgeResult.getVirtualNodes());
                     log.info("【进程链生成】-> 添加虚拟节点数: {}", bridgeResult.getVirtualNodes().size());
+                    
+                    // ✅ 调整特殊根节点的 isRoot 属性
+                    // 如果添加了虚拟根父节点，需要将对应的子根节点的 isRoot 改为 false
+                    if (virtualRootParentMap != null && !virtualRootParentMap.isEmpty()) {
+                        for (ProcessNode virtualNode : bridgeResult.getVirtualNodes()) {
+                            // 检查是否是虚拟根父节点（nodeId 以 VIRTUAL_ROOT_PARENT_ 开头）
+                            if (virtualNode.getNodeId().startsWith("VIRTUAL_ROOT_PARENT_")) {
+                                // 找到对应的子根节点并修改其 isRoot 属性
+                                for (Map.Entry<String, String> entry : virtualRootParentMap.entrySet()) {
+                                    String childRootNodeId = entry.getKey();
+                                    String virtualParentNodeId = entry.getValue();
+                                    
+                                    if (virtualNode.getNodeId().equals(virtualParentNodeId)) {
+                                        // 找到子根节点
+                                        for (ProcessNode node : allNodes) {
+                                            if (node.getNodeId().equals(childRootNodeId) && 
+                                                node.getChainNode() != null) {
+                                                node.getChainNode().setIsRoot(false);  // ✅ 子根节点不再是根节点
+                                                log.info("【进程链生成-桥接】-> ✅ 调整子根节点 isRoot: {} -> false", 
+                                                        childRootNodeId);
+                                                break;
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 // 添加桥接边到 allEdges
@@ -584,11 +613,30 @@ public class ProcessChainServiceImpl {
             log.debug("【进程链生成】-> traceId {} 对应的根节点: {}", traceId, rootNodeId);
             
             // ✅ 步骤2.4: 检查是否有虚拟根父节点（processGuid==parentProcessGuid==traceId 的场景）
+            // 只在桥接时动态处理，不影响全树遍历性能
+            String originalRootNodeId = rootNodeId;  // 保存原始的子根节点ID
             if (virtualRootParentMap != null && virtualRootParentMap.containsKey(rootNodeId)) {
                 String virtualParentNodeId = virtualRootParentMap.get(rootNodeId);
-                log.info("【进程链生成-桥接】-> 检测到特殊根节点，使用虚拟父节点: 子根节点={}, 虚拟父节点={}", 
-                        rootNodeId, virtualParentNodeId);
-                rootNodeId = virtualParentNodeId;  // 使用虚拟父节点作为桥接目标
+                log.info("【进程链生成-桥接】-> ✅ 检测到特殊根节点场景: " +
+                        "子根节点={}, 虚拟父节点={}, traceId={}", 
+                        rootNodeId, virtualParentNodeId, traceId);
+                
+                // 创建虚拟根父节点（作为真正的根节点）
+                ProcessNode virtualRootParent = createVirtualRootParentNode(virtualParentNodeId, victimIp);
+                virtualNodes.add(virtualRootParent);
+                log.info("【进程链生成-桥接】-> ✅ 创建虚拟根父节点: nodeId={}", virtualParentNodeId);
+                
+                // 创建从虚拟父节点到子根节点的边
+                ProcessEdge parentToChildEdge = new ProcessEdge();
+                parentToChildEdge.setSource(virtualParentNodeId);
+                parentToChildEdge.setTarget(originalRootNodeId);
+                parentToChildEdge.setVal("连接");
+                bridgeEdges.add(parentToChildEdge);
+                log.info("【进程链生成-桥接】-> ✅ 创建虚拟父→子根边: {} -> {}", 
+                        virtualParentNodeId, originalRootNodeId);
+                
+                // 使用虚拟父节点作为桥接目标
+                rootNodeId = virtualParentNodeId;
             }
             
             // ========== 步骤3：判断 victim 是否为 source ==========
@@ -690,6 +738,46 @@ public class ProcessChainServiceImpl {
                 virtualNodeId, victimNodeId, victimIp);
         
         return virtualNode;
+    }
+    
+    /**
+     * 创建虚拟根父节点
+     * 用于 processGuid==parentProcessGuid==traceId 的特殊场景，在网端桥接时动态创建
+     * 
+     * @param virtualParentNodeId 虚拟父节点ID（例如：VIRTUAL_ROOT_PARENT_xxx）
+     * @param victimIp victim的IP地址（用于日志）
+     * @return 虚拟根父节点
+     */
+    private ProcessNode createVirtualRootParentNode(String virtualParentNodeId, String victimIp) {
+        ProcessNode virtualRootNode = new ProcessNode();
+        
+        // 设置 nodeId
+        virtualRootNode.setNodeId(virtualParentNodeId);
+        
+        // 设置 logType 为 "process"（虚拟根父节点是进程节点）
+        virtualRootNode.setLogType("process");
+        
+        // 设置 isChainNode 为 true
+        virtualRootNode.setIsChainNode(true);
+        
+        // 设置威胁等级为 null
+        virtualRootNode.setNodeThreatSeverity(null);
+        
+        // 创建 ChainNode
+        ChainNode chainNode = new ChainNode();
+        chainNode.setIsRoot(true);  // ✅ 虚拟父节点是真正的根节点
+        chainNode.setIsBroken(false);
+        chainNode.setIsAlarm(false);
+        chainNode.setIsExtensionNode(false);
+        chainNode.setExtensionDepth(null);
+        
+        virtualRootNode.setChainNode(chainNode);
+        virtualRootNode.setStoryNode(null);
+        
+        log.info("【进程链生成-桥接】-> 创建虚拟根父节点: nodeId={}, isRoot=true, IP={}", 
+                virtualParentNodeId, victimIp);
+        
+        return virtualRootNode;
     }
     
     /**

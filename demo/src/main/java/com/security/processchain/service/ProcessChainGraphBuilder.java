@@ -97,10 +97,26 @@ public class ProcessChainGraphBuilder {
                     // 检测根节点：processGuid == parentProcessGuid
                     boolean isRootNode = childGuid.equals(parentGuid);
                     
+                    // ✅ 对于根节点，清空其 parentProcessGuid 字段，避免自环
+                    if (isRootNode) {
+                        GraphNode childNode = graph.getNode(childGuid);
+                        if (childNode != null) {
+                            childNode.setParentProcessGuid(null);
+                            log.debug("【建图】根节点清空 parentProcessGuid: {}", childGuid);
+                        }
+                    }
+                    
                     // ✅ 检测特殊根节点：processGuid == parentProcessGuid == traceId
                     boolean isSpecialRootNode = isRootNode && 
                                                  traceId != null && 
                                                  childGuid.equals(traceId);
+                    
+                    // ⚠️ 调试：输出检测结果
+                    if (isRootNode) {
+                        log.debug("【建图-根节点检测】childGuid={}, parentGuid={}, traceId={}, " +
+                                "isRootNode={}, isSpecialRootNode={}", 
+                                childGuid, parentGuid, traceId, isRootNode, isSpecialRootNode);
+                    }
                     
                     String actualParentNodeId;
                     if (isRootNode) {
@@ -110,9 +126,12 @@ public class ProcessChainGraphBuilder {
                         // ✅ 如果是特殊根节点，记录虚拟根父节点映射
                         if (isSpecialRootNode) {
                             graph.addVirtualRootParentMapping(childGuid, actualParentNodeId);
-                            log.info("【建图-特殊根节点】检测到 processGuid==parentProcessGuid==traceId: " +
+                            log.info("【建图-特殊根节点】✅ 检测到 processGuid==parentProcessGuid==traceId: " +
                                     "子根节点={}, 虚拟父节点={}, traceId={}", 
                                     childGuid, actualParentNodeId, traceId);
+                        } else {
+                            log.debug("【建图-普通根节点】processGuid==parentProcessGuid 但不等于 traceId: " +
+                                    "childGuid={}, traceId={}", childGuid, traceId);
                         }
                     } else {
                         // 非根节点：使用原始parentGuid
