@@ -301,7 +301,28 @@ public class ProcessChainGraph {
             }
             // 规则2：入度为0
             else if (getInDegree(nodeId) == 0) {
-                if (node.getParentProcessGuid() != null && 
+                // ✅ 特殊处理：虚拟根父节点（以 VIRTUAL_ROOT_PARENT_ 开头）
+                if (nodeId.startsWith("VIRTUAL_ROOT_PARENT_")) {
+                    rootNodes.add(nodeId);
+                    node.setIsRoot(true);
+                    
+                    // 建立 traceId → rootNodeId 映射（覆盖原有映射，因为虚拟父节点才是真正的根）
+                    String traceId = node.getTraceId();
+                    if (traceId != null) {
+                        String oldRootNodeId = traceIdToRootNodeMap.get(traceId);
+                        traceIdToRootNodeMap.put(traceId, nodeId);
+                        log.debug("【根节点识别】找到虚拟根父节点: {} (VIRTUAL_ROOT_PARENT), traceId={}, 替换原根节点: {}", 
+                                nodeId, traceId, oldRootNodeId);
+                        
+                        // 将原来的子根节点的 isRoot 设置为 false
+                        if (oldRootNodeId != null && nodes.containsKey(oldRootNodeId)) {
+                            GraphNode oldRootNode = nodes.get(oldRootNodeId);
+                            oldRootNode.setIsRoot(false);
+                            rootNodes.remove(oldRootNodeId);
+                            log.debug("【根节点识别】原根节点 {} 的 isRoot 改为 false", oldRootNodeId);
+                        }
+                    }
+                } else if (node.getParentProcessGuid() != null && 
                     !node.getParentProcessGuid().isEmpty()) {
                     // 有parentProcessGuid但找不到父节点 -> 断链
                     brokenNodes.add(nodeId);
@@ -316,7 +337,7 @@ public class ProcessChainGraph {
                     log.debug("【断链识别】找到断链节点: {} (入度0，有parentGuid), traceId={}", 
                             nodeId, traceId);
                 } else {
-                    // ✅ 入度为0且没有parentGuid -> 也是根节点（虚拟父节点）
+                    // ✅ 入度为0且没有parentGuid -> 也是根节点
                     rootNodes.add(nodeId);
                     node.setIsRoot(true);
                     

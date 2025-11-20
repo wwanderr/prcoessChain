@@ -66,6 +66,39 @@ public class ProcessChainGraphBuilder {
             }
             
             log.info("【建图】告警节点添加完成: {}", graph.getNodeCount());
+            
+            // ✅ 处理根节点：清空 parentProcessGuid 并建立虚拟根父节点映射
+            for (RawAlarm alarm : alarms) {
+                if (alarm == null || alarm.getProcessGuid() == null) {
+                    continue;
+                }
+                
+                String processGuid = alarm.getProcessGuid();
+                String parentProcessGuid = alarm.getParentProcessGuid();
+                String traceId = alarm.getTraceId();
+                
+                // 如果是根节点（processGuid == parentProcessGuid）
+                if (parentProcessGuid != null && processGuid.equals(parentProcessGuid)) {
+                    GraphNode node = graph.getNode(processGuid);
+                    if (node != null) {
+                        node.setParentProcessGuid(null);
+                        log.debug("【建图-阶段1】根节点（告警）清空 parentProcessGuid: {}", processGuid);
+                        
+                        // ✅ 检测特殊根节点：processGuid == parentProcessGuid == traceId
+                        if (traceId != null && processGuid.equals(traceId)) {
+                            // 生成虚拟根父节点ID
+                            String virtualParentNodeId = generateVirtualRootParentId(processGuid);
+                            
+                            // 建立映射
+                            graph.addVirtualRootParentMapping(processGuid, virtualParentNodeId);
+                            
+                            log.info("【建图-阶段1-特殊根节点】✅ 检测到 processGuid==parentProcessGuid==traceId: " +
+                                    "子根节点={}, 虚拟父节点={}, traceId={}", 
+                                    processGuid, virtualParentNodeId, traceId);
+                        }
+                    }
+                }
+            }
         }
         
         // 阶段2：添加日志节点（只构建进程链，不拆分实体）
@@ -189,6 +222,7 @@ public class ProcessChainGraphBuilder {
             int addedEdgeCount = 0;
             int skippedEdgeCount = 0;
             int skippedVirtualCount = 0;
+            int skippedSelfLoopCount = 0;
             
             for (RawAlarm alarm : alarms) {
                 String childGuid = alarm.getProcessGuid();
@@ -196,6 +230,13 @@ public class ProcessChainGraphBuilder {
                 
                 if (parentGuid != null && !parentGuid.isEmpty() && 
                     graph.hasNode(parentGuid) && graph.hasNode(childGuid)) {
+                    
+                    // ✅ 跳过自环（processGuid == parentProcessGuid）
+                    if (childGuid.equals(parentGuid)) {
+                        skippedSelfLoopCount++;
+                        log.debug("【建图-阶段3】跳过自环: {} -> {}", parentGuid, childGuid);
+                        continue;
+                    }
                     
                     // ✅ 检查是否会形成环（反向边已存在）
                     if (graph.hasEdge(childGuid, parentGuid)) {
@@ -220,8 +261,8 @@ public class ProcessChainGraphBuilder {
                 }
             }
             
-            log.info("【建图-阶段3】告警节点边处理完成: 添加={}, 跳过已存在={}, 跳过虚拟节点环={}", 
-                    addedEdgeCount, skippedEdgeCount, skippedVirtualCount);
+            log.info("【建图-阶段3】告警节点边处理完成: 添加={}, 跳过已存在={}, 跳过虚拟节点环={}, 跳过自环={}", 
+                    addedEdgeCount, skippedEdgeCount, skippedVirtualCount, skippedSelfLoopCount);
         }
         
         // 阶段4：图分析
