@@ -181,6 +181,9 @@ public class ProcessChainGraphBuilder {
     
     /**
      * 从告警创建节点
+     * 
+     * 注意：晚拆分方案中，所有节点都是进程节点（nodeType = "process"）
+     * 告警的 logType 只是标记关注的行为类型，不影响节点类型
      */
     private GraphNode createNodeFromAlarm(RawAlarm alarm) {
         GraphNode node = new GraphNode();
@@ -190,17 +193,13 @@ public class ProcessChainGraphBuilder {
         node.setTraceId(alarm.getTraceId());
         node.setHostAddress(alarm.getHostAddress());
         
-        // ✅ 从告警中获取 logType
-        String logType = alarm.getLogType();
-        if (logType == null || logType.isEmpty()) {
-            // 如果告警没有 logType，默认为 process
-            logType = "process";
-            log.debug("【建图】告警没有logType，默认设置为process: processGuid={}", alarm.getProcessGuid());
-        }
-        node.setNodeType(logType);
+        // ✅ 晚拆分方案：所有节点统一设置为 "process"
+        // 告警的 logType（file/domain等）保留在告警数据中
+        // 实体会在裁剪后的实体提取阶段单独创建
+        node.setNodeType("process");
         
-        log.debug("【建图】从告警创建节点: processGuid={}, logType={}, nodeType={}", 
-                alarm.getProcessGuid(), alarm.getLogType(), node.getNodeType());
+        log.debug("【建图】从告警创建节点: processGuid={}, alarm.logType={}, node.nodeType=process", 
+                alarm.getProcessGuid(), alarm.getLogType());
         
         node.addAlarm(alarm);
         

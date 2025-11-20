@@ -58,28 +58,53 @@ public class EntityExtractor {
         // 统计信息
         int totalEntityLogs = 0;
         int createdEntityNodes = 0;
+        int processNodeCount = 0;
+        int totalLogs = 0;
         Map<String, Integer> entityTypeCount = new HashMap<>();
+        Map<String, Integer> allLogTypeCount = new HashMap<>();
         
         // 收集所有要添加的实体节点和边（避免在遍历时修改图）
         List<GraphNode> entityNodesToAdd = new ArrayList<>();
         List<EdgePair> edgesToAdd = new ArrayList<>();
         
         // 1. 遍历所有节点
-        for (GraphNode processNode : graph.getAllNodes()) {
+        for (GraphNode node : graph.getAllNodes()) {
+            // 统计所有节点的类型
+            String nodeType = node.getNodeType();
+            log.debug("【实体提取-调试】节点: id={}, nodeType={}, 日志数={}", 
+                    node.getNodeId(), nodeType, node.getLogs() != null ? node.getLogs().size() : 0);
+            
             // 只处理进程节点
-            if (!isProcessNode(processNode)) {
+            if (!isProcessNode(node)) {
+                log.debug("【实体提取-调试】跳过非进程节点: id={}, nodeType={}", 
+                        node.getNodeId(), nodeType);
                 continue;
             }
             
-            String processGuid = processNode.getNodeId();
-            List<RawLog> logs = processNode.getLogs();
+            processNodeCount++;
+            String processGuid = node.getNodeId();
+            List<RawLog> logs = node.getLogs();
             
             if (logs == null || logs.isEmpty()) {
+                log.debug("【实体提取-调试】进程节点 {} 没有日志", processGuid);
                 continue;
+            }
+            
+            totalLogs += logs.size();
+            
+            // 统计日志类型
+            for (RawLog rawLog : logs) {
+                String logType = rawLog.getLogType();
+                allLogTypeCount.put(logType != null ? logType : "null", 
+                        allLogTypeCount.getOrDefault(logType != null ? logType : "null", 0) + 1);
             }
             
             // 2. 从日志中提取实体
             Map<String, List<RawLog>> entityLogsByType = groupEntityLogs(logs);
+            
+            if (!entityLogsByType.isEmpty()) {
+                log.info("【实体提取】进程节点 {} 包含实体日志: {}", processGuid, entityLogsByType.keySet());
+            }
             
             for (Map.Entry<String, List<RawLog>> entry : entityLogsByType.entrySet()) {
                 String entityType = entry.getKey();
@@ -110,7 +135,7 @@ public class EntityExtractor {
                     createdEntityNodes++;
                     entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
                     
-                    log.debug("【实体提取】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
+                    log.info("【实体提取】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
                             processGuid, entityType, entityNodeId);
                 }
             }
@@ -125,13 +150,23 @@ public class EntityExtractor {
             graph.addEdge(edge.getSource(), edge.getTarget());
         }
         
-        log.info("【实体提取】完成: 处理实体日志={}, 创建实体节点={}, 节点总数={}", 
-                totalEntityLogs, createdEntityNodes, graph.getNodeCount());
+        log.info("【实体提取】统计信息:");
+        log.info("  - 进程节点数: {}", processNodeCount);
+        log.info("  - 总日志数: {}", totalLogs);
+        log.info("  - 日志类型分布: {}", allLogTypeCount);
+        log.info("  - 实体日志数: {}", totalEntityLogs);
+        log.info("  - 创建实体节点数: {}", createdEntityNodes);
+        log.info("  - 图节点总数: {}", graph.getNodeCount());
         log.info("【实体提取】各类型统计: file={}, domain={}, network={}, registry={}", 
                 entityTypeCount.getOrDefault("file", 0),
                 entityTypeCount.getOrDefault("domain", 0),
                 entityTypeCount.getOrDefault("network", 0),
                 entityTypeCount.getOrDefault("registry", 0));
+        
+        if (createdEntityNodes == 0 && totalLogs > 0) {
+            log.warn("【实体提取】⚠️ 警告: 有日志但没有创建实体节点！");
+            log.warn("  可能原因: 1) 所有日志的logType都是'process' 2) logType不匹配 (file/domain/network/registry)");
+        }
     }
     
     /**
