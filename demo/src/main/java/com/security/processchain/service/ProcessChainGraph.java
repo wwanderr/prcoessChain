@@ -32,9 +32,6 @@ public class ProcessChainGraph {
     /** 入边（反向邻接表）：nodeId -> [parent1, parent2, ...] */
     private Map<String, List<String>> inEdges;
     
-    /** 边的属性：edgeKey(source->target) -> EdgeInfo */
-    private Map<String, EdgeInfo> edgeProperties;
-    
     // ========== 索引结构 ==========
     
     /** traceId索引：traceId -> [nodeId1, nodeId2, ...] */
@@ -66,7 +63,6 @@ public class ProcessChainGraph {
         this.nodes = new HashMap<>();
         this.outEdges = new HashMap<>();
         this.inEdges = new HashMap<>();
-        this.edgeProperties = new HashMap<>();
         this.nodesByTraceId = new HashMap<>();
         this.nodesByHost = new HashMap<>();
         this.rootNodes = new HashSet<>();
@@ -114,21 +110,14 @@ public class ProcessChainGraph {
         if (source == null || target == null) {
             return false;
         }
-        String edgeKey = source + "->" + target;
-        return edgeProperties.containsKey(edgeKey);
+        List<String> children = outEdges.get(source);
+        return children != null && children.contains(target);
     }
     
     /**
      * 添加边
      */
     public void addEdge(String source, String target) {
-        addEdge(source, target, null);
-    }
-    
-    /**
-     * 添加边（带属性）
-     */
-    public void addEdge(String source, String target, EdgeInfo edgeInfo) {
         if (source == null || target == null) {
             return;
         }
@@ -139,16 +128,16 @@ public class ProcessChainGraph {
             return;
         }
         
-        // 检查是否已存在
-        String edgeKey = source + "->" + target;
-        if (edgeProperties.containsKey(edgeKey)) {
+        // 检查是否已存在（使用邻接表检测）
+        List<String> children = outEdges.get(source);
+        if (children != null && children.contains(target)) {
             log.debug("【建图】边已存在，跳过: {} → {}", source, target);
             return;  // 边已存在
         }
         
         // ✅ 检测潜在的反向边（环）
-        String reverseEdgeKey = target + "->" + source;
-        if (edgeProperties.containsKey(reverseEdgeKey)) {
+        List<String> reverseChildren = outEdges.get(target);
+        if (reverseChildren != null && reverseChildren.contains(source)) {
             log.warn("【建图】⚠️ 检测到反向边！将创建环路:");
             log.warn("  - 已存在边: {} → {}", target, source);
             log.warn("  - 尝试创建: {} → {}", source, target);
@@ -169,13 +158,6 @@ public class ProcessChainGraph {
         // 添加到入边表
         inEdges.computeIfAbsent(target, k -> new ArrayList<>())
                .add(source);
-        
-        // 存储边的属性
-        if (edgeInfo != null) {
-            edgeProperties.put(edgeKey, edgeInfo);
-        } else {
-            edgeProperties.put(edgeKey, new EdgeInfo("连接", "default"));
-        }
     }
     
     /**
@@ -252,7 +234,6 @@ public class ProcessChainGraph {
             if (parentChildren != null) {
                 parentChildren.remove(nodeId);
             }
-            edgeProperties.remove(parent + "->" + nodeId);
         }
         
         // 移除所有出边
@@ -262,7 +243,6 @@ public class ProcessChainGraph {
             if (childParents != null) {
                 childParents.remove(nodeId);
             }
-            edgeProperties.remove(nodeId + "->" + child);
         }
         
         // 移除节点
@@ -295,7 +275,7 @@ public class ProcessChainGraph {
             // 规则1：processGuid == traceId
             if (traceIds.contains(nodeId)) {
                 rootNodes.add(nodeId);
-                node.setIsRoot(true);
+                node.setRoot(true);
                 traceIdToRootNodeMap.put(nodeId, nodeId);
                 log.debug("【根节点识别】找到根节点: {} (processGuid匹配traceId)", nodeId);
             }
@@ -304,7 +284,7 @@ public class ProcessChainGraph {
                 // ✅ 特殊处理：虚拟根父节点（以 VIRTUAL_ROOT_PARENT_ 开头）
                 if (nodeId.startsWith("VIRTUAL_ROOT_PARENT_")) {
                     rootNodes.add(nodeId);
-                    node.setIsRoot(true);
+                    node.setRoot(true);
                     
                     // 建立 traceId → rootNodeId 映射（覆盖原有映射，因为虚拟父节点才是真正的根）
                     String traceId = node.getTraceId();
@@ -317,7 +297,7 @@ public class ProcessChainGraph {
                         // 将原来的子根节点的 isRoot 设置为 false
                         if (oldRootNodeId != null && nodes.containsKey(oldRootNodeId)) {
                             GraphNode oldRootNode = nodes.get(oldRootNodeId);
-                            oldRootNode.setIsRoot(false);
+                            oldRootNode.setRoot(false);
                             rootNodes.remove(oldRootNodeId);
                             log.debug("【根节点识别】原根节点 {} 的 isRoot 改为 false", oldRootNodeId);
                         }
@@ -327,7 +307,7 @@ public class ProcessChainGraph {
                 // 即使节点有 parentProcessGuid，只要 processGuid == traceId，就是根节点，不是断链
                 else if (nodeId.equals(node.getTraceId())) {
                     rootNodes.add(nodeId);
-                    node.setIsRoot(true);
+                    node.setRoot(true);
                     traceIdToRootNodeMap.put(nodeId, nodeId);
                     log.debug("【根节点识别】找到根节点: {} (processGuid==traceId), 虽有parentGuid={} 但不是断链", 
                             nodeId, node.getParentProcessGuid());
@@ -344,9 +324,9 @@ public class ProcessChainGraph {
                                     nodeId, node.getParentProcessGuid());
                             // 不标记为断链，也不标记为根节点，等待后续处理
                         } else {
-                            // 有parentProcessGuid但找不到父节点 -> 断链
-                            brokenNodes.add(nodeId);
-                            node.setIsBroken(true);
+                        // 有parentProcessGuid但找不到父节点 -> 断链
+                        brokenNodes.add(nodeId);
+                        node.setBroken(true);
                             
                             // 记录断链节点的traceId
                             String traceId = node.getTraceId();
@@ -360,7 +340,7 @@ public class ProcessChainGraph {
                     } else {
                         // ✅ 入度为0且没有parentGuid -> 也是根节点
                         rootNodes.add(nodeId);
-                        node.setIsRoot(true);
+                        node.setRoot(true);
                         
                         // 建立 traceId → rootNodeId 映射
                         String traceId = node.getTraceId();
@@ -572,9 +552,7 @@ public class ProcessChainGraph {
             List<String> children = getChildren(nodeId);
             for (String child : children) {
                 if (nodeIds.contains(child)) {
-                    String edgeKey = nodeId + "->" + child;
-                    EdgeInfo edgeInfo = edgeProperties.get(edgeKey);
-                    subgraph.addEdge(nodeId, child, edgeInfo);
+                    subgraph.addEdge(nodeId, child);
                 }
             }
         }
@@ -630,17 +608,6 @@ public class ProcessChainGraph {
     
     public Map<String, String> getVirtualRootParentMap() {
         return new HashMap<>(virtualRootParentMap);
-    }
-    
-    public EdgeInfo getEdgeInfo(String edgeKey) {
-        return edgeProperties.get(edgeKey);
-    }
-    
-    /**
-     * 获取所有边（格式：source->target）
-     */
-    public List<String> getAllEdgeKeys() {
-        return new ArrayList<>(edgeProperties.keySet());
     }
 }
 

@@ -203,7 +203,7 @@ public class ProcessChainServiceImpl {
             ProcessChainBuilder builder = new ProcessChainBuilder();
             IncidentProcessChain endpointChain = builder.buildIncidentChain(
                     allSelectedAlarms, allLogs, allTraceIds, allAssociatedEventIds, startLogEventIds,
-                    IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER);
+                    IncidentConverters.NODE_MAPPER);
             
             // ✅ 优化：单独获取 traceIdToRootNodeMap（不作为 IncidentProcessChain 的一部分）
             Map<String, String> traceIdToRootNodeMap = builder.getTraceIdToRootNodeMap();

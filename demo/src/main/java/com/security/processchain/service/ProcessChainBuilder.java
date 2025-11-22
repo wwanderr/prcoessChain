@@ -3,11 +3,7 @@ package com.security.processchain.service;
 import com.security.processchain.constants.ProcessChainConstants;
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
-import com.security.processchain.util.EntityExtractor;
-import com.security.processchain.util.EntityFilterUtil;
-import com.security.processchain.util.ProcessChainPruner;
-import com.security.processchain.util.PruneContext;
-import com.security.processchain.util.PruneResult;
+import com.security.processchain.util.*;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
 
@@ -365,19 +361,14 @@ public class ProcessChainBuilder {
                 nodeMap.put(node.getProcessGuid(), node);
             }
             
-            // 转换边
-            for (String edgeKey : graph.getAllEdgeKeys()) {
-                String[] parts = edgeKey.split("->");
-                if (parts.length == 2) {
+            // 转换边（直接从邻接表获取）
+            for (GraphNode graphNode : graph.getAllNodes()) {
+                String source = graphNode.getNodeId();
+                List<String> children = graph.getChildren(source);
+                for (String target : children) {
                     ChainBuilderEdge edge = new ChainBuilderEdge();
-                    edge.setSource(parts[0]);
-                    edge.setTarget(parts[1]);
-                    
-                    EdgeInfo edgeInfo = graph.getEdgeInfo(edgeKey);
-                    if (edgeInfo != null) {
-                        edge.setVal(edgeInfo.getLabel());
-                    }
-                    
+                    edge.setSource(source);
+                    edge.setTarget(target);
                     edges.add(edge);
                 }
             }
@@ -438,20 +429,15 @@ public class ProcessChainBuilder {
         }
         result.setNodes(nodes);
         
-        // 转换边
+        // 转换边（直接从邻接表获取）
         List<ChainBuilderEdge> edges = new ArrayList<>();
-        for (String edgeKey : graph.getAllEdgeKeys()) {
-            String[] parts = edgeKey.split("->");
-            if (parts.length == 2) {
+        for (GraphNode graphNode : graph.getAllNodes()) {
+            String source = graphNode.getNodeId();
+            List<String> children = graph.getChildren(source);
+            for (String target : children) {
                 ChainBuilderEdge edge = new ChainBuilderEdge();
-                edge.setSource(parts[0]);
-                edge.setTarget(parts[1]);
-                
-                EdgeInfo edgeInfo = graph.getEdgeInfo(edgeKey);
-                if (edgeInfo != null) {
-                    edge.setVal(edgeInfo.getLabel());
-                }
-                
+                edge.setSource(source);
+                edge.setTarget(target);
                 edges.add(edge);
             }
         }
@@ -857,44 +843,6 @@ public class ProcessChainBuilder {
     }
     
     /**
-     * 使用智能策略裁剪节点
-     * 
-     * 智能裁剪策略：
-     * 1. 强制保留：根节点、网端关联节点、高危/中危告警节点
-     * 2. 级联保留：从关键节点到根节点的完整路径
-     * 3. 选择性保留：如果还有剩余槽位，按分数选择其他节点
-     * 4. 优势：关键攻击路径完整，无需 Explore 节点
-     * 
-     * 使用 ProcessChainPruner 工具类实现
-     */
-    private void pruneNodesWithSmartStrategy() {
-        try {
-            // 创建裁剪上下文
-            PruneContext context = new PruneContext(
-                nodeMap,
-                edges,
-                rootNodes,
-                associatedEventIds
-            );
-            
-            // 执行智能裁剪
-            PruneResult result = ProcessChainPruner.pruneNodes(context);
-            
-            // 记录裁剪结果
-            log.info("【进程链生成】-> 智能裁剪完成: 原始节点={}, 必须保留={}, 级联保留={}, 移除节点={}, 最终节点={}",
-                     result.getOriginalNodeCount(),
-                     result.getMustKeepCount(),
-                     result.getCascadeKeepCount(),
-                     result.getRemovedNodeCount(),
-                     result.getFinalNodeCount());
-            
-        } catch (Exception e) {
-            log.error("【进程链生成】-> 智能裁剪异常: {}", e.getMessage(), e);
-            throw e;
-        }
-    }
-    
-    /**
      * 添加告警节点
      */
     private void addAlarmNode(RawAlarm alarm) {
@@ -1293,7 +1241,6 @@ public class ProcessChainBuilder {
      * @param associatedEventIds 关联事件 ID 集合
      * @param startLogEventIds 无告警场景的起点日志eventId集合(可为null)
      * @param nodeMapper 节点映射器
-     * @param edgeMapper 边映射器
      * @return 完整的 IncidentProcessChain
      */
     public IncidentProcessChain buildIncidentChain(
@@ -1302,8 +1249,7 @@ public class ProcessChainBuilder {
             Set<String> traceIds,
             Set<String> associatedEventIds,
             Set<String> startLogEventIds,
-            NodeMapper nodeMapper, 
-            EdgeMapper edgeMapper) {
+            NodeMapper nodeMapper) {
         
         // 允许无告警场景（只要有日志和startLogEventIds）
         if ((alarms == null || alarms.isEmpty()) && 
@@ -1371,7 +1317,12 @@ public class ProcessChainBuilder {
             // 转换边，映射到输出结构中
             if (result.getEdges() != null) {
                 for (ChainBuilderEdge builderEdge : result.getEdges()) {
-                    com.security.processchain.model.ProcessEdge finalEdge = edgeMapper.toIncidentEdge(builderEdge);
+                    // ✅ 直接创建 ProcessEdge，不再需要 EdgeMapper
+                    com.security.processchain.model.ProcessEdge finalEdge = 
+                            new com.security.processchain.model.ProcessEdge();
+                    finalEdge.setSource(builderEdge.getSource());
+                    finalEdge.setTarget(builderEdge.getTarget());
+                    // val 默认为 "连接"（由 ProcessEdge 构造函数设置）
                     
                     // 根据目标节点设置边的 val 值
                     setEdgeValByTargetNode(finalEdge, builderEdge.getTarget(), finalNodes);

@@ -121,17 +121,6 @@ public final class IncidentConverters {
         return finalNode;
     };
 
-    /**
-     * 默认边映射器实现
-     */
-    public static final EdgeMapper EDGE_MAPPER = builderEdge -> {
-        ProcessEdge finalEdge = new ProcessEdge();
-        finalEdge.setSource(builderEdge.getSource());
-        finalEdge.setTarget(builderEdge.getTarget());
-         // val 保持默认值 "连接"（由 ProcessEdge 构造函数设置）
-        // builderEdge.val 始终为 null，不需要处理
-        return finalEdge;
-    };
 
     /**
      * 选择时间最近的告警

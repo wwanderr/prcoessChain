@@ -33,30 +33,7 @@ public class ProcessChainPruner {
     
     // ========== 已抽取的内部类（现已独立为单独的文件）==========
     // 为保持向后兼容性，保留内部类作为别名，并标记为 @Deprecated
-    
-    /**
-     * @deprecated 已移动到独立文件 {@link com.security.processchain.util.PruneContext}
-     */
-    @Deprecated
-    public static class PruneContext extends com.security.processchain.util.PruneContext {
-        public PruneContext(Map<String, ChainBuilderNode> nodeMap,
-                          List<ChainBuilderEdge> edges,
-                          Set<String> rootNodes,
-                          Set<String> associatedEventIds) {
-            super(nodeMap, edges, rootNodes, associatedEventIds);
-        }
-    }
-    
-    /**
-     * @deprecated 已移动到独立文件 {@link com.security.processchain.util.PruneResult}
-     */
-    @Deprecated
-    public static class PruneResult extends com.security.processchain.util.PruneResult {
-        public PruneResult(int originalNodeCount, int removedNodeCount, int removedEdgeCount,
-                          int mustKeepCount, int cascadeKeepCount) {
-            super(originalNodeCount, removedNodeCount, removedEdgeCount, mustKeepCount, cascadeKeepCount);
-        }
-    }
+
     
     /**
       * 执行智能裁剪（增强版 - 带备份和回滚）

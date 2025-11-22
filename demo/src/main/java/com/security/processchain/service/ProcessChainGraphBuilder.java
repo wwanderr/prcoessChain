@@ -56,16 +56,35 @@ public class ProcessChainGraphBuilder {
         
         // 阶段1：添加告警节点
         if (alarms != null) {
+            int addedCount = 0;
+            int mergedCount = 0;
+            
             for (RawAlarm alarm : alarms) {
                 if (alarm == null || alarm.getProcessGuid() == null) {
                     continue;
                 }
                 
-                GraphNode node = createNodeFromAlarm(alarm);
-                graph.addNode(node);
+                String processGuid = alarm.getProcessGuid();
+                
+                if (!graph.hasNode(processGuid)) {
+                    // 节点不存在，创建新节点
+                    GraphNode node = createNodeFromAlarm(alarm);
+                    graph.addNode(node);
+                    addedCount++;
+                    log.debug("【建图-告警】创建新节点: processGuid={}, logType={}", 
+                            processGuid, alarm.getLogType());
+                } else {
+                    // 节点已存在（可能来自其他告警），合并告警
+                    GraphNode existing = graph.getNode(processGuid);
+                    existing.addAlarm(alarm);
+                    mergedCount++;
+                    log.debug("【建图-告警】合并告警到已有节点: processGuid={}, logType={}, 告警总数={}", 
+                            processGuid, alarm.getLogType(), existing.getAlarms().size());
+                }
             }
             
-            log.info("【建图】告警节点添加完成: {}", graph.getNodeCount());
+            log.info("【建图】告警节点处理完成: 新增={}, 合并={}, 图节点总数={}", 
+                    addedCount, mergedCount, graph.getNodeCount());
             
             // ✅ 处理根节点：清空 parentProcessGuid 并建立虚拟根父节点映射
             for (RawAlarm alarm : alarms) {
