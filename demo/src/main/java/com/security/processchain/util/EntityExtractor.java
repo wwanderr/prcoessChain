@@ -1,5 +1,6 @@
 package com.security.processchain.util;
 
+import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
 import com.security.processchain.service.GraphNode;
 import com.security.processchain.service.ProcessChainGraph;
@@ -63,16 +64,24 @@ public class EntityExtractor {
         Map<String, Integer> entityTypeCount = new HashMap<>();
         Map<String, Integer> allLogTypeCount = new HashMap<>();
         
-        // 收集所有要添加的实体节点和边（避免在遍历时修改图）
+        // 收集所有要添加的实体节点和边信息（避免在遍历时修改图）
         List<GraphNode> entityNodesToAdd = new ArrayList<>();
-        List<EdgePair> edgesToAdd = new ArrayList<>();
+        Map<String, String> entityToProcessMap = new HashMap<>();  // entityNodeId -> processGuid
         
         // 1. 遍历所有节点
         for (GraphNode node : graph.getAllNodes()) {
             // 统计所有节点的类型
             String nodeType = node.getNodeType();
-            log.debug("【实体提取-调试】节点: id={}, nodeType={}, 日志数={}", 
-                    node.getNodeId(), nodeType, node.getLogs() != null ? node.getLogs().size() : 0);
+            log.debug("【实体提取-调试】节点: id={}, nodeType={}, isVirtual={}, 日志数={}", 
+                    node.getNodeId(), nodeType, node.isVirtual(), 
+                    node.getLogs() != null ? node.getLogs().size() : 0);
+            
+            // ✅ 跳过虚拟节点（虚拟父节点不应该提取实体）
+            if (node.isVirtual()) {
+                log.debug("【实体提取-调试】跳过虚拟节点: id={}, nodeType={}", 
+                        node.getNodeId(), nodeType);
+                continue;
+            }
             
             // 只处理进程节点
             if (!isProcessNode(node)) {
@@ -83,59 +92,98 @@ public class EntityExtractor {
             
             processNodeCount++;
             String processGuid = node.getNodeId();
+            
+            // ✅ 优先从日志中提取实体（节点级优先级）
             List<RawLog> logs = node.getLogs();
-            
-            if (logs == null || logs.isEmpty()) {
-                log.debug("【实体提取-调试】进程节点 {} 没有日志", processGuid);
-                continue;
-            }
-            
-            totalLogs += logs.size();
-            
-            // 统计日志类型
-            for (RawLog rawLog : logs) {
-                String logType = rawLog.getLogType();
-                allLogTypeCount.put(logType != null ? logType : "null", 
-                        allLogTypeCount.getOrDefault(logType != null ? logType : "null", 0) + 1);
-            }
-            
-            // 2. 从日志中提取实体
-            Map<String, List<RawLog>> entityLogsByType = groupEntityLogs(logs);
-            
-            if (!entityLogsByType.isEmpty()) {
-                log.info("【实体提取】进程节点 {} 包含实体日志: {}", processGuid, entityLogsByType.keySet());
-            }
-            
-            for (Map.Entry<String, List<RawLog>> entry : entityLogsByType.entrySet()) {
-                String entityType = entry.getKey();
-                List<RawLog> entityLogs = entry.getValue();
+            if (logs != null && !logs.isEmpty()) {
+                totalLogs += logs.size();
                 
-                totalEntityLogs += entityLogs.size();
+                // 统计日志类型
+                for (RawLog rawLog : logs) {
+                    String logType = rawLog.getLogType();
+                    allLogTypeCount.put(logType != null ? logType : "null", 
+                            allLogTypeCount.getOrDefault(logType != null ? logType : "null", 0) + 1);
+                }
                 
-                // 3. 为每个实体日志创建实体节点
-                for (RawLog entityLog : entityLogs) {
-                    String entityNodeId = generateEntityNodeId(processGuid, entityLog);
+                // 2. 从日志中提取实体
+                Map<String, List<RawLog>> entityLogsByType = groupEntityLogs(logs);
+                
+                if (!entityLogsByType.isEmpty()) {
+                    log.info("【实体提取】进程节点 {} 包含实体日志: {}", processGuid, entityLogsByType.keySet());
+                }
+                
+                for (Map.Entry<String, List<RawLog>> entry : entityLogsByType.entrySet()) {
+                    String entityType = entry.getKey();
+                    List<RawLog> entityLogs = entry.getValue();
+                    
+                    totalEntityLogs += entityLogs.size();
+                    
+                    // 3. 为每个实体日志创建实体节点
+                    for (RawLog entityLog : entityLogs) {
+                        String entityNodeId = generateEntityNodeId(processGuid, entityLog);
+                        
+                        // 检查节点是否已存在（去重）
+                        if (graph.hasNode(entityNodeId)) {
+                            // 节点已存在，合并日志
+                            GraphNode existingNode = graph.getNode(entityNodeId);
+                            existingNode.addLog(entityLog);// 日志从进程节点"移动"到实体节点
+                            log.debug("【实体提取】实体节点已存在，合并日志: nodeId={}", entityNodeId);
+                            continue;
+                        }
+                        
+                        // 创建新的实体节点
+                        GraphNode entityNode = createEntityNode(entityNodeId, entityType, entityLog);// 日志从进程节点"移动"到实体节点
+                        entityNodesToAdd.add(entityNode);
+                        entityToProcessMap.put(entityNodeId, processGuid);  // ✅ 记录映射关系
+                        
+                        createdEntityNodes++;
+                        entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
+                        
+                        log.info("【实体提取】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
+                                processGuid, entityType, entityNodeId);
+                    }
+                }
+                
+                continue;  // ✅ 节点级优先级：有日志就不处理告警
+            }
+            
+            // ✅ 新增：没有日志时，从告警中提取实体
+            List<RawAlarm> alarms = node.getAlarms();
+            if (alarms != null && !alarms.isEmpty()) {
+                log.debug("【实体提取-告警】进程节点 {} 没有日志，尝试从 {} 条告警中提取实体", 
+                        processGuid, alarms.size());
+                
+                // 2. 从告警中提取实体
+                for (RawAlarm alarm : alarms) {
+                    String entityType = determineEntityTypeFromAlarm(alarm);
+                    
+                    if (!isEntityType(entityType)) {
+                        continue;  // 不是实体类型（process），跳过
+                    }
+                    
+                    totalEntityLogs++;
+                    
+                    // 3. 为每个实体告警创建实体节点id
+                    String entityNodeId = generateEntityNodeIdFromAlarm(processGuid, alarm, entityType);
                     
                     // 检查节点是否已存在（去重）
                     if (graph.hasNode(entityNodeId)) {
-                        // 节点已存在，合并日志
+                        // 节点已存在，合并告警
                         GraphNode existingNode = graph.getNode(entityNodeId);
-                        existingNode.addLog(entityLog);
-                        log.debug("【实体提取】实体节点已存在，合并日志: nodeId={}", entityNodeId);
+                        existingNode.addAlarm(alarm);
+                        log.debug("【实体提取-告警】实体节点已存在，合并告警: nodeId={}", entityNodeId);
                         continue;
                     }
                     
                     // 创建新的实体节点
-                    GraphNode entityNode = createEntityNode(entityNodeId, entityType, entityLog);
+                    GraphNode entityNode = createEntityNodeFromAlarm(entityNodeId, entityType, alarm);
                     entityNodesToAdd.add(entityNode);
-                    
-                    // 创建边：进程节点 → 实体节点
-                    edgesToAdd.add(new EdgePair(processGuid, entityNodeId));
+                    entityToProcessMap.put(entityNodeId, processGuid);  // ✅ 记录映射关系
                     
                     createdEntityNodes++;
                     entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
                     
-                    log.info("【实体提取】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
+                    log.info("【实体提取-告警】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
                             processGuid, entityType, entityNodeId);
                 }
             }
@@ -146,8 +194,18 @@ public class EntityExtractor {
             graph.addNode(entityNode);
         }
         
-        for (EdgePair edge : edgesToAdd) {
-            graph.addEdge(edge.getSource(), edge.getTarget());
+        // ✅ 批量创建边：进程节点 → 实体节点，val="连接"
+        for (Map.Entry<String, String> entry : entityToProcessMap.entrySet()) {
+            String entityNodeId = entry.getKey();
+            String processGuid = entry.getValue();
+            
+            if (graph.hasNode(processGuid) && graph.hasNode(entityNodeId)) {
+                graph.addEdge(processGuid, entityNodeId, "连接");
+                log.debug("【实体提取】创建实体边: {} → {}, val=连接", processGuid, entityNodeId);
+            } else {
+                log.warn("【实体提取】⚠️ 无法创建实体边（节点不存在）: processGuid={}, entityNodeId={}", 
+                        processGuid, entityNodeId);
+            }
         }
         
         log.info("【实体提取】统计信息:");
@@ -217,8 +275,11 @@ public class EntityExtractor {
         node.setNodeType(entityType + "_entity");
         node.setTraceId(entityLog.getTraceId());
         node.setHostAddress(entityLog.getHostAddress());
+        node.setVirtual(false);  // ✅ 明确标记为非虚拟节点
         
-        // 实体节点没有 parentProcessGuid
+        // 实体节点没有 processGuid 和 parentProcessGuid
+        // 它们通过边（process → entity）与进程节点关联
+        node.setProcessGuid(null);
         node.setParentProcessGuid(null);
         
         // 添加日志
@@ -293,6 +354,109 @@ public class EntityExtractor {
             // 降级方案：使用Java hashCode
             return String.format("%08x", Math.abs(str.hashCode()));
         }
+    }
+    
+    /**
+     * 判断告警的实体类型（根据字段，不是logType）
+     * 
+     * 规则：
+     * - file: fileMd5 + targetFilename 存在，且 targetFilename != image
+     * - domain: requestDomain 存在
+     * - network: destAddress 存在，且 != hostAddress
+     * - registry: targetObject 存在
+     * - process: 其他情况
+     */
+    private static String determineEntityTypeFromAlarm(RawAlarm alarm) {
+        // 1. 文件实体
+        if (alarm.getFileMd5() != null && !alarm.getFileMd5().isEmpty() &&
+            alarm.getTargetFilename() != null && !alarm.getTargetFilename().isEmpty() &&
+            !alarm.getTargetFilename().equals(alarm.getImage())) {
+            return "file";
+        }
+        
+        // 2. 域名实体
+        if (alarm.getRequestDomain() != null && !alarm.getRequestDomain().isEmpty()) {
+            return "domain";
+        }
+        
+        // 3. 网络实体（排除本机地址）
+        if (alarm.getDestAddress() != null && !alarm.getDestAddress().isEmpty() &&
+            !alarm.getDestAddress().equals(alarm.getHostAddress())) {
+            return "network";
+        }
+        
+        // 4. 注册表实体
+        if (alarm.getTargetObject() != null && !alarm.getTargetObject().isEmpty()) {
+            return "registry";
+        }
+        
+        // 5. 其他：进程创建
+        return "process";
+    }
+    
+    /**
+     * 判断是否是实体类型
+     */
+    private static boolean isEntityType(String entityType) {
+        return "file".equals(entityType) || 
+               "domain".equals(entityType) || 
+               "network".equals(entityType) || 
+               "registry".equals(entityType);
+    }
+    
+    /**
+     * 从告警生成实体节点ID
+     */
+    private static String generateEntityNodeIdFromAlarm(String processGuid, RawAlarm alarm, String entityType) {
+        switch (entityType) {
+            case "file":
+                String fileMd5 = alarm.getFileMd5() != null ? alarm.getFileMd5() : "NOMD5";
+                String filename = alarm.getTargetFilename() != null ? alarm.getTargetFilename() : "NONAME";
+                String fileKey = fileMd5 + "_" + filename;
+                String fileHash = calculateHash(fileKey);
+                return processGuid + "_FILE_" + fileHash;
+                
+            case "domain":
+                String domain = alarm.getRequestDomain() != null ? alarm.getRequestDomain() : "NODOMAIN";
+                String domainHash = calculateHash(domain);
+                return processGuid + "_DOMAIN_" + domainHash;
+                
+            case "network":
+                String destAddr = alarm.getDestAddress() != null ? alarm.getDestAddress() : "NOADDR";
+                String networkHash = calculateHash(destAddr);
+                return processGuid + "_NETWORK_" + networkHash;
+                
+            case "registry":
+                String targetObj = alarm.getTargetObject() != null ? alarm.getTargetObject() : "NOOBJ";
+                String regHash = calculateHash(targetObj);
+                return processGuid + "_REGISTRY_" + regHash;
+                
+            default:
+                return processGuid + "_ENTITY_" + calculateHash(alarm.getEventId());
+        }
+    }
+    
+    /**
+     * 从告警创建实体节点
+     */
+    private static GraphNode createEntityNodeFromAlarm(String entityNodeId, String entityType, RawAlarm alarm) {
+        GraphNode entityNode = new GraphNode();
+        
+        entityNode.setNodeId(entityNodeId);
+        entityNode.setNodeType(entityType + "_entity");  // ✅ 与 createEntityNode 保持一致
+        entityNode.setTraceId(alarm.getTraceId());
+        entityNode.setHostAddress(alarm.getHostAddress());
+        entityNode.setVirtual(false);
+        
+        // 实体节点没有 processGuid 和 parentProcessGuid
+        // 它们通过边（process → entity）与进程节点关联
+        entityNode.setProcessGuid(null);
+        entityNode.setParentProcessGuid(null);
+        
+        // 添加告警到节点
+        entityNode.addAlarm(alarm);
+        
+        return entityNode;
     }
 }
 

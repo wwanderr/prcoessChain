@@ -19,9 +19,19 @@ import java.util.List;
 @Setter
 public class GraphNode {
     private String nodeId;
+    private String processGuid;
     private String parentProcessGuid;
     private String traceId;
     private String hostAddress;
+    private String hostName;
+    
+    // 进程相关字段
+    private String processName;
+    private Integer processId;
+    private String image;
+    private String commandLine;
+    private String processMd5;
+    private String processUserName;
     
     private List<RawAlarm> alarms;
     private List<RawLog> logs;

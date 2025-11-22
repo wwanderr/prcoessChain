@@ -29,7 +29,9 @@ public final class IncidentConverters {
 
         ChainNode chainNode = new ChainNode();
 
+        // createNodeFromLog这块附近
         List<RawAlarm> alarms = builderNode.getAlarms();
+        // existingNode.addLog(entityLog);这块流转
         List<RawLog> logs = builderNode.getLogs();
 
         boolean isAlarm = alarms != null && !alarms.isEmpty();
@@ -317,7 +319,7 @@ public final class IncidentConverters {
         ProcessEntity processEntity = new ProcessEntity();
         processEntity.setOpType(log.getOpType());
         processEntity.setLocaltime(log.getStartTime());
-        processEntity.setProcessId(log.getProcessId());
+        processEntity.setProcessId(log.getProcessId() != null ? String.valueOf(log.getProcessId()) : null);
         processEntity.setProcessGuid(log.getProcessGuid());
         processEntity.setParentProcessGuid(log.getParentProcessGuid());
         processEntity.setImage(log.getImage());
@@ -370,7 +372,7 @@ public final class IncidentConverters {
         ProcessEntity processEntity = new ProcessEntity();
         processEntity.setOpType(log.getOpType());
         processEntity.setLocaltime(log.getStartTime());
-        processEntity.setProcessId(log.getProcessId());
+        processEntity.setProcessId(log.getProcessId() != null ? String.valueOf(log.getProcessId()) : null);
         processEntity.setImage(log.getImage());
         processEntity.setCommandline(log.getCommandLine());
         processEntity.setProcessUserName(log.getProcessUserName());

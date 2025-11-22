@@ -1,6 +1,8 @@
 package com.security.processchain.service;
 
 import com.security.processchain.constants.ProcessChainConstants;
+import com.security.processchain.model.ProcessEdge;
+import com.security.processchain.model.ProcessNode;
 import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
 import com.security.processchain.util.*;
@@ -157,14 +159,81 @@ public class ProcessChainBuilder {
             // ===== 阶段2：确定起点节点 =====
             Set<String> startNodes = new HashSet<>();
             
-            // 2.1 有告警场景：以告警节点为起点
+            // 2.1 有告警场景：根据是否有网端关联选择起点
             if (alarms != null && !alarms.isEmpty()) {
-            for (RawAlarm alarm : alarms) {
-                    if (alarm != null && alarm.getProcessGuid() != null) {
-                        startNodes.add(alarm.getProcessGuid());
+                // 情况1：有网端关联 → 以关联的告警为起点，但需确保每个 traceId 都有起点
+                if (associatedEventIds != null && !associatedEventIds.isEmpty()) {
+                    int matchedCount = 0;
+                    Set<String> coveredTraceIds = new HashSet<>();
+                    
+                    // 步骤1：添加网端关联的告警作为起点
+                    for (RawAlarm alarm : alarms) {
+                        if (alarm != null && alarm.getEventId() != null && 
+                            associatedEventIds.contains(alarm.getEventId())) {
+                            if (alarm.getProcessGuid() != null) {
+                                startNodes.add(alarm.getProcessGuid());
+                                matchedCount++;
+                                if (alarm.getTraceId() != null) {
+                                    coveredTraceIds.add(alarm.getTraceId());
+                                }
+                                log.debug("【网端关联】匹配告警: eventId={}, processGuid={}, traceId={}", 
+                                        alarm.getEventId(), alarm.getProcessGuid(), alarm.getTraceId());
+                            }
+                        }
+                    }
+                    
+                    log.info("【网端关联场景】使用关联告警作为起点: 关联eventId数={}, 匹配告警数={}, 起点节点数={}, 覆盖traceId数={}", 
+                            associatedEventIds.size(), matchedCount, startNodes.size(), coveredTraceIds.size());
+                    
+                    // 步骤2：✅ 关键修复 - 为未覆盖的 traceId 补充起点-- 有些traceid不是网端关联场景
+                    if (traceIds != null && !traceIds.isEmpty()) {
+                        Set<String> uncoveredTraceIds = new HashSet<>(traceIds);
+                        uncoveredTraceIds.removeAll(coveredTraceIds);
+                        
+                        if (!uncoveredTraceIds.isEmpty()) {
+                            log.warn("【网端关联场景】发现未覆盖的 traceId: {} / {}", 
+                                    uncoveredTraceIds.size(), traceIds.size());
+                            log.warn("【网端关联场景】未覆盖的 traceId 列表: {}", uncoveredTraceIds);
+                            
+                            int supplementCount = 0;
+                            // 为每个未覆盖的 traceId 找一个告警作为起点
+                            for (String uncoveredTraceId : uncoveredTraceIds) {
+                                for (RawAlarm alarm : alarms) {
+                                    if (alarm != null && 
+                                        uncoveredTraceId.equals(alarm.getTraceId()) && 
+                                        alarm.getProcessGuid() != null) {
+                                        
+                                        startNodes.add(alarm.getProcessGuid());
+                                        coveredTraceIds.add(uncoveredTraceId);
+                                        supplementCount++;
+                                        
+                                        log.info("【起点补充】为未关联的 traceId [{}] 添加起点: processGuid={}, eventId={}", 
+                                                uncoveredTraceId, alarm.getProcessGuid(), alarm.getEventId());
+                                        break;  // 每个 traceId 只需要一个起点
+                                    }
+                                }
+                            }
+                            
+                            log.info("【起点补充】补充了 {} 个未覆盖 traceId 的起点，最终覆盖 traceId 数: {} / {}", 
+                                    supplementCount, coveredTraceIds.size(), traceIds.size());
+                        } else {
+                            log.info("【网端关联场景】✅ 所有 traceId 都已覆盖");
+                        }
+                    }
+                    
+                    if (startNodes.isEmpty()) {
+                        log.warn("【网端关联】未找到任何匹配的关联告警，关联eventIds: {}", associatedEventIds);
                     }
                 }
-                log.info("【有告警场景】使用告警节点作为起点: {}", startNodes.size());
+                // 情况2：无网端关联 → 以所有告警为起点
+                else {
+                    for (RawAlarm alarm : alarms) {
+                        if (alarm != null && alarm.getProcessGuid() != null) {
+                            startNodes.add(alarm.getProcessGuid());
+                        }
+                    }
+                    log.info("【普通告警场景】使用所有告警作为起点: {}", startNodes.size());
+                }
             }
             // 2.2 无告警场景：使用指定日志的processGuid作为起点
             else if (startLogEventIds != null && !startLogEventIds.isEmpty()) {
@@ -223,30 +292,26 @@ public class ProcessChainBuilder {
                 log.info("【无告警场景】使用指定日志作为起点: eventIds={}, 节点数={}", 
                         startLogEventIds, startNodes.size());
             }
-            // 2.3 兜底：使用根节点
-            else {
-                startNodes.addAll(fullGraph.getRootNodes());
-                log.warn("【兜底场景】无告警也无指定日志，使用根节点作为起点: {}", startNodes.size());
-            }
+            // 2.3 无告警无网段端关联日志场景：后续统一兜底处理
             
-            log.info("【起点节点】共 {} 个起点", startNodes.size());
+            log.info("【起点节点】当前收集到 {} 个起点", startNodes.size());
             
-            // ✅ 临时兜底：如果 startNodes 为空，使用根节点
+            // ✅ 统一兜底：如果 startNodes 为空，使用根节点
             if (startNodes.isEmpty()) {
-                log.error("【紧急排查】startNodes 为空，无法生成进程链！");
-                log.error("  - alarms数量: {}", alarms != null ? alarms.size() : 0);
-                log.error("  - logs数量: {}", logs != null ? logs.size() : 0);
-                log.error("  - startLogEventIds数量: {}", startLogEventIds != null ? startLogEventIds.size() : 0);
-                log.error("  - startLogEventIds内容: {}", startLogEventIds);
-                log.error("  - 图节点数: {}", fullGraph.getNodeCount());
-                log.error("  - 根节点数: {}", fullGraph.getRootNodes().size());
+                log.warn("【兜底检查】未找到有效的起点节点，开始兜底处理...");
+                log.warn("  - 告警数量: {}", alarms != null ? alarms.size() : 0);
+                log.warn("  - 日志数量: {}", logs != null ? logs.size() : 0);
+                log.warn("  - 关联告警eventIds数量: {}", associatedEventIds != null ? associatedEventIds.size() : 0);
+                log.warn("  - 起点日志eventIds数量: {}", startLogEventIds != null ? startLogEventIds.size() : 0);
+                log.warn("  - 图节点总数: {}", fullGraph.getNodeCount());
+                log.warn("  - 根节点数: {}", fullGraph.getRootNodes().size());
                 
                 // 兜底方案：使用根节点
                 if (!fullGraph.getRootNodes().isEmpty()) {
                     startNodes.addAll(fullGraph.getRootNodes());
-                    log.warn("【兜底方案】使用 {} 个根节点作为起点", startNodes.size());
+                    log.info("【兜底方案】✅ 使用 {} 个根节点作为起点", startNodes.size());
                 } else {
-                    log.error("【致命错误】图中没有根节点，无法生成进程链！");
+                    log.error("【致命错误】❌ 图中没有根节点，无法生成进程链！");
                     return new ProcessChainResult();  // 返回空结果
                 }
             }
@@ -277,6 +342,21 @@ public class ProcessChainBuilder {
             ProcessChainGraph subgraph = fullGraph.extractSubgraph(relevantNodes);
             
             log.info("【子图提取完成】进程节点数={}", subgraph.getNodeCount());
+            
+            // ===== 阶段4.5：父进程拆分（延迟创建虚拟父节点）✅ 新增 =====
+            log.info("【父进程拆分】开始为子图节点创建虚拟父节点...");
+            createVirtualParentsForSubgraph(subgraph, traceIds);
+            log.info("【父进程拆分完成】子图节点总数={}", subgraph.getNodeCount());
+            
+            // ===== 阶段4.6：图分析（完整）✅ 新增 =====
+            log.info("【图分析】开始识别根节点和断链节点...");
+            subgraph.identifyRootNodes(traceIds != null ? traceIds : Collections.emptySet());
+            log.info("【图分析完成】");
+            
+            // ===== 阶段4.7：调整虚拟父节点的 parentProcessGuid ✅ 新增 =====
+            log.info("【虚拟父节点调整】开始调整虚拟父节点的 parentProcessGuid...");
+            adjustVirtualParentLinks(subgraph);
+            log.info("【虚拟父节点调整完成】");
             
             // ===== 阶段5：裁剪（如果需要）=====
             // 注意：此时只有进程节点，裁剪更高效
@@ -402,9 +482,9 @@ public class ProcessChainBuilder {
                 }
             }
             
-            // 移除被裁剪的节点
+            // 移除被裁剪的节点和边
             for (String nodeId : nodesToRemove) {
-                graph.removeNode(nodeId);
+                graph.removeCutNode(nodeId);
             }
             
             log.info("【图裁剪完成】移除节点数={}", nodesToRemove.size());
@@ -429,8 +509,10 @@ public class ProcessChainBuilder {
         }
         result.setNodes(nodes);
         
-        // 转换边（直接从邻接表获取）
+        // 转换边（直接从邻接表获取，并获取边的值）
         List<ChainBuilderEdge> edges = new ArrayList<>();
+        Map<String, String> edgeVals = graph.getEdgeVals();  // 获取所有边的值
+        
         for (GraphNode graphNode : graph.getAllNodes()) {
             String source = graphNode.getNodeId();
             List<String> children = graph.getChildren(source);
@@ -438,6 +520,17 @@ public class ProcessChainBuilder {
                 ChainBuilderEdge edge = new ChainBuilderEdge();
                 edge.setSource(source);
                 edge.setTarget(target);
+                
+                // ✅ 设置边的值（如"断链"）
+                String edgeKey = source + "->" + target;
+                String val = edgeVals.get(edgeKey);
+                edge.setVal(val);
+                
+                if (val != null && !val.isEmpty()) {
+                    log.debug("【边转换】设置边的值: {} → {}, val={}", 
+                            source, target, val);
+                }
+                
                 edges.add(edge);
             }
         }
@@ -932,9 +1025,9 @@ public class ProcessChainBuilder {
      * @param nodes 已转换的节点列表
      */
     private void setEdgeValByTargetNode(
-            com.security.processchain.model.ProcessEdge edge,
+            ProcessEdge edge,
             String targetNodeId,
-            List<com.security.processchain.model.ProcessNode> nodes) {
+            List<ProcessNode> nodes) {
         
         // 如果边的 val 不是默认值"连接"（如桥接边"桥接"、扩展边""等特殊值），则不覆盖
         String currentVal = edge.getVal();
@@ -943,8 +1036,8 @@ public class ProcessChainBuilder {
         }
         
         // 查找目标节点
-        com.security.processchain.model.ProcessNode targetNode = null;
-        for (com.security.processchain.model.ProcessNode node : nodes) {
+        ProcessNode targetNode = null;
+        for (ProcessNode node : nodes) {
             if (node != null && targetNodeId.equals(node.getNodeId())) {
                 targetNode = node;
                 break;
@@ -1115,8 +1208,8 @@ public class ProcessChainBuilder {
      * @param traceIdToRootNodeMap traceId 到根节点的映射（会被修改）
      */
     private void addExploreNodesForBrokenChains(
-            List<com.security.processchain.model.ProcessNode> finalNodes,
-            List<com.security.processchain.model.ProcessEdge> finalEdges,
+            List<ProcessNode> finalNodes,
+            List<ProcessEdge> finalEdges,
             Set<String> brokenNodes,
             Set<String> rootNodes,
             Set<String> traceIds,
@@ -1151,8 +1244,8 @@ public class ProcessChainBuilder {
             // 创建独立的 EXPLORE 节点ID
             String exploreNodeId = "EXPLORE_ROOT_" + traceId;
             
-            com.security.processchain.model.ProcessNode exploreNode = 
-                    new com.security.processchain.model.ProcessNode();
+            ProcessNode exploreNode = 
+                    new ProcessNode();
             exploreNode.setNodeId(exploreNodeId);
             exploreNode.setIsChainNode(true);
             exploreNode.setLogType("explore");
@@ -1190,8 +1283,8 @@ public class ProcessChainBuilder {
                     // 找到了对应的 EXPLORE 节点
                     String exploreNodeId = traceIdToRootNodeMap.get(nodeTraceId);
                     
-                    com.security.processchain.model.ProcessEdge exploreEdge = 
-                            new com.security.processchain.model.ProcessEdge();
+                    ProcessEdge exploreEdge = 
+                            new ProcessEdge();
                     exploreEdge.setSource(exploreNodeId);
                     exploreEdge.setTarget(brokenNodeGuid);
                     exploreEdge.setVal("断链");
@@ -1207,8 +1300,8 @@ public class ProcessChainBuilder {
                         String firstTraceId = traceIdsWithoutRoot.iterator().next();
                         String exploreNodeId = traceIdToRootNodeMap.get(firstTraceId);
                         
-                        com.security.processchain.model.ProcessEdge exploreEdge = 
-                                new com.security.processchain.model.ProcessEdge();
+                        ProcessEdge exploreEdge = 
+                                new ProcessEdge();
                         exploreEdge.setSource(exploreNodeId);
                         exploreEdge.setTarget(brokenNodeGuid);
                         exploreEdge.setVal("断链");
@@ -1274,7 +1367,6 @@ public class ProcessChainBuilder {
             // 构建内部结果
             ProcessChainResult result = buildProcessChain(alarms, logs, traceIds, associatedEventIds, startLogEventIds);
             
-            // ✅ 同步 traceIdToRootNodeMap（确保在没有断链节点时也能获取）
             // buildProcessChain 内部已经同步过，这里再次确认
             if (this.traceIdToRootNodeMap == null || this.traceIdToRootNodeMap.isEmpty()) {
                 this.traceIdToRootNodeMap = result.getTraceIdToRootNodeMap();
@@ -1282,7 +1374,6 @@ public class ProcessChainBuilder {
             }
             
             // ✅ 同步 virtualRootParentMap（确保网端桥接能够获取）
-            // buildProcessChain 内部已经同步过，但这里再次确认
             if (this.virtualRootParentMap == null || this.virtualRootParentMap.isEmpty()) {
                 // virtualRootParentMap 不在 result 中，已经在 buildProcessChain 中同步
                 log.debug("【进程链生成】-> virtualRootParentMap: {}", this.virtualRootParentMap);
@@ -1291,14 +1382,13 @@ public class ProcessChainBuilder {
             // 转换为最终的 IncidentProcessChain
             IncidentProcessChain incidentChain = new IncidentProcessChain();
             
-            List<com.security.processchain.model.ProcessNode> finalNodes = new ArrayList<>();
-            List<com.security.processchain.model.ProcessEdge> finalEdges = new ArrayList<>();
+            List<ProcessNode> finalNodes = new ArrayList<>();
+            List<ProcessEdge> finalEdges = new ArrayList<>();
             
-            // 转换节点，映射到输出接哦构体中，并添加实体等内容
+            // 转换节点，映射到输出接结构体中，并添加实体等内容等，子图的内容都已经映射
             if (result.getNodes() != null) {
                 for (ChainBuilderNode builderNode : result.getNodes()) {
-                    com.security.processchain.model.ProcessNode finalNode = nodeMapper.toIncidentNode(builderNode);
-                    
+                    ProcessNode finalNode = nodeMapper.toIncidentNode(builderNode);
                     // 设置 isRoot 和 isBroken 标志
                     if (finalNode != null && finalNode.getIsChainNode() && finalNode.getChainNode() != null) {
                         String nodeId = finalNode.getNodeId();
@@ -1318,14 +1408,19 @@ public class ProcessChainBuilder {
             if (result.getEdges() != null) {
                 for (ChainBuilderEdge builderEdge : result.getEdges()) {
                     // ✅ 直接创建 ProcessEdge，不再需要 EdgeMapper
-                    com.security.processchain.model.ProcessEdge finalEdge = 
-                            new com.security.processchain.model.ProcessEdge();
+                    ProcessEdge finalEdge = new ProcessEdge();
                     finalEdge.setSource(builderEdge.getSource());
                     finalEdge.setTarget(builderEdge.getTarget());
                     // val 默认为 "连接"（由 ProcessEdge 构造函数设置）
-                    
-                    // 根据目标节点设置边的 val 值
-                    setEdgeValByTargetNode(finalEdge, builderEdge.getTarget(), finalNodes);
+                    // 优先使用边的值（如"断链"）
+                    if (builderEdge.getVal() != null && !builderEdge.getVal().isEmpty()) {
+                        finalEdge.setVal(builderEdge.getVal());
+                        log.debug("【边转换】设置边的值到 ProcessEdge: {} → {}, val={}", 
+                                builderEdge.getSource(), builderEdge.getTarget(), builderEdge.getVal());
+                    } else {
+                        // 没有特殊值时，根据目标节点设置边的 val 值
+                        setEdgeValByTargetNode(finalEdge, builderEdge.getTarget(), finalNodes);
+                    }
                     
                     finalEdges.add(finalEdge);
                 }
@@ -1363,5 +1458,463 @@ public class ProcessChainBuilder {
             log.error("【进程链生成】-> 构建 IncidentProcessChain 失败: {}", e.getMessage(), e);
             return new IncidentProcessChain();
         }
+    }
+    
+    /**
+     * 为子图节点创建虚拟父节点（延迟拆分）
+     * 
+     * 流程：
+     * 1. 遍历子图的所有节点（只处理真实节点，跳过虚拟节点）
+     * 2. 检查其父节点是否存在
+     * 3. 如果不存在，从日志/告警中提取父进程信息，创建虚拟父节点
+     * 4. 批量添加虚拟父节点到子图
+     * 
+     * 关键点：
+     * - 虚拟父节点的 parentProcessGuid 永远是 null
+     * - 批量创建，避免重复
+     * - 优先从日志提取，没有日志时从告警提取
+     * 
+     * @param subgraph 子图
+     * @param traceIds traceId集合
+     */
+    private void createVirtualParentsForSubgraph(ProcessChainGraph subgraph, Set<String> traceIds) {
+        Map<String, GraphNode> virtualParentsToAdd = new HashMap<>();
+        int createdCount = 0;
+        
+        // 获取虚拟根父节点映射
+        Map<String, String> virtualRootParentMap = subgraph.getVirtualRootParentMap();
+        
+        // 遍历子图的所有节点
+        for (GraphNode node : subgraph.getAllNodes()) {
+            // ✅ 跳过虚拟节点（重要！）
+            if (node.isVirtual()) {
+                continue;
+            }
+            
+            String nodeId = node.getNodeId();
+            String parentGuid = node.getParentProcessGuid();
+            
+            // ========== 情况1：普通节点（有 parentProcessGuid） ==========
+            if (parentGuid != null && !parentGuid.isEmpty()) {
+                // 如果父节点已经存在（真实节点），跳过
+                if (subgraph.hasNode(parentGuid)) {
+                    log.debug("【父进程拆分】父节点已存在: childId={}, parentId={}", nodeId, parentGuid);
+                    continue;
+                }
+                
+                // 如果虚拟父节点已经在待添加列表中，跳过
+                if (virtualParentsToAdd.containsKey(parentGuid)) {
+                    continue;
+                }
+                
+                // 优先从日志中提取父进程信息
+                List<RawLog> logs = node.getLogs();
+                if (logs != null && !logs.isEmpty()) {
+                    GraphNode virtualParent = createVirtualParentNodeFromLog(logs.get(0), parentGuid);
+                    if (virtualParent != null) {
+                        virtualParentsToAdd.put(parentGuid, virtualParent);
+                        createdCount++;
+                        log.debug("【父进程拆分】从日志创建虚拟父节点: parentId={}, childId={}", 
+                                parentGuid, nodeId);
+                        continue;
+                    }
+                    // 如果日志中信息不足，尝试从告警中提取
+                    log.debug("【父进程拆分】日志中父进程信息不足，尝试从告警中提取: parentId={}, childId={}", 
+                            parentGuid, nodeId);
+                }
+                
+                // ✅ 没有日志或日志信息不足时，从告警中提取父进程信息
+                List<RawAlarm> alarms = node.getAlarms();
+                if (alarms != null && !alarms.isEmpty()) {
+                    GraphNode virtualParent = createVirtualParentNodeFromAlarm(alarms.get(0), parentGuid);
+                    if (virtualParent != null) {
+                        virtualParentsToAdd.put(parentGuid, virtualParent);
+                        createdCount++;
+                        log.debug("【父进程拆分】从告警创建虚拟父节点: parentId={}, childId={}", 
+                                parentGuid, nodeId);
+                    } else {
+                        log.warn("【父进程拆分】❌ 无法创建虚拟父节点（日志和告警中都缺少父进程信息）: " +
+                                "parentId={}, childId={}", parentGuid, nodeId);
+                    }
+                }
+            }
+            // ========== 情况2：特殊根节点（parentGuid 已被清空，需要检查映射） ==========
+            else if (virtualRootParentMap != null && virtualRootParentMap.containsKey(nodeId)) {
+                String virtualParentId = virtualRootParentMap.get(nodeId);
+                
+                // 如果虚拟父节点已经存在，跳过
+                if (subgraph.hasNode(virtualParentId)) {
+                    log.debug("【父进程拆分-特殊根节点】虚拟父节点已存在: childId={}, virtualParentId={}", 
+                            nodeId, virtualParentId);
+                    continue;
+                }
+                
+                // 如果虚拟父节点已经在待添加列表中，跳过
+                if (virtualParentsToAdd.containsKey(virtualParentId)) {
+                    continue;
+                }
+                
+                // 优先从日志中提取父进程信息
+                List<RawLog> logs = node.getLogs();
+                if (logs != null && !logs.isEmpty()) {
+                    GraphNode virtualParent = createVirtualParentNodeFromLog(logs.get(0), virtualParentId);
+                    if (virtualParent != null) {
+                        virtualParentsToAdd.put(virtualParentId, virtualParent);
+                        createdCount++;
+                        log.info("【父进程拆分-特殊根节点】✅ 从日志创建虚拟根父节点: virtualParentId={}, childRootId={}", 
+                                virtualParentId, nodeId);
+                        continue;
+                    }
+                    // 如果日志中信息不足，尝试从告警中提取
+                    log.debug("【父进程拆分-特殊根节点】日志中父进程信息不足，尝试从告警中提取: virtualParentId={}, childRootId={}", 
+                            virtualParentId, nodeId);
+                }
+                
+                // 没有日志或日志信息不足时，从告警中提取父进程信息
+                List<RawAlarm> alarms = node.getAlarms();
+                if (alarms != null && !alarms.isEmpty()) {
+                    GraphNode virtualParent = createVirtualParentNodeFromAlarm(alarms.get(0), virtualParentId);
+                    if (virtualParent != null) {
+                        virtualParentsToAdd.put(virtualParentId, virtualParent);
+                        createdCount++;
+                        log.info("【父进程拆分-特殊根节点】✅ 从告警创建虚拟根父节点: virtualParentId={}, childRootId={}", 
+                                virtualParentId, nodeId);
+                    } else {
+                        log.warn("【父进程拆分-特殊根节点】❌ 无法创建虚拟根父节点（日志和告警中都缺少父进程信息）: " +
+                                "virtualParentId={}, childRootId={}", virtualParentId, nodeId);
+                    }
+                }
+            }
+        }
+        
+        // 批量添加虚拟父节点到图中，并创建边
+        for (Map.Entry<String, GraphNode> entry : virtualParentsToAdd.entrySet()) {
+            String virtualParentId = entry.getKey();
+            GraphNode virtualParent = entry.getValue();
+            
+            subgraph.addNode(virtualParent);
+            
+            // 为所有子节点创建边
+            for (GraphNode node : subgraph.getAllNodes()) {
+                if (node.isVirtual()) {
+                    continue;
+                }
+                
+                String parentGuid = node.getParentProcessGuid();
+                
+                // 情况1：普通节点，匹配 parentProcessGuid
+                if (virtualParentId.equals(parentGuid)) {
+                    subgraph.addEdge(virtualParentId, node.getNodeId());
+                    log.debug("【父进程拆分】创建边: {} → {}", virtualParentId, node.getNodeId());
+                }
+                // 情况2：特殊根节点，通过映射匹配
+                else if (virtualRootParentMap != null && 
+                         virtualParentId.equals(virtualRootParentMap.get(node.getNodeId()))) {
+                    subgraph.addEdge(virtualParentId, node.getNodeId());
+                    log.info("【父进程拆分-特殊根节点】✅ 创建边: {} → {} (通过映射)", 
+                            virtualParentId, node.getNodeId());
+                }
+            }
+        }
+        
+        log.info("【父进程拆分】创建虚拟父节点数={}", createdCount);
+    }
+
+    /**
+     * 从日志创建虚拟父节点
+     * 
+     * <p><b>关键</b>：虚拟父节点的 parentProcessGuid 永远是 null（未知）</p>
+     * 
+     * <p><b>创建条件</b>：至少需要 parentProcessId 和 parentProcessName 同时存在，
+     * 否则无法创建有效的虚拟父节点。</p>
+     * 
+     * @param rawLog 日志数据（提取父进程信息）
+     * @param parentGuid 虚拟父节点的 processGuid（nodeId）
+     * @return 虚拟父节点，如果日志中父进程信息不足则返回 null
+     */
+    private GraphNode createVirtualParentNodeFromLog(RawLog rawLog, String parentGuid) {
+        // ✅ 验证：至少需要 parentProcessId 和 parentProcessName 同时存在
+        if (rawLog.getParentProcessId() == null || 
+            rawLog.getParentProcessName() == null || 
+            rawLog.getParentProcessName().isEmpty()) {
+            log.warn("【父进程拆分】⚠️ 日志中父进程信息不足，无法创建虚拟父节点: " +
+                    "parentGuid={}, parentProcessId={}, parentProcessName={}, " +
+                    "eventId={}, processGuid={}", 
+                    parentGuid, 
+                    rawLog.getParentProcessId(), 
+                    rawLog.getParentProcessName(),
+                    rawLog.getEventId(),
+                    rawLog.getProcessGuid());
+            return null;
+        }
+        
+        GraphNode parentNode = new GraphNode();
+        
+        parentNode.setNodeId(parentGuid);
+        parentNode.setProcessGuid(parentGuid);
+        parentNode.setParentProcessGuid(null);  // ✅ 永远是 null（未知）
+        parentNode.setVirtual(true);
+        parentNode.setNodeType("process");
+        
+        // 从日志中提取父进程信息
+        parentNode.setTraceId(rawLog.getTraceId());
+        parentNode.setHostAddress(rawLog.getHostAddress());
+        
+        // ✅ 填充父进程详细信息（用于后续展示和分析）
+        parentNode.setProcessName(rawLog.getParentProcessName());
+        parentNode.setProcessId(rawLog.getParentProcessId());
+        if (rawLog.getParentImage() != null) {
+            parentNode.setImage(rawLog.getParentImage());
+        }
+        if (rawLog.getParentCommandLine() != null) {
+            parentNode.setCommandLine(rawLog.getParentCommandLine());
+        }
+        if (rawLog.getParentProcessMd5() != null) {
+            parentNode.setProcessMd5(rawLog.getParentProcessMd5());
+        }
+        if (rawLog.getParentProcessUserName() != null) {
+            parentNode.setProcessUserName(rawLog.getParentProcessUserName());
+        }
+        
+        log.debug("【父进程拆分】✅ 从日志创建虚拟父节点成功: parentGuid={}, processName={}, processId={}", 
+                parentGuid, parentNode.getProcessName(), parentNode.getProcessId());
+        
+        return parentNode;
+    }
+
+    /**
+     * 从告警创建虚拟父节点
+     * 
+     * <p><b>关键</b>：虚拟父节点的 parentProcessGuid 初始为 null（未知），
+     * 后续会在 adjustVirtualParentLinks() 中调整。</p>
+     * 
+     * <p><b>创建条件</b>：至少需要 parentProcessId 和 parentProcessName 同时存在，
+     * 否则无法创建有效的虚拟父节点。</p>
+     * 
+     * @param alarm 告警数据（提取父进程信息）
+     * @param parentGuid 虚拟父节点的 processGuid（nodeId）
+     * @return 虚拟父节点，如果告警中父进程信息不足则返回 null
+     */
+    private GraphNode createVirtualParentNodeFromAlarm(RawAlarm alarm, String parentGuid) {
+        // ✅ 验证：至少需要 parentProcessId 和 parentProcessName 同时存在
+        if (alarm.getParentProcessId() == null || 
+            alarm.getParentProcessName() == null || 
+            alarm.getParentProcessName().isEmpty()) {
+            log.warn("【父进程拆分】⚠️ 告警中父进程信息不足，无法创建虚拟父节点: " +
+                    "parentGuid={}, parentProcessId={}, parentProcessName={}, " +
+                    "eventId={}, processGuid={}", 
+                    parentGuid, 
+                    alarm.getParentProcessId(), 
+                    alarm.getParentProcessName(),
+                    alarm.getEventId(),
+                    alarm.getProcessGuid());
+            return null;
+        }
+        
+        GraphNode parentNode = new GraphNode();
+        
+        parentNode.setNodeId(parentGuid);
+        parentNode.setProcessGuid(parentGuid);
+        parentNode.setParentProcessGuid(null);  // ✅ 初始为 null，后续会调整
+        parentNode.setVirtual(true);
+        parentNode.setNodeType("process");
+        
+        // 从告警中提取父进程信息
+        parentNode.setTraceId(alarm.getTraceId());
+        parentNode.setHostAddress(alarm.getHostAddress());
+        
+        // ✅ 填充父进程详细信息（用于后续展示和分析）
+        parentNode.setProcessName(alarm.getParentProcessName());
+        parentNode.setProcessId(alarm.getParentProcessId());
+        if (alarm.getParentImage() != null) {
+            parentNode.setImage(alarm.getParentImage());
+        }
+        if (alarm.getParentCommandLine() != null) {
+            parentNode.setCommandLine(alarm.getParentCommandLine());
+        }
+        if (alarm.getParentProcessMd5() != null) {
+            parentNode.setProcessMd5(alarm.getParentProcessMd5());
+        }
+        if (alarm.getParentProcessUserName() != null) {
+            parentNode.setProcessUserName(alarm.getParentProcessUserName());
+        }
+        
+        log.debug("【父进程拆分】✅ 从告警创建虚拟父节点成功: parentGuid={}, processName={}, processId={}", 
+                parentGuid, parentNode.getProcessName(), parentNode.getProcessId());
+        
+        return parentNode;
+    }
+    
+    /**
+     * 调整断链节点的 parentProcessGuid 并创建断链边
+     * 
+     * ============================================================
+     * 核心功能：
+     * ============================================================
+     * 1. 处理所有断链节点（包括虚拟节点和真实节点）
+     * 2. 检查节点是否是断链：有 parentProcessGuid 但父节点不存在
+     * 3. 如果是断链，调整 parentProcessGuid 指向同 traceId 的根节点
+     * 4. 为断链节点创建到根节点的边，并标记 val="断链"
+     * 
+     * ============================================================
+     * 场景说明：
+     * ============================================================
+     * 
+     * 【场景1】虚拟父节点有 parentProcessGuid，父节点存在 → 不需要调整
+     * 
+     *   REAL_PARENT (真实父节点，存在于图中)
+     *    └─> VIRTUAL_PARENT (虚拟父节点)
+     *         parentProcessGuid = REAL_PARENT ✓
+     *         └─> CHILD (子节点)
+     *   
+     *   处理：保持原有的 parentProcessGuid，不需要调整
+     * 
+     * ----------------------------------------------------------
+     * 
+     * 【场景2】虚拟父节点有 parentProcessGuid，但父节点不存在 → 断链，需要调整
+     * 
+     *   初始状态：
+     *     VIRTUAL_PARENT (虚拟父节点，断链)
+     *       parentProcessGuid = MISSING_PARENT ✗ (父节点不存在)
+     *       traceId = T1
+     *       └─> CHILD (子节点)
+     *     
+     *     ROOT_T1 (同 traceId 的根节点)
+     *   
+     *   调整后：
+     *     ROOT_T1
+     *       └─[断链边, val="断链"]─> VIRTUAL_PARENT
+     *                                 parentProcessGuid = ROOT_T1 ✓
+     *                                 └─> CHILD
+     *   
+     *   操作：
+     *     - 设置 VIRTUAL_PARENT.parentProcessGuid = ROOT_T1
+     *     - 创建边 ROOT_T1 → VIRTUAL_PARENT，val="断链"
+     * 
+     * ----------------------------------------------------------
+     * 
+     * 【场景3】真实节点是断链（未能创建虚拟父节点）→ 需要调整
+     * 
+     *   初始状态：
+     *     REAL_NODE (真实节点，断链)
+     *       parentProcessGuid = MISSING_PARENT ✗ (父节点不存在)
+     *       traceId = T1
+     *       原因：日志和告警中父进程信息不足，无法创建虚拟父节点
+     *     
+     *     ROOT_T1 (同 traceId 的根节点)
+     *   
+     *   调整后：
+     *     ROOT_T1
+     *       └─[断链边, val="断链"]─> REAL_NODE
+     *                                 parentProcessGuid = ROOT_T1 ✓
+     *   
+     *   操作：
+     *     - 设置 REAL_NODE.parentProcessGuid = ROOT_T1
+     *     - 创建边 ROOT_T1 → REAL_NODE，val="断链"
+     * 
+     * ----------------------------------------------------------
+     * 
+     * 【场景4】节点没有 parentProcessGuid (初始为 null) → 等待 EXPLORE 节点
+     * 
+     *   NODE (虚拟或真实节点)
+     *     parentProcessGuid = null
+     *     traceId = T2 (没有根节点)
+     *   
+     *   处理：保持 parentProcessGuid = null
+     *         等 EXPLORE_ROOT_T2 节点创建后再处理
+     * 
+     * ============================================================
+     * 关键点：
+     * ============================================================
+     * - 不仅虚拟节点可能是断链，真实节点也可能是断链
+     * - 断链的定义：有 parentProcessGuid 但图中不存在该父节点
+     * - 断链节点需要连接到同 traceId 的根节点
+     * - 创建的边会被标记 val="断链"（通过 addEdge 的 val 参数）
+     * - 如果该 traceId 没有根节点，保持 null，等 EXPLORE 节点创建后再处理
+     * 
+     * @param subgraph 子图，包含所有节点和边
+     */
+    private void adjustVirtualParentLinks(ProcessChainGraph subgraph) {
+        int adjustedCount = 0;
+        int brokenVirtualCount = 0; // 统计断链的虚拟节点数量
+        int brokenRealCount = 0;    // 统计断链的真实节点数量
+        Map<String, String> traceIdToRootMap = subgraph.getTraceIdToRootNodeMap();
+        
+        if (traceIdToRootMap == null || traceIdToRootMap.isEmpty()) {
+            log.info("【断链节点调整】没有根节点映射，跳过调整");
+            return;
+        }
+        
+        for (GraphNode node : subgraph.getAllNodes()) {
+            String nodeId = node.getNodeId();
+            String traceId = node.getTraceId();
+            String originalParentGuid = node.getParentProcessGuid();
+            boolean isVirtual = node.isVirtual();
+            
+            // ===== 步骤1：检查节点是否是断链 =====
+            // 断链的定义：有 parentProcessGuid 但父节点不存在
+            boolean isBrokenChain = false;
+            
+            if (originalParentGuid != null && !originalParentGuid.isEmpty()) {
+                // 节点有 parentProcessGuid，检查图中是否存在该父节点
+                if (!subgraph.hasNode(originalParentGuid)) {
+                    // 父节点不存在 → 断链
+                    isBrokenChain = true;
+                    
+                    if (isVirtual) {
+                        brokenVirtualCount++;
+                        log.warn("【断链节点调整】⚠️ 虚拟节点是断链: nodeId={}, " +
+                                "missingParentGuid={}, traceId={}", 
+                                nodeId, originalParentGuid, traceId);
+                    } else {
+                        brokenRealCount++;
+                        log.warn("【断链节点调整】⚠️ 真实节点是断链: nodeId={}, " +
+                                "missingParentGuid={}, traceId={} " +
+                                "(可能是因为父进程信息不足，未能创建虚拟父节点)", 
+                                nodeId, originalParentGuid, traceId);
+                    }
+                } else {
+                    // 父节点存在 → 不是断链，保持原有的 parentProcessGuid
+                    log.debug("【断链节点调整】节点的父节点存在，保持原有关系: " +
+                            "nodeId={}, parentGuid={}, isVirtual={}", 
+                            nodeId, originalParentGuid, isVirtual);
+                    continue; // 不需要调整，跳过
+                }
+            } else {
+                // 没有 parentProcessGuid，跳过（可能是根节点或等待 EXPLORE 节点）
+                continue;
+            }
+            
+            // ===== 步骤2：如果是断链，查找该节点对应的根节点 =====
+            if (isBrokenChain) {
+                String rootNodeId = traceIdToRootMap.get(traceId);
+                
+                if (rootNodeId != null) {
+                    // 有根节点，指向根节点
+                    node.setParentProcessGuid(rootNodeId);
+                    
+                    // ✅ 关键：创建断链边，属性="断链"
+                    // 注意：边的方向是 父 → 子，即 rootNode → brokenNode
+                    subgraph.addEdge(rootNodeId, nodeId, "断链");
+                    
+                    adjustedCount++;
+                    
+                    log.info("【断链节点调整】✅ 断链节点指向根节点: " +
+                            "nodeId={}, rootNodeId={}, 原 parentGuid={}, " +
+                            "isVirtual={}, 已创建断链边: {} → {}", 
+                            nodeId, rootNodeId, originalParentGuid, isVirtual,
+                            rootNodeId, nodeId);
+                } else {
+                    // 没有根节点，保持 null（等 EXPLORE 创建后再处理）
+                    node.setParentProcessGuid(null);
+                    log.debug("【断链节点调整】断链节点的 traceId={} 没有根节点，" +
+                            "清空 parentProcessGuid，等待 EXPLORE 节点创建: nodeId={}", 
+                            traceId, nodeId);
+                }
+            }
+        }
+        
+        log.info("【断链节点调整】调整完成: 总调整数={}, 断链虚拟节点={}, 断链真实节点={}", 
+                adjustedCount, brokenVirtualCount, brokenRealCount);
     }
 }

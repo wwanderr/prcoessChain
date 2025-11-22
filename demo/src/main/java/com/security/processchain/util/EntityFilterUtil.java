@@ -61,15 +61,19 @@ public class EntityFilterUtil {
         
         // 2. 对每个processGuid的实体节点进行过滤
         Set<String> nodesToRemove = new HashSet<>();
-        
+
+        // generateEntityNodeId  这个函数中不同实体唯一nodeId
+        // entityNodesByProcess = {
+        //    "PROC_12345" -> [实体节点1, 实体节点2, 实体节点3,实体节点4, 实体节点5, 实体节点6]
+        //}
         for (Map.Entry<String, List<GraphNode>> entry : 
                 entityNodesByProcess.entrySet()) {
             String processGuid = entry.getKey();
             List<GraphNode> entityNodes = entry.getValue();
             
             // 按实体类型分组
-            Map<String, List<GraphNode>> byType = 
-                    groupByEntityType(entityNodes);
+            // "file" -> [实体节点1, 实体节点2, 实体节点3] "domain" -> [实体节点4, 实体节点5, 实体节点6]
+            Map<String, List<GraphNode>> byType = groupByEntityType(entityNodes);
             
             // 对每种类型应用过滤规则
             for (Map.Entry<String, List<GraphNode>> typeEntry : 
@@ -81,7 +85,7 @@ public class EntityFilterUtil {
                 List<GraphNode> uniqueNodes = 
                         deduplicateNodes(nodesOfType, entityType);
                 
-                // 应用过滤规则
+                // 应用过滤规则，去除不必要的实体节点，防止过多
                 List<GraphNode> filtered = 
                         applyFilterRules(entityType, uniqueNodes);
                 
@@ -100,7 +104,7 @@ public class EntityFilterUtil {
         
         // 3. 移除节点
         for (String nodeId : nodesToRemove) {
-            graph.removeNode(nodeId);
+            graph.removeCutNode(nodeId);
         }
         
         log.info("【实体过滤】过滤完成，移除 {} 个实体节点，剩余节点数={}", 
@@ -172,7 +176,7 @@ public class EntityFilterUtil {
                type.equals("file_entity") ||
                type.equals("domain_entity") ||
                type.equals("network_entity") ||
-               type.equals("registry_entity");
+               type.equals("registry_entity");//
     }
     
     /**
@@ -211,6 +215,13 @@ public class EntityFilterUtil {
     
     /**
      * 去重
+     * 
+     * 注意：实际上在 EntityExtractor.extractEntitiesFromGraph 中已经做了去重
+     * （通过 graph.hasNode(entityNodeId) 检查并合并日志/告警）
+     * 
+     * 这里的去重是兜底保护，理论上不应该有重复节点。
+     * 直接使用 nodeId 作为唯一键即可，因为 nodeId 生成时已经基于
+     * 相同的字段（fileMd5+filename、requestDomain 等）进行了哈希。
      */
     private static List<GraphNode> deduplicateNodes(
             List<GraphNode> nodes, 
@@ -218,60 +229,20 @@ public class EntityFilterUtil {
         Map<String, GraphNode> uniqueMap = new LinkedHashMap<>();
         
         for (GraphNode node : nodes) {
-            String uniqueKey = generateUniqueKey(node, entityType);
+            // ✅ 直接使用 nodeId 作为唯一键
+            // nodeId 已经包含了唯一性信息（如 PROC_12345_FILE_hash123）
+            String nodeId = node.getNodeId();
             
-            // 如果已存在，比较优先级（告警节点优先）
-            if (uniqueMap.containsKey(uniqueKey)) {
-                GraphNode existing = uniqueMap.get(uniqueKey);
-                if (node.isAlarm() && !existing.isAlarm()) {
-                    uniqueMap.put(uniqueKey, node);  // 替换为告警节点
-                }
+            if (!uniqueMap.containsKey(nodeId)) {
+                uniqueMap.put(nodeId, node);
             } else {
-                uniqueMap.put(uniqueKey, node);
+                // ⚠️ 理论上不应该走到这里，因为 EntityExtractor 已经去重了
+                log.warn("【实体去重】发现重复的实体节点: nodeId={}, entityType={}", 
+                        nodeId, entityType);
             }
         }
         
         return new ArrayList<>(uniqueMap.values());
-    }
-    
-    /**
-     * 生成唯一键（用于去重）
-     */
-    private static String generateUniqueKey(
-            GraphNode node, 
-            String entityType) {
-        
-        if (node.getLogs() == null || node.getLogs().isEmpty()) {
-            return node.getNodeId();
-        }
-        
-        RawLog log = node.getLogs().get(0);
-        
-        switch (entityType.toLowerCase()) {
-            case "file":
-                // file: fileMd5 + targetFilename
-                String md5 = log.getFileMd5() != null ? log.getFileMd5() : "";
-                String filename = log.getTargetFilename() != null ? log.getTargetFilename() : "";
-                return "file_" + md5 + "_" + filename;
-                
-            case "domain":
-                // domain: requestDomain
-                String domain = log.getRequestDomain() != null ? log.getRequestDomain() : "";
-                return "domain_" + domain;
-                
-            case "network":
-                // network: destAddress
-                String addr = log.getDestAddress() != null ? log.getDestAddress() : "";
-                return "network_" + addr;
-                
-            case "registry":
-                // registry: targetObject
-                String obj = log.getTargetObject() != null ? log.getTargetObject() : "";
-                return "registry_" + obj;
-                
-            default:
-                return node.getNodeId();
-        }
     }
     
     /**
@@ -428,44 +399,89 @@ public class EntityFilterUtil {
     
     /**
      * 提取文件名
+     * 
+     * 优先级：
+     * 1. 优先从日志中提取
+     * 2. 如果没有日志，从告警中提取
      */
     private static String extractFilename(GraphNode node) {
-        if (node.getLogs() == null || node.getLogs().isEmpty()) {
-            return "";
+        // 1. 优先从日志中提取
+        if (node.getLogs() != null && !node.getLogs().isEmpty()) {
+            RawLog log = node.getLogs().get(0);
+            String filename = log.getTargetFilename();
+            
+            if (filename == null || filename.isEmpty()) {
+                filename = log.getFileName();
+            }
+            
+            if (filename != null && !filename.isEmpty()) {
+                return filename;
+            }
         }
         
-        RawLog log = node.getLogs().get(0);
-        String filename = log.getTargetFilename();
-        
-        if (filename == null || filename.isEmpty()) {
-            filename = log.getFileName();
+        // 2. 如果没有日志，从告警中提取
+        if (node.getAlarms() != null && !node.getAlarms().isEmpty()) {
+            String filename = node.getAlarms().get(0).getTargetFilename();
+            
+            if (filename == null || filename.isEmpty()) {
+                filename = node.getAlarms().get(0).getFileName();
+            }
+            
+            return filename != null ? filename : "";
         }
         
-        return filename != null ? filename : "";
+        return "";
     }
     
     /**
      * 提取opType
+     * 
+     * 优先级：
+     * 1. 优先从日志中提取
+     * 2. 如果没有日志，从告警中提取
      */
     private static String extractOpType(GraphNode node) {
-        if (node.getLogs() == null || node.getLogs().isEmpty()) {
-            return "";
+        // 1. 优先从日志中提取
+        if (node.getLogs() != null && !node.getLogs().isEmpty()) {
+            RawLog log = node.getLogs().get(0);
+            String opType = log.getOpType();
+            if (opType != null && !opType.isEmpty()) {
+                return opType;
+            }
         }
         
-        RawLog log = node.getLogs().get(0);
-        return log.getOpType() != null ? log.getOpType() : "";
+        // 2. 如果没有日志，从告警中提取
+        if (node.getAlarms() != null && !node.getAlarms().isEmpty()) {
+            String opType = node.getAlarms().get(0).getOpType();
+            return opType != null ? opType : "";
+        }
+        
+        return "";
     }
     
     /**
      * 提取开始时间
+     * 
+     * 优先级：
+     * 1. 优先从日志中提取（logs 优先于 alarms）
+     * 2. 如果没有日志，从告警中提取
      */
     private static String extractStartTime(GraphNode node) {
-        if (node.getLogs() == null || node.getLogs().isEmpty()) {
-            return null;
+        // 1. 优先从日志中提取
+        if (node.getLogs() != null && !node.getLogs().isEmpty()) {
+            RawLog log = node.getLogs().get(0);
+            String startTime = log.getStartTime();
+            if (startTime != null && !startTime.isEmpty()) {
+                return startTime;
+            }
         }
         
-        RawLog log = node.getLogs().get(0);
-        return log.getStartTime();
+        // 2. 如果没有日志，从告警中提取
+        if (node.getAlarms() != null && !node.getAlarms().isEmpty()) {
+            return node.getAlarms().get(0).getStartTime();
+        }
+        
+        return null;
     }
     
     /**

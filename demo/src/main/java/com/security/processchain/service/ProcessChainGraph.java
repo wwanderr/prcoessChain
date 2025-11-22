@@ -32,6 +32,9 @@ public class ProcessChainGraph {
     /** 入边（反向邻接表）：nodeId -> [parent1, parent2, ...] */
     private Map<String, List<String>> inEdges;
     
+    /** 边的值：key="source->target", value=边的值（如"断链"） */
+    private Map<String, String> edgeVals;
+    
     // ========== 索引结构 ==========
     
     /** traceId索引：traceId -> [nodeId1, nodeId2, ...] */
@@ -63,6 +66,7 @@ public class ProcessChainGraph {
         this.nodes = new HashMap<>();
         this.outEdges = new HashMap<>();
         this.inEdges = new HashMap<>();
+        this.edgeVals = new HashMap<>();
         this.nodesByTraceId = new HashMap<>();
         this.nodesByHost = new HashMap<>();
         this.rootNodes = new HashSet<>();
@@ -118,6 +122,17 @@ public class ProcessChainGraph {
      * 添加边
      */
     public void addEdge(String source, String target) {
+        addEdge(source, target, "连接");
+    }
+    
+    /**
+     * 添加边（带值）
+     * 
+     * @param source 源节点
+     * @param target 目标节点
+     * @param val 边的值（如"断链"），null 表示普通边
+     */
+    public void addEdge(String source, String target, String val) {
         if (source == null || target == null) {
             return;
         }
@@ -158,6 +173,37 @@ public class ProcessChainGraph {
         // 添加到入边表
         inEdges.computeIfAbsent(target, k -> new ArrayList<>())
                .add(source);
+        
+        // 保存边的值（如果指定）
+        if (val != null && !val.isEmpty()) {
+            String edgeKey = source + "->" + target;
+            edgeVals.put(edgeKey, val);
+            log.debug("【建图】边的值已设置: {} → {}, val={}", source, target, val);
+        }
+    }
+    
+    /**
+     * 获取边的值
+     * 
+     * @param source 源节点
+     * @param target 目标节点
+     * @return 边的值，如果没有设置则返回 null
+     */
+    public String getEdgeVal(String source, String target) {
+        if (source == null || target == null) {
+            return null;
+        }
+        String edgeKey = source + "->" + target;
+        return edgeVals.get(edgeKey);
+    }
+    
+    /**
+     * 获取所有边的值
+     * 
+     * @return 边的值映射的副本
+     */
+    public Map<String, String> getEdgeVals() {
+        return new HashMap<>(edgeVals);
     }
     
     /**
@@ -222,30 +268,40 @@ public class ProcessChainGraph {
     /**
      * 移除节点（同时移除相关边）
      */
-    public void removeNode(String nodeId) {
+    public void removeCutNode(String nodeId) {
         if (!nodes.containsKey(nodeId)) {
             return;
         }
         
-        // 移除所有入边
+        // 移除所有入边（父节点 -> 该节点）
         List<String> parents = getParents(nodeId);
         for (String parent : parents) {
+            // 从父节点的子节点列表中移除
             List<String> parentChildren = outEdges.get(parent);
             if (parentChildren != null) {
                 parentChildren.remove(nodeId);
             }
+            
+            // ✅ 移除边属性（parent -> nodeId）
+            String edgeKey = parent + "->" + nodeId;
+            edgeVals.remove(edgeKey);
         }
         
-        // 移除所有出边
+        // 移除所有出边（该节点 -> 子节点）
         List<String> children = getChildren(nodeId);
         for (String child : children) {
+            // 从子节点的父节点列表中移除
             List<String> childParents = inEdges.get(child);
             if (childParents != null) {
                 childParents.remove(nodeId);
             }
+            
+            // ✅ 移除边属性（nodeId -> child）
+            String edgeKey = nodeId + "->" + child;
+            edgeVals.remove(edgeKey);
         }
         
-        // 移除节点
+        // 移除节点及其相关数据结构
         nodes.remove(nodeId);
         outEdges.remove(nodeId);
         inEdges.remove(nodeId);
@@ -257,11 +313,111 @@ public class ProcessChainGraph {
     // ========== 图分析方法 ==========
     
     /**
-     * 识别根节点
+     * 识别根节点、断链节点，并建立 traceId 到根节点的映射
      * 
-     * 规则：
-     * 1. processGuid 在 traceIds 中（真实根节点）
-     * 2. 入度为0且有parentProcessGuid（断链）
+     * <p><b>核心功能</b>：</p>
+     * <ol>
+     *   <li>识别所有根节点（包括真正的根节点和虚拟根父节点）</li>
+     *   <li>识别所有断链节点（父节点缺失的节点）</li>
+     *   <li>建立 traceId → rootNodeId 映射（用于网端桥接）</li>
+     *   <li>处理虚拟根父节点的特殊映射覆盖逻辑</li>
+     * </ol>
+     * 
+     * <p><b>识别规则</b>：</p>
+     * <ul>
+     *   <li><b>规则1：真正的根节点</b> - processGuid == traceId
+     *       <pre>
+     *       条件：nodeId.equals(node.getTraceId())
+     *       操作：isRoot=true, 添加到 rootNodes, 建立映射 traceId → nodeId
+     *       说明：这是实际意义上的进程链起点
+     *       </pre>
+     *   </li>
+     *   <li><b>规则2：虚拟根父节点</b> - 入度为0 且 nodeId 以 "VIRTUAL_ROOT_PARENT_" 开头
+     *       <pre>
+     *       条件：getInDegree(nodeId) == 0 && nodeId.startsWith("VIRTUAL_ROOT_PARENT_")
+     *       操作：
+     *         1. isRoot=true, 添加到 rootNodes
+     *         2. 覆盖原有映射：traceId → nodeId（虚拟父节点）
+     *         3. 将原根节点的 isRoot 改为 false，从 rootNodes 移除
+     *       说明：特殊根节点（processGuid==parentProcessGuid==traceId）的虚拟父节点
+     *            用于支持网端桥接到正确的位置
+     *       </pre>
+     *   </li>
+     *   <li><b>规则3：断链节点</b> - 入度为0 且 有 parentProcessGuid 但父节点不存在
+     *       <pre>
+     *       条件：getInDegree(nodeId) == 0 && parentProcessGuid != null && 父节点不是虚拟节点
+     *       操作：isBroken=true, 添加到 brokenNodes, 记录 brokenNodeToTraceId 映射
+     *       说明：父进程日志缺失，需要后续创建 EXPLORE 节点作为虚拟根
+     *       </pre>
+     *   </li>
+     *   <li><b>规则4：其他根节点</b> - 入度为0 且 无 parentProcessGuid
+     *       <pre>
+     *       条件：getInDegree(nodeId) == 0 && parentProcessGuid == null
+     *       操作：isRoot=true, 添加到 rootNodes, 建立映射 traceId → nodeId
+     *       说明：自引用节点（processGuid==parentProcessGuid 且 已清空 parentProcessGuid）
+     *       </pre>
+     *   </li>
+     * </ul>
+     * 
+     * <p><b>特殊处理</b>：</p>
+     * <ul>
+     *   <li><b>虚拟根父节点覆盖</b>：如果发现虚拟根父节点，会覆盖原根节点的映射
+     *       <pre>
+     *       初始：traceIdToRootNodeMap: {A -> A}  (原根节点)
+     *       覆盖：traceIdToRootNodeMap: {A -> VIRTUAL_ROOT_PARENT_A}  (虚拟父节点)
+     *       目的：确保网端桥接到虚拟父节点，而不是原根节点
+     *       </pre>
+     *   </li>
+     *   <li><b>跳过虚拟父节点的子节点</b>：如果节点的 parentProcessGuid 指向虚拟节点
+     *       （VIRTUAL_ROOT_PARENT_ 或 VIRTUAL_PARENT_ 开头），不标记为断链，
+     *       等待后续虚拟节点创建后建立关系
+     *   </li>
+     * </ul>
+     * 
+     * <p><b>输出结果</b>：</p>
+     * <ul>
+     *   <li><b>rootNodes</b>：所有根节点的 ID 集合（用于遍历和展示）</li>
+     *   <li><b>brokenNodes</b>：所有断链节点的 ID 集合（用于创建 EXPLORE 节点）</li>
+     *   <li><b>traceIdToRootNodeMap</b>：traceId → 根节点ID 映射（用于网端桥接）
+     *       <ul>
+     *         <li>如果有虚拟根父节点，映射到虚拟父节点</li>
+     *         <li>否则，映射到真正的根节点</li>
+     *       </ul>
+     *   </li>
+     *   <li><b>brokenNodeToTraceId</b>：断链节点ID → traceId 映射（用于 EXPLORE 节点创建）</li>
+     * </ul>
+     * 
+     * <p><b>使用场景</b>：</p>
+     * <ol>
+     *   <li>在 ProcessChainGraphBuilder.buildGraph() 构建完整图后调用</li>
+     *   <li>在 ProcessChainBuilder.extractSubgraph() 提取子图后调用</li>
+     *   <li>必须在网端桥接之前调用，确保 traceIdToRootNodeMap 正确</li>
+     * </ol>
+     * 
+     * <p><b>示例</b>：</p>
+     * <pre>
+     * 场景1：普通根节点
+     *   节点：A (processGuid=A, traceId=A, parentProcessGuid=null)
+     *   结果：rootNodes=[A], traceIdToRootNodeMap={A->A}
+     * 
+     * 场景2：特殊根节点 + 虚拟根父节点
+     *   节点：A (processGuid=A, traceId=A, parentProcessGuid=B)
+     *   节点：B (VIRTUAL_ROOT_PARENT_A, traceId=A, parentProcessGuid=null)
+     *   结果：
+     *     rootNodes=[B]  (A 被移除)
+     *     traceIdToRootNodeMap={A->B}  (覆盖原有的 A->A)
+     *     A.isRoot=false, B.isRoot=true
+     * 
+     * 场景3：断链节点
+     *   节点：X (processGuid=X, traceId=T1, parentProcessGuid=PARENT_UNKNOWN)
+     *   父节点 PARENT_UNKNOWN 不存在
+     *   结果：
+     *     brokenNodes=[X]
+     *     brokenNodeToTraceId={X->T1}
+     *     traceIdToRootNodeMap={}  (空，需要后续创建 EXPLORE_ROOT_T1)
+     * </pre>
+     * 
+     * @param traceIds 所有 traceId 集合（用于识别真正的根节点）
      */
     public void identifyRootNodes(Set<String> traceIds) {
         rootNodes.clear();
@@ -272,15 +428,14 @@ public class ProcessChainGraph {
         for (String nodeId : nodes.keySet()) {
             GraphNode node = nodes.get(nodeId);
             
-            // 规则1：processGuid == traceId
-            if (traceIds.contains(nodeId)) {
+            // ✅ 规则1：真正的根节点（processGuid == traceId）
+            // 注意：nodeId 就是 processGuid
+            if (nodeId.equals(node.getTraceId())) {
                 rootNodes.add(nodeId);
                 node.setRoot(true);
-                traceIdToRootNodeMap.put(nodeId, nodeId);
-                log.debug("【根节点识别】找到根节点: {} (processGuid匹配traceId)", nodeId);
-            }
-            // 规则2：入度为0
-            else if (getInDegree(nodeId) == 0) {
+                traceIdToRootNodeMap.put(node.getTraceId(), nodeId);
+                log.debug("【根节点识别】找到真正的根节点: {} (processGuid==traceId)", nodeId);
+            } else if (getInDegree(nodeId) == 0) {            // 规则2：入度为0的节点（可能是虚拟根父节点或断链节点）
                 // ✅ 特殊处理：虚拟根父节点（以 VIRTUAL_ROOT_PARENT_ 开头）
                 if (nodeId.startsWith("VIRTUAL_ROOT_PARENT_")) {
                     rootNodes.add(nodeId);
@@ -302,17 +457,7 @@ public class ProcessChainGraph {
                             log.debug("【根节点识别】原根节点 {} 的 isRoot 改为 false", oldRootNodeId);
                         }
                     }
-                } 
-                // ✅ 新增：检查是否是根节点（processGuid == traceId）
-                // 即使节点有 parentProcessGuid，只要 processGuid == traceId，就是根节点，不是断链
-                else if (nodeId.equals(node.getTraceId())) {
-                    rootNodes.add(nodeId);
-                    node.setRoot(true);
-                    traceIdToRootNodeMap.put(nodeId, nodeId);
-                    log.debug("【根节点识别】找到根节点: {} (processGuid==traceId), 虽有parentGuid={} 但不是断链", 
-                            nodeId, node.getParentProcessGuid());
-                }
-                else {
+                } else {                // 不是虚拟根父节点，也不是真正的根节点（已被规则1处理）
                     if (node.getParentProcessGuid() != null && 
                         !node.getParentProcessGuid().isEmpty()) {
                         
@@ -338,7 +483,7 @@ public class ProcessChainGraph {
                                     nodeId, node.getParentProcessGuid(), traceId);
                         }
                     } else {
-                        // ✅ 入度为0且没有parentGuid -> 也是根节点
+                        // ✅ 入度为0且没有parentGuid -> 也是根节点 自环的节点
                         rootNodes.add(nodeId);
                         node.setRoot(true);
                         
@@ -359,7 +504,7 @@ public class ProcessChainGraph {
         
         // ⚠️ 如果有断链节点，映射可能为空（需要后续创建EXPLORE节点）
         if (!brokenNodes.isEmpty() && traceIdToRootNodeMap.isEmpty()) {
-            log.warn("【图分析】⚠️ 检测到断链节点，但traceIdToRootNodeMap为空，将在后续创建EXPLORE节点");
+            log.warn("【图分析】⚠️ 检测到断链节点，但traceIdToRootNodeMap为空，将在后续创建EXPLORE（未知进程）节点");
             log.warn("【图分析】断链节点列表: {}", brokenNodes);
             log.warn("【图分析】brokenNodeToTraceId: {}", brokenNodeToTraceId);
         } else {
@@ -547,7 +692,7 @@ public class ProcessChainGraph {
             }
         }
         
-        // 复制边（只保留两端都在nodeIds中的边）
+        // 复制边（只保留两端都在nodeIds中的边），对应的点明确存在
         for (String nodeId : nodeIds) {
             List<String> children = getChildren(nodeId);
             for (String child : children) {
@@ -559,6 +704,7 @@ public class ProcessChainGraph {
         
         // 复制根节点和断链节点标记
         subgraph.rootNodes.addAll(rootNodes);
+        // 只在子图中的根节点
         subgraph.rootNodes.retainAll(nodeIds);
         
         subgraph.brokenNodes.addAll(brokenNodes);
@@ -586,6 +732,14 @@ public class ProcessChainGraph {
         return nodes.size();
     }
     
+    public int getEdgeCount() {
+        int count = 0;
+        for (List<String> edges : outEdges.values()) {
+            count += edges.size();
+        }
+        return count;
+    }
+    
     public Set<String> getRootNodes() {
         return new HashSet<>(rootNodes);
     }
@@ -608,6 +762,19 @@ public class ProcessChainGraph {
     
     public Map<String, String> getVirtualRootParentMap() {
         return new HashMap<>(virtualRootParentMap);
+    }
+    
+    /**
+     * 获取所有出边（邻接表）
+     * 
+     * @return 出边映射的副本：nodeId -> [child1, child2, ...]
+     */
+    public Map<String, List<String>> getOutEdges() {
+        Map<String, List<String>> copy = new HashMap<>();
+        for (Map.Entry<String, List<String>> entry : outEdges.entrySet()) {
+            copy.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+        }
+        return copy;
     }
 }
 

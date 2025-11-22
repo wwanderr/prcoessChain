@@ -117,7 +117,7 @@ public class DataConverter {
         // 进程相关字段
         log.setEventType(getStringValue(map, "eventType"));
         log.setProcessName(getStringValue(map, "processName"));
-        log.setProcessId(getStringValue(map, "processId"));
+        log.setProcessId(getIntegerValue(map, "processId"));
         log.setImage(getStringValue(map, "image"));
         log.setCommandLine(getStringValue(map, "commandLine"));
         log.setProcessUserName(getStringValue(map, "processUserName"));
@@ -125,7 +125,7 @@ public class DataConverter {
         
         // 父进程相关字段（用于创建虚拟父节点）
         log.setParentProcessName(getStringValue(map, "parentProcessName"));
-        log.setParentProcessId(getStringValue(map, "parentProcessId"));
+        log.setParentProcessId(getIntegerValue(map, "parentProcessId"));
         log.setParentImage(getStringValue(map, "parentImage"));
         log.setParentCommandLine(getStringValue(map, "parentCommandLine"));
         log.setParentProcessUserName(getStringValue(map, "parentProcessUserName"));

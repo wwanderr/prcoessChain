@@ -326,9 +326,8 @@ public class DataStructureOptimizationTest {
             alarms,
             logs,
             Collections.singleton(traceId),
-            new HashSet<>(),
-            IncidentConverters.NODE_MAPPER,
-            IncidentConverters.EDGE_MAPPER
+            new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证结果
@@ -790,8 +789,8 @@ public class DataStructureOptimizationTest {
         long startTime = System.currentTimeMillis();
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         long buildTime = System.currentTimeMillis() - startTime;
         

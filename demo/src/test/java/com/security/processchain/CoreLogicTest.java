@@ -52,9 +52,8 @@ public class CoreLogicTest {
             alarms,
             logs,
             Collections.singleton(traceId),
-            new HashSet<>(),
-            IncidentConverters.NODE_MAPPER,
-            IncidentConverters.EDGE_MAPPER
+            new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -97,9 +96,8 @@ public class CoreLogicTest {
             alarms,
             logs,
             Collections.singleton(traceId),
-            new HashSet<>(),
-            IncidentConverters.NODE_MAPPER,
-            IncidentConverters.EDGE_MAPPER
+            new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该创建 Explore 虚拟根节点
@@ -152,8 +150,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, traceIds, new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, traceIds, new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该有3个根节点
@@ -195,8 +193,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：只有1个 Explore 根节点（使用 traceId 特定的命名）
@@ -244,8 +242,8 @@ public class CoreLogicTest {
             logs,
             Collections.singleton(traceId),
             Collections.singleton(associatedEventId),  // ✅ 传入关联ID
-            IncidentConverters.NODE_MAPPER,
-            IncidentConverters.EDGE_MAPPER
+                new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：关联节点存在且标记正确
@@ -295,8 +293,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：即使裁剪，根节点也必须保留
@@ -340,8 +338,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：所有告警节点都应该被标记
@@ -371,9 +369,8 @@ public class CoreLogicTest {
             new ArrayList<>(),  // 空告警
             new ArrayList<>(),  // 空日志
             new HashSet<>(),
-            new HashSet<>(),
-            IncidentConverters.NODE_MAPPER,
-            IncidentConverters.EDGE_MAPPER
+            new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该返回空的进程链
@@ -477,8 +474,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该检测到环，不死循环
@@ -512,8 +509,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -551,8 +548,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该有3个节点，没有边（因为都是孤立的）
@@ -588,8 +585,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：重复的processGuid应该合并到同一个节点
@@ -623,8 +620,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该忽略空字符串的节点
@@ -658,8 +655,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -698,8 +695,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -736,8 +733,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -777,8 +774,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该受深度限制（MAX_TRAVERSE_DEPTH = 50）
@@ -825,8 +822,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该正常处理，不抛异常
@@ -871,8 +868,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -918,8 +915,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证：应该只有1个节点（告警节点本身）+ 可能的EXPLORE节点
@@ -955,8 +952,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -1001,8 +998,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -1051,8 +1048,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -1105,8 +1102,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -1144,8 +1141,8 @@ public class CoreLogicTest {
         long startTime = System.currentTimeMillis();
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         long endTime = System.currentTimeMillis();
         
@@ -1201,8 +1198,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -1244,8 +1241,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -1285,8 +1282,8 @@ public class CoreLogicTest {
         // 执行 - 应该不抛出异常
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证
@@ -1325,8 +1322,8 @@ public class CoreLogicTest {
         // 执行
         ProcessChainBuilder builder = new ProcessChainBuilder();
         IncidentProcessChain result = builder.buildIncidentChain(
-            alarms, logs, Collections.singleton(traceId), new HashSet<>(),
-            IncidentConverters.NODE_MAPPER, IncidentConverters.EDGE_MAPPER
+            alarms, logs, Collections.singleton(traceId), new HashSet<>(),new HashSet<>(),
+            IncidentConverters.NODE_MAPPER
         );
         
         // 验证

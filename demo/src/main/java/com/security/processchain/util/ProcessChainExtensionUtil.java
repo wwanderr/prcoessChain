@@ -3,11 +3,7 @@ package com.security.processchain.util;
 import com.security.processchain.model.ProcessEdge;
 import com.security.processchain.model.ProcessNode;
 import com.security.processchain.model.RawLog;
-import com.security.processchain.service.ChainBuilderNode;
-import com.security.processchain.service.IncidentConverters;
-import com.security.processchain.service.OptimizedESQueryService;
-import com.security.processchain.service.ProcessChainBuilder;
-import com.security.processchain.service.ProcessEntity;
+import com.security.processchain.service.*;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
@@ -69,7 +65,7 @@ public class ProcessChainExtensionUtil {
      * <p><b>处理流程</b>：</p>
      * <ol>
      *   <li>遍历 traceIdToRootMap 中的每个根节点</li>
-     *   <li>检查是否需要跳过（Explore节点或断链节点）</li>
+     *   <li>检查是否需要跳过（Explore节点、虚拟根父节点或断链节点）</li>
      *   <li>如果不需要跳过，调用 extendFromNode() 执行扩展</li>
      *   <li>如果扩展成功（找到父节点），更新 isRoot 标记</li>
      *   <li>返回更新后的映射（traceId -> 最顶端节点ID）</li>
@@ -110,7 +106,7 @@ public class ProcessChainExtensionUtil {
             String originalRootId = entry.getValue(); // 原始根节点ID
             
             // ========== 步骤1：检查是否需要跳过 ==========
-            // 跳过条件：1) Explore虚拟节点  2) 断链节点
+            // 跳过条件：1) Explore虚拟节点  2) 虚拟根父节点  3) 断链节点
             if (shouldSkipExtension(originalRootId, allNodes)) {
                 updatedMap.put(traceId, originalRootId); // 保持原样
                 continue;
@@ -148,6 +144,8 @@ public class ProcessChainExtensionUtil {
      * <ol>
      *   <li><b>Explore 虚拟节点</b>：节点ID以"EXPLORE_"开头的节点是系统创建的虚拟节点，
      *       用于连接断链，这类节点没有实际的父进程，无需扩展</li>
+     *   <li><b>虚拟根父节点</b>：VIRTUAL_ROOT_PARENT_ 节点的 parentProcessGuid 固定为 null，
+     *       无法向上扩展（它们是从子进程日志的 parentXXX 字段构造的，本身就是扩展边界）</li>
      *   <li><b>断链节点</b>：isBroken=true 的节点表示其父节点日志缺失，
      *       无法继续向上追溯，因此跳过扩展</li>
      * </ol>
@@ -163,7 +161,14 @@ public class ProcessChainExtensionUtil {
             return true;
         }
         
-        // ========== 跳过条件2：断链节点 ==========
+        // ========== 跳过条件2：虚拟根父节点 ==========
+        // 虚拟根父节点的 parentProcessGuid 固定为 null，无法向上扩展
+        if (nodeId != null && nodeId.startsWith("VIRTUAL_ROOT_PARENT_")) {
+            log.debug("【扩展溯源】-> 跳过虚拟根父节点（parentProcessGuid=null，无法扩展）: {}", nodeId);
+            return true;
+        }
+        
+        // ========== 跳过条件3：断链节点 ==========
         ProcessNode node = findNodeById(allNodes, nodeId);
         if (node != null && node.getIsChainNode() && node.getChainNode() != null) {
             if (Boolean.TRUE.equals(node.getChainNode().getIsBroken())) {
@@ -174,7 +179,6 @@ public class ProcessChainExtensionUtil {
         
         return false; // 不需要跳过，可以扩展
     }
-    
     /**
      * 从指定节点向上扩展
      * 

@@ -8,6 +8,8 @@ import com.security.processchain.model.RawLog;
 import com.security.processchain.service.*;
 import com.security.processchain.util.AlarmElectionUtil;
 import com.security.processchain.util.Pair;
+import com.security.processchain.util.ProcessChainExtensionUtil;
+import com.security.processchain.util.ProcessChainValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -49,10 +51,13 @@ public class ProcessChainServiceImpl {
         List<RawAlarm> allSelectedAlarms = new ArrayList<>();
         List<RawLog> allLogs = new ArrayList<>();
         
-        // 收集所有的 traceId、hostAddress 和 associatedEventId
+        // 收集所有的 traceId、hostAddress 和 关联eventId
         Set<String> allTraceIds = new HashSet<>();
         Set<String> allHostAddresses = new HashSet<>();
-        Set<String> allAssociatedEventIds = new HashSet<>();
+        
+        // ✅ 区分告警关联和日志关联
+        Set<String> allAssociatedEventIds = new HashSet<>();  // 告警关联（从 alarmIps）
+        Set<String> allStartLogEventIds = new HashSet<>();    // 日志关联（从 logs）
 
         try {
             log.info("【进程链生成】-> ========================================");
@@ -79,18 +84,25 @@ public class ProcessChainServiceImpl {
                 try {
                     log.info("【进程链生成】-> 处理IP: {}", ip);
 
-                    // 检查是否有网端关联
+                    // ✅ 检查是否有网端关联（告警关联）
                     boolean hasAssociation = ipMappingRelation.hasAssociation(ip);
-                    String associatedEventId = ipMappingRelation.getAssociatedEventId(ip);
+                    String associatedEventId = ipMappingRelation.getAssociatedEventId(ip);  // 从 alarmIps 获取
                     
-                    if (hasAssociation) {
-                        log.info("【进程链生成】-> IP [{}] 有网端关联，关联告警ID: {}", ip, associatedEventId);
+                    if (hasAssociation && associatedEventId != null && !associatedEventId.trim().isEmpty()) {
+                        log.info("【进程链生成】-> IP [{}] 有网端关联（告警关联），关联告警ID: {}", ip, associatedEventId);
                         associatedCount++;
                         
-                        // 收集 associatedEventId
-                        if (associatedEventId != null && !associatedEventId.trim().isEmpty()) {
-                            allAssociatedEventIds.add(associatedEventId);
-                        }
+                        // ✅ 收集告警关联的 eventId（从 alarmIps）
+                        allAssociatedEventIds.add(associatedEventId);
+                    }
+                    
+                    // ✅ 检查是否有日志关联
+                    String logEventId = ipMappingRelation.getLogId(ip);  // 从 logs 获取
+                    if (logEventId != null && !logEventId.trim().isEmpty()) {
+                        log.info("【进程链生成】-> IP [{}] 有日志关联，关联日志ID: {}", ip, logEventId);
+                        
+                        // ✅ 收集日志关联的 eventId（从 logs）
+                        allStartLogEventIds.add(logEventId);
                     }
 
                     List<RawAlarm> alarms = allAlarmsMap.getOrDefault(ip, new ArrayList<>());
@@ -187,28 +199,28 @@ public class ProcessChainServiceImpl {
             }
 
             // ========== 阶段3: 构建端侧进程链 ==========
-            log.info("【进程链生成】-> 收集到的 traceId 数量: {}, hostAddress 数量: {}, associatedEventId 数量: {}", 
-                    allTraceIds.size(), allHostAddresses.size(), allAssociatedEventIds.size());
+            log.info("【进程链生成】-> 收集到的数据统计:");
+            log.info("  - traceId 数量: {}", allTraceIds.size());
+            log.info("  - hostAddress 数量: {}", allHostAddresses.size());
+            log.info("  - 告警关联 eventId 数量: {}", allAssociatedEventIds.size());
+            log.info("  - 日志关联 eventId 数量: {}", allStartLogEventIds.size());
             log.info("【进程链生成】-> traceIds: {}", allTraceIds);
-            log.info("【进程链生成】-> associatedEventIds: {}", allAssociatedEventIds);
-            
-            // ========== 收集无告警场景的起点日志eventId ==========
-            Set<String> startLogEventIds = new HashSet<>();
-            if (ipMappingRelation.getLogs() != null) {
-                startLogEventIds.addAll(ipMappingRelation.getLogs().values());
-                startLogEventIds.removeIf(eventId -> eventId == null || eventId.trim().isEmpty());
-            }
-            log.info("【进程链生成】-> startLogEventIds: {}", startLogEventIds);
+            log.info("【进程链生成】-> 告警关联 eventIds (associatedEventIds): {}", allAssociatedEventIds);
+            log.info("【进程链生成】-> 日志关联 eventIds (startLogEventIds): {}", allStartLogEventIds);
             
             ProcessChainBuilder builder = new ProcessChainBuilder();
             IncidentProcessChain endpointChain = builder.buildIncidentChain(
-                    allSelectedAlarms, allLogs, allTraceIds, allAssociatedEventIds, startLogEventIds,
+                    allSelectedAlarms, 
+                    allLogs, 
+                    allTraceIds, 
+                    allAssociatedEventIds,      // 告警关联（从 alarmIps）
+                    allStartLogEventIds,        // 日志关联（从 logs）
                     IncidentConverters.NODE_MAPPER);
             
-            // ✅ 优化：单独获取 traceIdToRootNodeMap（不作为 IncidentProcessChain 的一部分）
+            // 单独获取 traceIdToRootNodeMap（不作为 IncidentProcessChain 的一部分）
             Map<String, String> traceIdToRootNodeMap = builder.getTraceIdToRootNodeMap();
             
-            // ✅ 获取虚拟根父节点映射（用于 processGuid==parentProcessGuid==traceId 的场景）
+            // 获取虚拟根父节点映射（用于 processGuid==parentProcessGuid==traceId 的场景）
             Map<String, String> virtualRootParentMap = builder.getVirtualRootParentMap();
             
             // 设置 traceIds 和 hostAddresses
@@ -237,7 +249,7 @@ public class ProcessChainServiceImpl {
                 
                 // ========== 计算端侧节点的子节点数量 ==========
                 if (endpointChain != null && endpointChain.getNodes() != null && endpointChain.getEdges() != null) {
-                    com.security.processchain.util.ProcessChainExtensionUtil.calculateChildrenCount(
+                    ProcessChainExtensionUtil.calculateChildrenCount(
                             endpointChain.getNodes(), endpointChain.getEdges());
                     log.info("【进程链生成】-> 子节点数量计算完成");
                 }
@@ -245,7 +257,7 @@ public class ProcessChainServiceImpl {
                 return endpointChain;
             }
             
-            // ✅ 优化：将 traceIdToRootNodeMap 和 virtualRootParentMap 作为参数传递
+            // 优化：将 traceIdToRootNodeMap 和 virtualRootParentMap 作为参数传递
             return mergeNetworkAndEndpointChain(networkChain, endpointChain, hostToTraceId, traceIdToRootNodeMap, virtualRootParentMap);
 
         } catch (Exception e) {
@@ -385,7 +397,7 @@ public class ProcessChainServiceImpl {
             }
             
             // ========== 5. 扩展溯源（新增功能）==========
-            Map<String, String> finalRootMap = com.security.processchain.util.ProcessChainExtensionUtil.performExtension(
+            Map<String, String> finalRootMap = ProcessChainExtensionUtil.performExtension(
                     traceIdToRootNodeMap, hostToTraceId, allNodes, allEdges, esQueryService, 2);
             
             // 6. **关键**：创建桥接边（连接网侧 victim 到端侧根节点）
@@ -446,14 +458,18 @@ public class ProcessChainServiceImpl {
             mergedChain.setNodes(allNodes);
             mergedChain.setEdges(allEdges);
             
-            // ========== 8. 计算每个节点的子节点数量 ==========
+            // ========== 8. 合法性检查（新增）==========
+            // 在计算子节点数量之前进行合法性检查，确保进程链结构正确
+            ProcessChainValidator.validateAndFix(allNodes, allEdges);
+            
+            // ========== 9. 计算每个节点的子节点数量 ==========
             // 在所有节点和边都添加完成后，统一计算子节点数量
             // 这样可以涵盖：端侧节点、网侧节点、扩展节点、桥接边
-            com.security.processchain.util.ProcessChainExtensionUtil.calculateChildrenCount(
+            ProcessChainExtensionUtil.calculateChildrenCount(
                     allNodes, allEdges);
             log.info("【进程链生成】-> 子节点数量计算完成");
             
-            // 9. 设置基本信息（使用端侧的信息）
+            // 10. 设置基本信息（使用端侧的信息）
             if (endpointChain != null) {
                 mergedChain.setTraceIds(endpointChain.getTraceIds());
                 mergedChain.setHostAddresses(endpointChain.getHostAddresses());

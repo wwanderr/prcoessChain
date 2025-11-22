@@ -10,6 +10,7 @@ public class RawLog {
     private String eventId;
     private String traceId;
     private String hostAddress;
+    private String hostName;
     private String processGuid;
     private String parentProcessGuid;
     private String logType;
@@ -18,18 +19,20 @@ public class RawLog {
     // 进程相关字段
     private String eventType;
     private String processName;
-    private String processId;
+    private Integer processId;
     private String image;
     private String commandLine;
     private String processUserName;
     private String opType;
+    private String processMd5;
     
     // 父进程相关字段（用于创建虚拟父节点）
     private String parentProcessName;
-    private String parentProcessId;
+    private Integer parentProcessId;
     private String parentImage;
     private String parentCommandLine;
     private String parentProcessUserName;
+    private String parentProcessMd5;
     
     // 文件相关字段
     private String fileName;
@@ -85,6 +88,14 @@ public class RawLog {
         this.hostAddress = hostAddress;
     }
     
+    public String getHostName() {
+        return hostName;
+    }
+    
+    public void setHostName(String hostName) {
+        this.hostName = hostName;
+    }
+    
     public String getProcessGuid() {
         return processGuid;
     }
@@ -133,11 +144,11 @@ public class RawLog {
         this.processName = processName;
     }
     
-    public String getProcessId() {
+    public Integer getProcessId() {
         return processId;
     }
     
-    public void setProcessId(String processId) {
+    public void setProcessId(Integer processId) {
         this.processId = processId;
     }
     
@@ -318,11 +329,11 @@ public class RawLog {
         this.parentProcessName = parentProcessName;
     }
     
-    public String getParentProcessId() {
+    public Integer getParentProcessId() {
         return parentProcessId;
     }
     
-    public void setParentProcessId(String parentProcessId) {
+    public void setParentProcessId(Integer parentProcessId) {
         this.parentProcessId = parentProcessId;
     }
     
@@ -348,6 +359,22 @@ public class RawLog {
     
     public void setParentProcessUserName(String parentProcessUserName) {
         this.parentProcessUserName = parentProcessUserName;
+    }
+    
+    public String getProcessMd5() {
+        return processMd5;
+    }
+    
+    public void setProcessMd5(String processMd5) {
+        this.processMd5 = processMd5;
+    }
+    
+    public String getParentProcessMd5() {
+        return parentProcessMd5;
+    }
+    
+    public void setParentProcessMd5(String parentProcessMd5) {
+        this.parentProcessMd5 = parentProcessMd5;
     }
 }
 
