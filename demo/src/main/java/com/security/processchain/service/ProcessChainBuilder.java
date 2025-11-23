@@ -559,6 +559,7 @@ public class ProcessChainBuilder {
         node.setIsBroken(graphNode.isBroken());
         node.setIsAlarm(graphNode.isAlarm());
         node.setNodeType(graphNode.getNodeType());  // 传递节点类型
+        node.setIsVirtual(graphNode.isVirtual());   // 传递虚拟节点标识
         
         // 复制告警和日志
         if (graphNode.getAlarms() != null) {
@@ -1857,6 +1858,14 @@ public class ProcessChainBuilder {
         
         for (GraphNode node : subgraph.getAllNodes()) {
             String nodeId = node.getNodeId();
+            
+            // ✅ 新增：跳过已经标记为断链的节点
+            // 这些节点在 identifyRootNodes 中已经被标记，将由 createExploreNodes 处理
+            if (node.isBroken()) {
+                log.debug("【断链节点调整】跳过已标记为断链的节点（将由 EXPLORE 处理）: nodeId={}", nodeId);
+                continue;
+            }
+            
             String traceId = node.getTraceId();
             String originalParentGuid = node.getParentProcessGuid();
             boolean isVirtual = node.isVirtual();

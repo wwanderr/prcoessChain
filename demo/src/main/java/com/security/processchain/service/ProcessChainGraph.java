@@ -484,12 +484,32 @@ public class ProcessChainGraph {
                         }
                     } else {
                         // ✅ 入度为0且没有parentGuid -> 检查是否是虚拟父节点
-                        // 普通虚拟父节点（isVirtual=true 且不是 VIRTUAL_ROOT_PARENT_ 开头）不应该被识别为根节点
+                        // 普通虚拟父节点（isVirtual=true 且不是 VIRTUAL_ROOT_PARENT_ 开头）需要根据是否有根节点来判断
                         if (node.isVirtual() && !nodeId.startsWith("VIRTUAL_ROOT_PARENT_")) {
-                            log.debug("【根节点识别】跳过普通虚拟父节点（不标记为根节点）: nodeId={}, traceId={}",
-                                    nodeId, node.getTraceId());
-                            // 不标记为根节点，也不标记为断链
-                            // 等待在 adjustVirtualParentLinks 中判断是否断链
+                            // 检查该 traceId 是否已有根节点
+                            String traceId = node.getTraceId();
+                            
+                            if (traceId != null && traceIdToRootNodeMap.containsKey(traceId)) {
+                                // 场景1：该 traceId 有根节点
+                                // 不标记为根节点，也不标记为断链
+                                // 等待 adjustVirtualParentLinks 处理（连接到根节点）
+                                log.debug("【根节点识别】普通虚拟父节点（traceId 有根节点）: nodeId={}, traceId={}, " +
+                                        "等待 adjustVirtualParentLinks 连接到根节点",
+                                        nodeId, traceId);
+                            } else {
+                                // 场景2：该 traceId 没有根节点
+                                // 标记为断链节点，等待 EXPLORE 节点
+                                brokenNodes.add(nodeId);
+                                node.setBroken(true);
+                                
+                                if (traceId != null) {
+                                    brokenNodeToTraceId.put(nodeId, traceId);
+                                }
+                                
+                                log.debug("【根节点识别】普通虚拟父节点（traceId 无根节点）标记为断链: " +
+                                        "nodeId={}, traceId={}, 等待连接到 EXPLORE",
+                                        nodeId, traceId);
+                            }
                         } else {
                             // 真实的根节点（自环节点等）
                             rootNodes.add(nodeId);

@@ -42,6 +42,9 @@ public class ChainBuilderNode {
     // 可能的值："process", "file_entity", "domain_entity", "network_entity", "registry_entity"
     private String nodeType;
     
+    // isVirtual: 是否是虚拟节点（虚拟父节点），用于判断如何提取进程信息
+    private Boolean isVirtual = false;
+    
     // 特殊方法（带业务逻辑）
     public void addAlarm(RawAlarm alarm) {
         this.alarms.add(alarm);

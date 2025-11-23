@@ -64,8 +64,11 @@ public final class IncidentConverters {
                         }
                     }
                     
+                    // ✅ 判断是否是虚拟父节点
+                    boolean isVirtualParent = builderNode.getParentProcessGuid() == null && builderNode.getIsVirtual();
+                    
                     // 只设置 processEntity，entity 为 null
-                    chainNode.setProcessEntity(convertToProcessEntityForProcessNode(latestLog));
+                    chainNode.setProcessEntity(convertToProcessEntityForProcessNode(latestLog, isVirtualParent));
                     chainNode.setEntity(null);
                     
                 } else if (nodeType != null && nodeType.endsWith("_entity")) {
@@ -118,8 +121,11 @@ public final class IncidentConverters {
                     chainNode.setAlarmNodeInfo(alarmInfo);
                     finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
                     
+                    // ✅ 判断是否是虚拟父节点
+                    boolean isVirtualParent = builderNode.getParentProcessGuid() == null && builderNode.getIsVirtual();
+                    
                     // ✅ 从告警中抽取 ProcessEntity
-                    chainNode.setProcessEntity(convertToProcessEntityFromAlarm(firstAlarm));
+                    chainNode.setProcessEntity(convertToProcessEntityFromAlarm(firstAlarm, isVirtualParent));
                     chainNode.setEntity(null);
                     
                 } else if (nodeType != null && nodeType.endsWith("_entity")) {
@@ -334,28 +340,50 @@ public final class IncidentConverters {
      * 不再检查 eventType 或 logType，只要有进程信息就转换
      * 
      * @param log 原始日志（可能是真实日志，也可能是虚拟父节点的日志）
+     * @param isVirtualParent 是否是虚拟父节点（true：从 parent 字段提取；false：从 process 字段提取）
      * @return ProcessEntity，如果没有进程信息返回null
      */
-    private static ProcessEntity convertToProcessEntityForProcessNode(RawLog log) {
+    private static ProcessEntity convertToProcessEntityForProcessNode(RawLog log, boolean isVirtualParent) {
         if (log == null) return null;
         
         // 构建 ProcessEntity
         ProcessEntity processEntity = new ProcessEntity();
-        processEntity.setOpType(log.getOpType());
-        processEntity.setLocaltime(log.getStartTime());
-        processEntity.setProcessId(log.getProcessId() != null ? String.valueOf(log.getProcessId()) : null);
-        processEntity.setProcessGuid(log.getProcessGuid());
-        processEntity.setParentProcessGuid(log.getParentProcessGuid());
-        processEntity.setImage(log.getImage());
-        processEntity.setCommandline(log.getCommandLine());
-        processEntity.setProcessUserName(log.getProcessUserName());
         
-        // 处理 processName：为空则显示 "进程.exe"
-        String processName = log.getProcessName();
-        if (processName == null || processName.trim().isEmpty()) {
-            processName = "进程.exe";
+        if (isVirtualParent) {
+            // ========== 虚拟父节点：从日志的 parent 字段中提取 ==========
+            processEntity.setOpType(log.getOpType());
+            processEntity.setLocaltime(log.getStartTime());
+            processEntity.setProcessId(log.getParentProcessId() != null ? String.valueOf(log.getParentProcessId()) : null);
+            processEntity.setProcessGuid(log.getParentProcessGuid());  // 虚拟父节点的 processGuid 就是 parentProcessGuid
+            processEntity.setParentProcessGuid(null);  // 虚拟父节点的 parentProcessGuid 永远是 null
+            processEntity.setImage(log.getParentImage());
+            processEntity.setCommandline(log.getParentCommandLine());
+            processEntity.setProcessUserName(log.getParentProcessUserName());
+            
+            // 处理 processName：从 parentProcessName 获取
+            String processName = log.getParentProcessName();
+            if (processName == null || processName.trim().isEmpty()) {
+                processName = "进程.exe";
+            }
+            processEntity.setProcessName(processName);
+        } else {
+            // ========== 真实节点：从日志的 process 字段中提取 ==========
+            processEntity.setOpType(log.getOpType());
+            processEntity.setLocaltime(log.getStartTime());
+            processEntity.setProcessId(log.getProcessId() != null ? String.valueOf(log.getProcessId()) : null);
+            processEntity.setProcessGuid(log.getProcessGuid());
+            processEntity.setParentProcessGuid(log.getParentProcessGuid());
+            processEntity.setImage(log.getImage());
+            processEntity.setCommandline(log.getCommandLine());
+            processEntity.setProcessUserName(log.getProcessUserName());
+            
+            // 处理 processName：从 processName 获取
+            String processName = log.getProcessName();
+            if (processName == null || processName.trim().isEmpty()) {
+                processName = "进程.exe";
+            }
+            processEntity.setProcessName(processName);
         }
-        processEntity.setProcessName(processName);
 
         return processEntity;
     }
@@ -364,28 +392,50 @@ public final class IncidentConverters {
      * 从告警转换为 ProcessEntity（用于只有告警没有日志的情况）
      * 
      * @param alarm 原始告警
+     * @param isVirtualParent 是否是虚拟父节点（true：从 parent 字段提取；false：从 process 字段提取）
      * @return ProcessEntity，如果告警中没有进程信息返回null
      */
-    private static ProcessEntity convertToProcessEntityFromAlarm(RawAlarm alarm) {
+    private static ProcessEntity convertToProcessEntityFromAlarm(RawAlarm alarm, boolean isVirtualParent) {
         if (alarm == null) return null;
         
         // 构建 ProcessEntity
         ProcessEntity processEntity = new ProcessEntity();
-        processEntity.setOpType(alarm.getOpType());
-        processEntity.setLocaltime(alarm.getStartTime());
-        processEntity.setProcessId(alarm.getProcessId() != null ? String.valueOf(alarm.getProcessId()) : null);
-        processEntity.setProcessGuid(alarm.getProcessGuid());
-        processEntity.setParentProcessGuid(alarm.getParentProcessGuid());
-        processEntity.setImage(alarm.getImage());
-        processEntity.setCommandline(alarm.getCommandLine());
-        processEntity.setProcessUserName(alarm.getProcessUserName());
         
-        // 处理 processName：为空则显示 "进程.exe"
-        String processName = alarm.getProcessName();
-        if (processName == null || processName.trim().isEmpty()) {
-            processName = "进程.exe";
+        if (isVirtualParent) {
+            // ========== 虚拟父节点：从告警的 parent 字段中提取 ==========
+            processEntity.setOpType(alarm.getOpType());
+            processEntity.setLocaltime(alarm.getStartTime());
+            processEntity.setProcessId(alarm.getParentProcessId() != null ? String.valueOf(alarm.getParentProcessId()) : null);
+            processEntity.setProcessGuid(alarm.getParentProcessGuid());  // 虚拟父节点的 processGuid 就是 parentProcessGuid
+            processEntity.setParentProcessGuid(null);  // 虚拟父节点的 parentProcessGuid 永远是 null
+            processEntity.setImage(alarm.getParentImage());
+            processEntity.setCommandline(alarm.getParentCommandLine());
+            processEntity.setProcessUserName(alarm.getParentProcessUserName());
+            
+            // 处理 processName：从 parentProcessName 获取
+            String processName = alarm.getParentProcessName();
+            if (processName == null || processName.trim().isEmpty()) {
+                processName = "进程.exe";
+            }
+            processEntity.setProcessName(processName);
+        } else {
+            // ========== 真实节点：从告警的 process 字段中提取 ==========
+            processEntity.setOpType(alarm.getOpType());
+            processEntity.setLocaltime(alarm.getStartTime());
+            processEntity.setProcessId(alarm.getProcessId() != null ? String.valueOf(alarm.getProcessId()) : null);
+            processEntity.setProcessGuid(alarm.getProcessGuid());
+            processEntity.setParentProcessGuid(alarm.getParentProcessGuid());
+            processEntity.setImage(alarm.getImage());
+            processEntity.setCommandline(alarm.getCommandLine());
+            processEntity.setProcessUserName(alarm.getProcessUserName());
+            
+            // 处理 processName：从 processName 获取
+            String processName = alarm.getProcessName();
+            if (processName == null || processName.trim().isEmpty()) {
+                processName = "进程.exe";
+            }
+            processEntity.setProcessName(processName);
         }
-        processEntity.setProcessName(processName);
         
         return processEntity;
     }
