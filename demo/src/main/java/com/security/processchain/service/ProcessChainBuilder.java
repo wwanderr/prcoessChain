@@ -1676,6 +1676,11 @@ public class ProcessChainBuilder {
             parentNode.setProcessUserName(rawLog.getParentProcessUserName());
         }
         
+        // ✅ 新增：将相关的日志添加到虚拟父节点
+        // 注意：这里添加的是子节点的日志，但日志中包含父进程信息
+        // 如果后续有父进程自己的日志，应该替换为父进程的日志
+        parentNode.addLog(rawLog);
+        
         log.debug("【父进程拆分】✅ 从日志创建虚拟父节点成功: parentGuid={}, processName={}, processId={}", 
                 parentGuid, parentNode.getProcessName(), parentNode.getProcessId());
         
@@ -1738,6 +1743,11 @@ public class ProcessChainBuilder {
         if (alarm.getParentProcessUserName() != null) {
             parentNode.setProcessUserName(alarm.getParentProcessUserName());
         }
+        
+        // ✅ 新增：将相关的告警添加到虚拟父节点
+        // 注意：这里添加的是子节点的告警，但告警中包含父进程信息
+        // 如果后续有父进程自己的告警，应该替换为父进程的告警
+        parentNode.addAlarm(alarm);
         
         log.debug("【父进程拆分】✅ 从告警创建虚拟父节点成功: parentGuid={}, processName={}, processId={}", 
                 parentGuid, parentNode.getProcessName(), parentNode.getProcessId());
@@ -1852,7 +1862,9 @@ public class ProcessChainBuilder {
             boolean isVirtual = node.isVirtual();
             
             // ===== 步骤1：检查节点是否是断链 =====
-            // 断链的定义：有 parentProcessGuid 但父节点不存在
+            // 断链的定义：
+            // 1. 有 parentProcessGuid 但父节点不存在
+            // 2. 虚拟父节点（parentProcessGuid = null）且不是根节点且入度为 0
             boolean isBrokenChain = false;
             
             if (originalParentGuid != null && !originalParentGuid.isEmpty()) {
@@ -1881,8 +1893,38 @@ public class ProcessChainBuilder {
                     continue; // 不需要调整，跳过
                 }
             } else {
-                // 没有 parentProcessGuid，跳过（可能是根节点或等待 EXPLORE 节点）
-                continue;
+                // ✅ 新增：对于虚拟父节点（parentProcessGuid = null），需要特殊判断
+                // 虚拟父节点的 parentProcessGuid = null 是设计上的，但我们需要判断它是否真的断链
+                if (isVirtual) {
+                    // 判断虚拟父节点是否是根节点
+                    boolean isRoot = node.isRoot();
+                    
+                    if (!isRoot) {
+                        // 虚拟父节点不是根节点，检查入度
+                        // 如果入度为 0，说明没有父节点指向它，应该是断链的
+                        int inDegree = subgraph.getInDegree(nodeId);
+                        if (inDegree == 0) {
+                            // 虚拟父节点入度为 0 且不是根节点 → 断链
+                            isBrokenChain = true;
+                            brokenVirtualCount++;
+                            log.warn("【断链节点调整】⚠️ 虚拟父节点是断链: nodeId={}, " +
+                                    "入度=0, 不是根节点, traceId={}", 
+                                    nodeId, traceId);
+                        } else {
+                            // 虚拟父节点有入度，说明有父节点指向它，不是断链
+                            log.debug("【断链节点调整】虚拟父节点有父节点，不是断链: nodeId={}, 入度={}", 
+                                    nodeId, inDegree);
+                            continue;
+                        }
+                    } else {
+                        // 虚拟父节点是根节点，不是断链
+                        log.debug("【断链节点调整】虚拟父节点是根节点，不是断链: nodeId={}", nodeId);
+                        continue;
+                    }
+                } else {
+                    // 真实节点没有 parentProcessGuid，跳过（可能是根节点或等待 EXPLORE 节点）
+                    continue;
+                }
             }
             
             // ===== 步骤2：如果是断链，查找该节点对应的根节点 =====

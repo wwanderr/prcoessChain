@@ -140,15 +140,15 @@ public class ProcessChainExtensionUtil {
     /**
      * 检查是否应该跳过扩展
      * 
-     * <p><b>跳过条件</b>：</p>
-     * <ol>
-     *   <li><b>Explore 虚拟节点</b>：节点ID以"EXPLORE_"开头的节点是系统创建的虚拟节点，
-     *       用于连接断链，这类节点没有实际的父进程，无需扩展</li>
-     *   <li><b>虚拟根父节点</b>：VIRTUAL_ROOT_PARENT_ 节点的 parentProcessGuid 固定为 null，
-     *       无法向上扩展（它们是从子进程日志的 parentXXX 字段构造的，本身就是扩展边界）</li>
-     *   <li><b>断链节点</b>：isBroken=true 的节点表示其父节点日志缺失，
-     *       无法继续向上追溯，因此跳过扩展</li>
-     * </ol>
+     * 跳过条件：
+     * 1. Explore 虚拟节点：节点ID以"EXPLORE_"开头的节点是系统创建的虚拟节点，
+     *    用于连接断链，这类节点没有实际的父进程，无需扩展
+     * 2. 虚拟根父节点：VIRTUAL_ROOT_PARENT_ 节点的 parentProcessGuid 固定为 null，
+     *    无法向上扩展（它们是从子进程日志的 parentXXX 字段构造的，本身就是扩展边界）
+     * 3. 断链节点：isBroken=true 的节点表示其父节点日志缺失，
+     *    无法继续向上追溯，因此跳过扩展
+     * 4. processGuid == parentProcessGuid：如果进程的 processGuid 等于 parentProcessGuid，
+     *    说明自己指向自己，无法向上扩展
      * 
      * @param nodeId 节点ID
      * @param allNodes 所有节点列表
@@ -175,10 +175,23 @@ public class ProcessChainExtensionUtil {
                 log.debug("【扩展溯源】-> 跳过断链节点: {}", nodeId);
                 return true;
             }
+            
+            // ========== 跳过条件4：processGuid == parentProcessGuid ==========
+            // 如果进程的 processGuid 等于 parentProcessGuid，说明自己指向自己，无法向上扩展
+            ProcessEntity processEntity = node.getChainNode().getProcessEntity();
+            if (processEntity != null) {
+                String processGuid = processEntity.getProcessGuid();
+                String parentProcessGuid = processEntity.getParentProcessGuid();
+                if (processGuid != null && parentProcessGuid != null && processGuid.equals(parentProcessGuid)) {
+                    log.debug("【扩展溯源】-> 跳过节点（processGuid == parentProcessGuid）: {}", nodeId);
+                    return true;
+                }
+            }
         }
         
         return false; // 不需要跳过，可以扩展
     }
+
     /**
      * 从指定节点向上扩展
      * 

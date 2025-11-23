@@ -102,19 +102,43 @@ public final class IncidentConverters {
                 }
             }
         } else if (isAlarm && alarms != null && !alarms.isEmpty()) {
-            // 只有告警没有日志的情况
+            // ========== 只有告警没有日志的情况 ==========
             RawAlarm firstAlarm = alarms.get(0);
             if (firstAlarm != null && firstAlarm.getLogType() != null) {
-                // 直接使用原始的 logType，不转换为枚举
-                finalNode.setLogType(firstAlarm.getLogType());
-                
-                // 设置 opType（从告警的 opType 中获取）
+                String logType = firstAlarm.getLogType();
+
+                // 设置基本信息
+                finalNode.setLogType(logType);
                 finalNode.setOpType(firstAlarm.getOpType());
                 
-                // 设置告警信息
-                AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(firstAlarm);
-                chainNode.setAlarmNodeInfo(alarmInfo);
-                finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
+                // 根据 nodeType 决定如何填充实体
+                if ("process".equals(nodeType)) {
+                    // ========== 进程节点：设置告警信息和进程实体 ==========
+                    AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(firstAlarm);
+                    chainNode.setAlarmNodeInfo(alarmInfo);
+                    finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
+                    
+                    // ✅ 从告警中抽取 ProcessEntity
+                    chainNode.setProcessEntity(convertToProcessEntityFromAlarm(firstAlarm));
+                    chainNode.setEntity(null);
+                    
+                } else if (nodeType != null && nodeType.endsWith("_entity")) {
+                    // ========== 实体节点：只设置实体信息 ==========
+                    String entityType = nodeType.replace("_entity", "");
+                    
+                    // 实体节点不设置告警信息
+                    chainNode.setAlarmNodeInfo(null);
+                    
+                    // ✅ 从告警中抽取对应的实体
+                    chainNode.setProcessEntity(null);
+                    chainNode.setEntity(convertToEntityFromAlarm(firstAlarm, entityType));
+                    
+                } else {
+                    // 兜底逻辑：设置告警信息
+                    AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(firstAlarm);
+                    chainNode.setAlarmNodeInfo(alarmInfo);
+                    finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
+                }
             }
         }
 
@@ -337,6 +361,36 @@ public final class IncidentConverters {
     }
     
     /**
+     * 从告警转换为 ProcessEntity（用于只有告警没有日志的情况）
+     * 
+     * @param alarm 原始告警
+     * @return ProcessEntity，如果告警中没有进程信息返回null
+     */
+    private static ProcessEntity convertToProcessEntityFromAlarm(RawAlarm alarm) {
+        if (alarm == null) return null;
+        
+        // 构建 ProcessEntity
+        ProcessEntity processEntity = new ProcessEntity();
+        processEntity.setOpType(alarm.getOpType());
+        processEntity.setLocaltime(alarm.getStartTime());
+        processEntity.setProcessId(alarm.getProcessId() != null ? String.valueOf(alarm.getProcessId()) : null);
+        processEntity.setProcessGuid(alarm.getProcessGuid());
+        processEntity.setParentProcessGuid(alarm.getParentProcessGuid());
+        processEntity.setImage(alarm.getImage());
+        processEntity.setCommandline(alarm.getCommandLine());
+        processEntity.setProcessUserName(alarm.getProcessUserName());
+        
+        // 处理 processName：为空则显示 "进程.exe"
+        String processName = alarm.getProcessName();
+        if (processName == null || processName.trim().isEmpty()) {
+            processName = "进程.exe";
+        }
+        processEntity.setProcessName(processName);
+        
+        return processEntity;
+    }
+    
+    /**
      * 将原始日志转换为ProcessEntity（旧方法，保留用于兼容）
      * 
      * 非null条件：
@@ -406,6 +460,29 @@ public final class IncidentConverters {
                 return convertToDomainEntity(log);
             case "registry":
                 return convertToRegistryEntity(log);
+            case "process":
+                return null;
+            default:
+                return null;
+        }
+    }
+    
+    /**
+     * 从告警中根据logType将原始告警转换为对应的实体
+     */
+    private static Object convertToEntityFromAlarm(RawAlarm alarm, String logType) {
+        if (alarm == null || logType == null) return null;
+
+        String type = logType.toLowerCase();
+        switch (type) {
+            case "file":
+                return convertToFileEntityFromAlarm(alarm);
+            case "network":
+                return convertToNetworkEntityFromAlarm(alarm);
+            case "domain":
+                return convertToDomainEntityFromAlarm(alarm);
+            case "registry":
+                return convertToRegistryEntityFromAlarm(alarm);
             case "process":
                 return null;
             default:
@@ -595,6 +672,84 @@ public final class IncidentConverters {
         if ("中".equals(s) || "MEDIUM".equalsIgnoreCase(s)) return ThreatSeverity.MEDIUM;
         if ("低".equals(s) || "LOW".equalsIgnoreCase(s)) return ThreatSeverity.LOW;
         return ThreatSeverity.UNKNOWN;
+    }
+    
+    // ========== 从告警中抽取实体的方法 ==========
+    
+    /**
+     * 从告警转换为FileEntity
+     */
+    private static FileEntity convertToFileEntityFromAlarm(RawAlarm alarm) {
+        if (alarm == null) return null;
+        
+        FileEntity entity = new FileEntity();
+        entity.setTargetFilename(alarm.getTargetFilename());
+        entity.setFileName(alarm.getFileName());
+        entity.setFileMd5(alarm.getFileMd5());
+        
+        // 注意：告警数据中可能缺少一些字段（如 filePath, fileSize, fileType）
+        // 这些字段保持为 null
+        
+        return entity;
+    }
+    
+    /**
+     * 从告警转换为NetworkEntity
+     */
+    private static NetworkEntity convertToNetworkEntityFromAlarm(RawAlarm alarm) {
+        if (alarm == null) return null;
+        
+        NetworkEntity entity = new NetworkEntity();
+        entity.setSrcAddress(alarm.getSrcAddress());
+        entity.setDestAddress(alarm.getDestAddress());
+        
+        try {
+            if (alarm.getSrcPort() != null) {
+                entity.setSrcPort(Integer.parseInt(alarm.getSrcPort()));
+            }
+            if (alarm.getDestPort() != null) {
+                entity.setDestPort(Integer.parseInt(alarm.getDestPort()));
+            }
+        } catch (NumberFormatException e) {
+            // 忽略格式错误
+        }
+        
+        // 注意：告警数据中可能缺少 transProtocol、initiated 字段
+        
+        return entity;
+    }
+    
+    /**
+     * 从告警转换为DomainEntity
+     */
+    private static DomainEntity convertToDomainEntityFromAlarm(RawAlarm alarm) {
+        if (alarm == null) return null;
+        
+        DomainEntity entity = new DomainEntity();
+        entity.setRequestDomain(alarm.getRequestDomain());
+        
+        // 注意：告警数据中可能缺少 queryResults 字段
+        
+        return entity;
+    }
+    
+    /**
+     * 从告警转换为RegistryEntity
+     */
+    private static RegistryEntity convertToRegistryEntityFromAlarm(RawAlarm alarm) {
+        if (alarm == null) return null;
+        
+        RegistryEntity entity = new RegistryEntity();
+        entity.setTargetObject(alarm.getTargetObject());
+        entity.setRegValue(alarm.getRegValue());
+        
+        // 提取 targetObject 路径的最后一层
+        String targetObject = alarm.getTargetObject();
+        if (targetObject != null && !targetObject.trim().isEmpty()) {
+            entity.setTargetObjectName(extractLastPathSegment(targetObject));
+        }
+        
+        return entity;
     }
 }
 
