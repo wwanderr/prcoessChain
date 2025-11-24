@@ -1497,6 +1497,33 @@ public class ProcessChainBuilder {
             
             // ========== 情况1：普通节点（有 parentProcessGuid） ==========
             if (parentGuid != null && !parentGuid.isEmpty()) {
+                // ✅ 新增：检查是否是自引用节点（processGuid == parentProcessGuid）
+                // 如果是，且 virtualRootParentMap 中有映射，使用映射中的虚拟父节点ID
+                if (nodeId.equals(parentGuid) && virtualRootParentMap != null && 
+                    virtualRootParentMap.containsKey(nodeId)) {
+                    String virtualParentId = virtualRootParentMap.get(nodeId);
+                    
+                    // 如果虚拟父节点已经存在，跳过
+                    if (subgraph.hasNode(virtualParentId)) {
+                        log.debug("【父进程拆分-自引用根节点】虚拟父节点已存在: childId={}, virtualParentId={}", 
+                                nodeId, virtualParentId);
+                        continue;
+                    }
+                    
+                    // 如果虚拟父节点已经在待添加列表中，跳过
+                    if (virtualParentsToAdd.containsKey(virtualParentId)) {
+                        continue;
+                    }
+                    
+                    // ✅ 使用节点自身信息创建虚拟父节点（带占位信息兜底）
+                    GraphNode virtualParent = createVirtualRootParentNodeFromSelf(node, virtualParentId);
+                    virtualParentsToAdd.put(virtualParentId, virtualParent);
+                    createdCount++;
+                    log.info("【父进程拆分-自引用根节点】✅ 创建虚拟根父节点成功: virtualParentId={}, childId={}, traceId={}", 
+                            virtualParentId, nodeId, node.getTraceId());
+                    continue;  // ✅ 处理完自引用根节点后，跳过后续的普通节点处理
+                }
+                
                 // 如果父节点已经存在（真实节点），跳过
                 if (subgraph.hasNode(parentGuid)) {
                     log.debug("【父进程拆分】父节点已存在: childId={}, parentId={}", nodeId, parentGuid);
@@ -1555,36 +1582,12 @@ public class ProcessChainBuilder {
                     continue;
                 }
                 
-                // 优先从日志中提取父进程信息
-                List<RawLog> logs = node.getLogs();
-                if (logs != null && !logs.isEmpty()) {
-                    GraphNode virtualParent = createVirtualParentNodeFromLog(logs.get(0), virtualParentId);
-                    if (virtualParent != null) {
-                        virtualParentsToAdd.put(virtualParentId, virtualParent);
-                        createdCount++;
-                        log.info("【父进程拆分-特殊根节点】✅ 从日志创建虚拟根父节点: virtualParentId={}, childRootId={}", 
-                                virtualParentId, nodeId);
-                        continue;
-                    }
-                    // 如果日志中信息不足，尝试从告警中提取
-                    log.debug("【父进程拆分-特殊根节点】日志中父进程信息不足，尝试从告警中提取: virtualParentId={}, childRootId={}", 
-                            virtualParentId, nodeId);
-                }
-                
-                // 没有日志或日志信息不足时，从告警中提取父进程信息
-                List<RawAlarm> alarms = node.getAlarms();
-                if (alarms != null && !alarms.isEmpty()) {
-                    GraphNode virtualParent = createVirtualParentNodeFromAlarm(alarms.get(0), virtualParentId);
-                    if (virtualParent != null) {
-                        virtualParentsToAdd.put(virtualParentId, virtualParent);
-                        createdCount++;
-                        log.info("【父进程拆分-特殊根节点】✅ 从告警创建虚拟根父节点: virtualParentId={}, childRootId={}", 
-                                virtualParentId, nodeId);
-                    } else {
-                        log.warn("【父进程拆分-特殊根节点】❌ 无法创建虚拟根父节点（日志和告警中都缺少父进程信息）: " +
-                                "virtualParentId={}, childRootId={}", virtualParentId, nodeId);
-                    }
-                }
+                // ✅ 修改：使用节点自身信息创建虚拟父节点（带占位信息兜底）
+                GraphNode virtualParent = createVirtualRootParentNodeFromSelf(node, virtualParentId);
+                virtualParentsToAdd.put(virtualParentId, virtualParent);
+                createdCount++;
+                log.info("【父进程拆分-特殊根节点】✅ 创建虚拟根父节点成功: virtualParentId={}, childRootId={}, traceId={}", 
+                        virtualParentId, nodeId, node.getTraceId());
             }
         }
         
@@ -1754,6 +1757,102 @@ public class ProcessChainBuilder {
                 parentGuid, parentNode.getProcessName(), parentNode.getProcessId());
         
         return parentNode;
+    }
+    
+    /**
+     * 从节点自身信息创建虚拟根父节点（用于自引用节点）
+     * 
+     * <p><b>场景</b>：processGuid == parentProcessGuid（自引用节点）</p>
+     * 
+     * <p><b>策略</b>：</p>
+     * <ol>
+     *   <li>优先尝试从日志的 parent 字段提取父进程信息</li>
+     *   <li>如果日志中没有，尝试从告警的 parent 字段提取</li>
+     *   <li>如果都没有，使用最小化占位信息（processName="未知父进程"，其他为null）</li>
+     *   <li>确保虚拟父节点能创建成功，支持网端桥接</li>
+     * </ol>
+     * 
+     * @param node 子节点（自引用节点）
+     * @param virtualParentId 虚拟父节点的 processGuid（nodeId）
+     * @return 虚拟父节点（始终返回，不会返回 null）
+     */
+    private GraphNode createVirtualRootParentNodeFromSelf(GraphNode node, String virtualParentId) {
+        GraphNode parentNode = new GraphNode();
+        
+        parentNode.setNodeId(virtualParentId);
+        parentNode.setProcessGuid(virtualParentId);
+        parentNode.setParentProcessGuid(null);  // 虚拟父节点没有父节点
+        parentNode.setVirtual(true);
+        parentNode.setNodeType("process");
+        
+        parentNode.setTraceId(node.getTraceId());
+        parentNode.setHostAddress(node.getHostAddress());
+        parentNode.setHostName(node.getHostName());
+        
+        // ✅ 尝试从日志提取父进程信息（只取第一条）
+        boolean foundParentInfo = false;
+        if (node.getLogs() != null && !node.getLogs().isEmpty()) {
+            RawLog rawLog = node.getLogs().get(0);
+            if (rawLog.getParentProcessName() != null && !rawLog.getParentProcessName().isEmpty()) {
+                parentNode.setProcessName(rawLog.getParentProcessName());
+                parentNode.setProcessId(rawLog.getParentProcessId());
+                if (rawLog.getParentImage() != null) {
+                    parentNode.setImage(rawLog.getParentImage());
+                }
+                if (rawLog.getParentCommandLine() != null) {
+                    parentNode.setCommandLine(rawLog.getParentCommandLine());
+                }
+                if (rawLog.getParentProcessMd5() != null) {
+                    parentNode.setProcessMd5(rawLog.getParentProcessMd5());
+                }
+                if (rawLog.getParentProcessUserName() != null) {
+                    parentNode.setProcessUserName(rawLog.getParentProcessUserName());
+                }
+                foundParentInfo = true;
+                log.info("【虚拟根父节点创建】✅ 从日志提取父进程信息: processName={}, processId={}, childId={}", 
+                        rawLog.getParentProcessName(), rawLog.getParentProcessId(), node.getNodeId());
+            }
+        }
+        
+        // ✅ 如果日志中没有，尝试从告警提取（只取第一条）
+        if (!foundParentInfo && node.getAlarms() != null && !node.getAlarms().isEmpty()) {
+            RawAlarm alarm = node.getAlarms().get(0);
+            if (alarm.getParentProcessName() != null && !alarm.getParentProcessName().isEmpty()) {
+                parentNode.setProcessName(alarm.getParentProcessName());
+                parentNode.setProcessId(alarm.getParentProcessId());
+                if (alarm.getParentImage() != null) {
+                    parentNode.setImage(alarm.getParentImage());
+                }
+                if (alarm.getParentCommandLine() != null) {
+                    parentNode.setCommandLine(alarm.getParentCommandLine());
+                }
+                if (alarm.getParentProcessMd5() != null) {
+                    parentNode.setProcessMd5(alarm.getParentProcessMd5());
+                }
+                if (alarm.getParentProcessUserName() != null) {
+                    parentNode.setProcessUserName(alarm.getParentProcessUserName());
+                }
+                foundParentInfo = true;
+                log.info("【虚拟根父节点创建】✅ 从告警提取父进程信息: processName={}, processId={}, childId={}", 
+                        alarm.getParentProcessName(), alarm.getParentProcessId(), node.getNodeId());
+            }
+        }
+        
+        // ✅ 如果都没有，使用最小化占位信息
+        if (!foundParentInfo) {
+            parentNode.setProcessName("未知父进程");  // 最基础的占位名称
+            parentNode.setProcessId(null);
+            parentNode.setImage(null);
+            parentNode.setCommandLine(null);
+            parentNode.setProcessMd5(null);
+            parentNode.setProcessUserName(null);
+            
+            log.warn("【虚拟根父节点创建】⚠️ 父进程信息缺失，使用占位信息: " +
+                    "virtualParentId={}, childId={}, processName=未知父进程", 
+                    virtualParentId, node.getNodeId());
+        }
+        
+        return parentNode;  // ✅ 始终返回节点（不返回 null）
     }
     
     /**
