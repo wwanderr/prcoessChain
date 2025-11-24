@@ -58,10 +58,6 @@ public class ProcessChainGraph {
     /** 断链节点到traceId的映射 */
     private Map<String, String> brokenNodeToTraceId;
     
-    /** 虚拟根父节点映射：子根节点ID -> 虚拟父节点ID
-     * 用于 processGuid == parentProcessGuid == traceId 的场景 */
-    private Map<String, String> virtualRootParentMap;
-    
     public ProcessChainGraph() {
         this.nodes = new HashMap<>();
         this.outEdges = new HashMap<>();
@@ -74,7 +70,6 @@ public class ProcessChainGraph {
         this.alarmNodes = new HashSet<>();
         this.traceIdToRootNodeMap = new HashMap<>();
         this.brokenNodeToTraceId = new HashMap<>();
-        this.virtualRootParentMap = new HashMap<>();
     }
     
     // ========== 基础操作 ==========
@@ -139,7 +134,7 @@ public class ProcessChainGraph {
         
         // 防止自环
         if (source.equals(target)) {
-            log.debug("【建图】检测到自环，跳过: {}", source);
+            log.info("【建图】检测到自环，跳过: {}", source);
             return;
         }
         
@@ -204,21 +199,6 @@ public class ProcessChainGraph {
      */
     public Map<String, String> getEdgeVals() {
         return new HashMap<>(edgeVals);
-    }
-    
-    /**
-     * 添加虚拟根父节点映射
-     * 用于 processGuid==parentProcessGuid==traceId 的场景
-     * 
-     * @param childRootNodeId 子根节点ID
-     * @param virtualParentNodeId 虚拟父节点ID
-     */
-    public void addVirtualRootParentMapping(String childRootNodeId, String virtualParentNodeId) {
-        if (childRootNodeId == null || virtualParentNodeId == null) {
-            return;
-        }
-        virtualRootParentMap.put(childRootNodeId, virtualParentNodeId);
-        log.debug("【映射添加】虚拟根父节点: {} -> {}", childRootNodeId, virtualParentNodeId);
     }
     
     /**
@@ -315,98 +295,59 @@ public class ProcessChainGraph {
     /**
      * 识别根节点、断链节点，并建立 traceId 到根节点的映射
      * 
-     * <p><b>核心功能</b>：</p>
-     * <ol>
-     *   <li>识别所有根节点（包括真正的根节点和虚拟根父节点）</li>
-     *   <li>识别所有断链节点（父节点缺失的节点）</li>
-     *   <li>建立 traceId → rootNodeId 映射（用于网端桥接）</li>
-     *   <li>处理虚拟根父节点的特殊映射覆盖逻辑</li>
-     * </ol>
+     * 核心功能：
+     * 1. 识别所有根节点（包括真正的根节点和虚拟根父节点）
+     * 2. 识别所有断链节点（父节点缺失的节点）
+     * 3. 建立 traceId → rootNodeId 映射（用于网端桥接）
+     * 4. 处理虚拟根父节点的特殊映射覆盖逻辑
      * 
-     * <p><b>识别规则</b>：</p>
-     * <ul>
-     *   <li><b>规则1：真正的根节点</b> - processGuid == traceId
-     *       <pre>
-     *       条件：nodeId.equals(node.getTraceId())
-     *       操作：isRoot=true, 添加到 rootNodes, 建立映射 traceId → nodeId
-     *       说明：这是实际意义上的进程链起点
-     *       </pre>
-     *   </li>
-     *   <li><b>规则2：虚拟根父节点</b> - 入度为0 且 nodeId 以 "VIRTUAL_ROOT_PARENT_" 开头
-     *       <pre>
-     *       条件：getInDegree(nodeId) == 0 && nodeId.startsWith("VIRTUAL_ROOT_PARENT_")
-     *       操作：
-     *         1. isRoot=true, 添加到 rootNodes
-     *         2. 覆盖原有映射：traceId → nodeId（虚拟父节点）
-     *         3. 将原根节点的 isRoot 改为 false，从 rootNodes 移除
-     *       说明：特殊根节点（processGuid==parentProcessGuid==traceId）的虚拟父节点
-     *            用于支持网端桥接到正确的位置
-     *       </pre>
-     *   </li>
-     *   <li><b>规则3：断链节点</b> - 入度为0 且 有 parentProcessGuid 但父节点不存在
-     *       <pre>
-     *       条件：getInDegree(nodeId) == 0 && parentProcessGuid != null && 父节点不是虚拟节点
-     *       操作：isBroken=true, 添加到 brokenNodes, 记录 brokenNodeToTraceId 映射
-     *       说明：父进程日志缺失，需要后续创建 EXPLORE 节点作为虚拟根
-     *       </pre>
-     *   </li>
-     *   <li><b>规则4：其他根节点</b> - 入度为0 且 无 parentProcessGuid
-     *       <pre>
-     *       条件：getInDegree(nodeId) == 0 && parentProcessGuid == null
-     *       操作：isRoot=true, 添加到 rootNodes, 建立映射 traceId → nodeId
-     *       说明：自引用节点（processGuid==parentProcessGuid 且 已清空 parentProcessGuid）
-     *       </pre>
-     *   </li>
-     * </ul>
+     * 识别规则：
      * 
-     * <p><b>特殊处理</b>：</p>
-     * <ul>
-     *   <li><b>虚拟根父节点覆盖</b>：如果发现虚拟根父节点，会覆盖原根节点的映射
-     *       <pre>
-     *       初始：traceIdToRootNodeMap: {A -> A}  (原根节点)
-     *       覆盖：traceIdToRootNodeMap: {A -> VIRTUAL_ROOT_PARENT_A}  (虚拟父节点)
-     *       目的：确保网端桥接到虚拟父节点，而不是原根节点
-     *       </pre>
-     *   </li>
-     *   <li><b>跳过虚拟父节点的子节点</b>：如果节点的 parentProcessGuid 指向虚拟节点
-     *       （VIRTUAL_ROOT_PARENT_ 或 VIRTUAL_PARENT_ 开头），不标记为断链，
-     *       等待后续虚拟节点创建后建立关系
-     *   </li>
-     * </ul>
+     * 规则1：真正的根节点 - processGuid == traceId
+     *   条件：nodeId.equals(node.getTraceId())
+     *   操作：isRoot=true, 添加到 rootNodes, 建立映射 traceId → nodeId
+     *   说明：这是实际意义上的进程链起点
      * 
-     * <p><b>输出结果</b>：</p>
-     * <ul>
-     *   <li><b>rootNodes</b>：所有根节点的 ID 集合（用于遍历和展示）</li>
-     *   <li><b>brokenNodes</b>：所有断链节点的 ID 集合（用于创建 EXPLORE 节点）</li>
-     *   <li><b>traceIdToRootNodeMap</b>：traceId → 根节点ID 映射（用于网端桥接）
-     *       <ul>
-     *         <li>如果有虚拟根父节点，映射到虚拟父节点</li>
-     *         <li>否则，映射到真正的根节点</li>
-     *       </ul>
-     *   </li>
-     *   <li><b>brokenNodeToTraceId</b>：断链节点ID → traceId 映射（用于 EXPLORE 节点创建）</li>
-     * </ul>
+     * 规则2：自引用根节点 - 入度为0 且 parentProcessGuid 为 null 且非虚拟节点
+     *   条件：parentProcessGuid == null && getInDegree(nodeId) == 0 && !node.isVirtual()
+     *   操作：isRoot=true, 添加到 rootNodes, 建立映射 traceId → nodeId
+     *   说明：自引用节点（processGuid==parentProcessGuid 已清空为 null）直接作为根节点
      * 
-     * <p><b>使用场景</b>：</p>
-     * <ol>
-     *   <li>在 ProcessChainGraphBuilder.buildGraph() 构建完整图后调用</li>
-     *   <li>在 ProcessChainBuilder.extractSubgraph() 提取子图后调用</li>
-     *   <li>必须在网端桥接之前调用，确保 traceIdToRootNodeMap 正确</li>
-     * </ol>
+     * 规则3：其他虚拟父节点 - 虚拟节点且入度为0
+     *   条件：node.isVirtual() && getInDegree(nodeId) == 0
+     *   操作：isRoot=true, 添加到 rootNodes, 建立映射 traceId → nodeId
+     *   说明：普通虚拟父节点（VIRTUAL_PARENT_xxx）
      * 
-     * <p><b>示例</b>：</p>
-     * <pre>
+     * 规则4：断链节点 - 入度为0 且 有 parentProcessGuid 但父节点不存在
+     *   条件：getInDegree(nodeId) == 0 && parentProcessGuid != null && 父节点不是虚拟节点
+     *   操作：isBroken=true, 添加到 brokenNodes, 记录 brokenNodeToTraceId 映射
+     *   说明：父进程日志缺失，需要后续创建 EXPLORE 节点作为虚拟根
+     * 
+     * 特殊处理：
+     * - 自引用节点：processGuid==parentProcessGuid 的节点，已在建图阶段清空 parentProcessGuid，
+     *   这里识别为根节点，直接映射到 traceIdToRootNodeMap
+     * - 虚拟父节点的子节点：如果节点的 parentProcessGuid 指向虚拟节点
+     *   （VIRTUAL_PARENT_ 开头），不标记为断链，等待后续虚拟节点创建后建立关系
+     * 
+     * 输出结果：
+     * - rootNodes：所有根节点的 ID 集合（用于遍历和展示）
+     * - brokenNodes：所有断链节点的 ID 集合（用于创建 EXPLORE 节点）
+     * - traceIdToRootNodeMap：traceId → 根节点ID 映射（用于网端桥接）
+     * - brokenNodeToTraceId：断链节点ID → traceId 映射（用于 EXPLORE 节点创建）
+     * 
+     * 使用场景：
+     * 1. 在 ProcessChainGraphBuilder.buildGraph() 构建完整图后调用
+     * 2. 在 ProcessChainBuilder.extractSubgraph() 提取子图后调用
+     * 3. 必须在网端桥接之前调用，确保 traceIdToRootNodeMap 正确
+     * 
+     * 示例：
      * 场景1：普通根节点
      *   节点：A (processGuid=A, traceId=A, parentProcessGuid=null)
      *   结果：rootNodes=[A], traceIdToRootNodeMap={A->A}
      * 
-     * 场景2：特殊根节点 + 虚拟根父节点
-     *   节点：A (processGuid=A, traceId=A, parentProcessGuid=B)
-     *   节点：B (VIRTUAL_ROOT_PARENT_A, traceId=A, parentProcessGuid=null)
-     *   结果：
-     *     rootNodes=[B]  (A 被移除)
-     *     traceIdToRootNodeMap={A->B}  (覆盖原有的 A->A)
-     *     A.isRoot=false, B.isRoot=true
+     * 场景2：自引用根节点
+     *   节点：A (processGuid=A, traceId=T, parentProcessGuid=null)  // 原本 A==A 已清空
+     *   结果：rootNodes=[A], traceIdToRootNodeMap={T->A}
      * 
      * 场景3：断链节点
      *   节点：X (processGuid=X, traceId=T1, parentProcessGuid=PARENT_UNKNOWN)
@@ -415,7 +356,6 @@ public class ProcessChainGraph {
      *     brokenNodes=[X]
      *     brokenNodeToTraceId={X->T1}
      *     traceIdToRootNodeMap={}  (空，需要后续创建 EXPLORE_ROOT_T1)
-     * </pre>
      * 
      * @param traceIds 所有 traceId 集合（用于识别真正的根节点）
      */
@@ -425,82 +365,26 @@ public class ProcessChainGraph {
         traceIdToRootNodeMap.clear();
         brokenNodeToTraceId.clear();
         
-        // ========== 第一步：先找出所有真正的根节点（processGuid == traceId） ==========
-        // 这是判断其他节点的基础
+        // ========== 第一步：找出所有根节点 ==========
+        // 包括：processGuid == traceId 的根节点 和 自引用节点（parentProcessGuid == null 且入度为0）
         for (String nodeId : nodes.keySet()) {
             GraphNode node = nodes.get(nodeId);
             
-            // 真正的根节点：nodeId（即 processGuid）== traceId
+            // 1. 真正的根节点：nodeId（即 processGuid）== traceId
             if (nodeId.equals(node.getTraceId())) {
                 rootNodes.add(nodeId);
                 node.setRoot(true);
                 traceIdToRootNodeMap.put(node.getTraceId(), nodeId);
                 log.debug("【根节点识别-步骤1】找到真正的根节点: {} (processGuid==traceId)", nodeId);
             }
-        }
-        
-        // ========== 第1.5步：检查根节点是否有虚拟父节点 ==========
-        // 如果根节点有 parentProcessGuid，且对应的虚拟父节点存在且创建成功，
-        // 则虚拟父节点应该成为新的根节点（因为虚拟父节点有实际信息可以展示）
-        List<String> rootsToDowngrade = new ArrayList<>();
-        
-        for (String rootNodeId : new ArrayList<>(rootNodes)) {
-            GraphNode rootNode = nodes.get(rootNodeId);
-            String parentGuid = rootNode.getParentProcessGuid();
-            
-            // 根节点有父节点引用
-            if (parentGuid != null && !parentGuid.isEmpty()) {
-                GraphNode parentNode = nodes.get(parentGuid);
-                
-                // 父节点存在，且是虚拟节点（说明虚拟父节点创建成功，有信息可用）
-                if (parentNode != null && parentNode.isVirtual()) {
-                    // ✅ 虚拟父节点升级为根节点
-                    rootNodes.add(parentGuid);
-                    parentNode.setRoot(true);
-                    
-                    // ✅ 原根节点降级
-                    rootsToDowngrade.add(rootNodeId);
-                    rootNode.setRoot(false);
-                    
-                    // ✅ 更新映射：traceId 现在指向虚拟父节点
-                    String traceId = rootNode.getTraceId();
-                    traceIdToRootNodeMap.put(traceId, parentGuid);
-                    
-                    log.info("【根节点识别-步骤1.5】✅ 虚拟父节点升级为根节点: " +
-                            "虚拟父={}, 原根节点={}, traceId={}, 原因：虚拟父节点创建成功，有完整信息可展示", 
-                            parentGuid, rootNodeId, traceId);
-                }
-            }
-        }
-        
-        // 移除被降级的根节点
-        rootNodes.removeAll(rootsToDowngrade);
-        
-        // ========== 第二步：处理虚拟根父节点（VIRTUAL_ROOT_PARENT_） ==========
-        // 这些节点会覆盖原有的根节点映射
-        for (String nodeId : nodes.keySet()) {
-            GraphNode node = nodes.get(nodeId);
-            
-            if (nodeId.startsWith("VIRTUAL_ROOT_PARENT_")) {
+            // 2. 自引用节点：parentProcessGuid 为 null 且入度为0（已被清空的自环节点）
+            else if (node.getParentProcessGuid() == null && getInDegree(nodeId) == 0 && !node.isVirtual()) {
                 rootNodes.add(nodeId);
                 node.setRoot(true);
-                
-                // 建立 traceId → rootNodeId 映射（覆盖原有映射）
-                String traceId = node.getTraceId();
-                if (traceId != null) {
-                    String oldRootNodeId = traceIdToRootNodeMap.get(traceId);
-                    traceIdToRootNodeMap.put(traceId, nodeId);
-                    log.debug("【根节点识别-步骤2】找到虚拟根父节点: {} (VIRTUAL_ROOT_PARENT), traceId={}, 替换原根节点: {}", 
-                            nodeId, traceId, oldRootNodeId);
-                    
-                    // 将原来的子根节点的 isRoot 设置为 false
-                    if (oldRootNodeId != null && nodes.containsKey(oldRootNodeId)) {
-                        GraphNode oldRootNode = nodes.get(oldRootNodeId);
-                        oldRootNode.setRoot(false);
-                        rootNodes.remove(oldRootNodeId);
-                        log.debug("【根节点识别-步骤2】原根节点 {} 的 isRoot 改为 false", oldRootNodeId);
-                    }
-                }
+                traceIdToRootNodeMap.put(node.getTraceId(), nodeId);
+                log.info("【根节点识别-步骤1】找到自引用根节点: nodeId={}, traceId={} " +
+                        "(processGuid==parentProcessGuid，清空后作为根节点)", 
+                        nodeId, node.getTraceId());
             }
         }
         
@@ -522,8 +406,7 @@ public class ProcessChainGraph {
             // ========== 情况1：有 parentProcessGuid ==========
             if (node.getParentProcessGuid() != null && !node.getParentProcessGuid().isEmpty()) {
                 // 检查父节点是否是虚拟节点（可能还没创建）
-                if (node.getParentProcessGuid().startsWith("VIRTUAL_ROOT_PARENT_") ||
-                    node.getParentProcessGuid().startsWith("VIRTUAL_PARENT_")) {
+                if (node.getParentProcessGuid().startsWith("VIRTUAL_PARENT_")) {
                     log.debug("【根节点识别-步骤3】跳过虚拟父节点的子节点: nodeId={}, virtualParentGuid={}", 
                             nodeId, node.getParentProcessGuid());
                     continue;
@@ -549,8 +432,8 @@ public class ProcessChainGraph {
             // 2. 自引用节点（processGuid == parentProcessGuid，被清空为 null）
             // 3. 数据本身就没有 parentProcessGuid
             
-            if (node.isVirtual() && !nodeId.startsWith("VIRTUAL_ROOT_PARENT_")) {
-                // ========== 普通虚拟父节点 ==========
+            if (node.isVirtual()) {
+                // ========== 虚拟父节点 ==========
                 String traceId = node.getTraceId();
                 
                 if (traceId != null && traceIdToRootNodeMap.containsKey(traceId)) {
@@ -576,7 +459,6 @@ public class ProcessChainGraph {
                 // 这种情况包括：
                 // 1. 自引用节点（processGuid == parentProcessGuid != traceId），被清空为 null
                 // 2. 数据本身就没有 parentProcessGuid
-                // 3. VIRTUAL_ROOT_PARENT_ 节点（已在步骤2处理，不会进入这里）
                 //
                 // 处理：标记为断链，等待 EXPLORE 节点
                 // 原因：如果 processGuid != traceId，理论上应该有父节点（至少是 traceId 对应的根节点）
@@ -808,7 +690,6 @@ public class ProcessChainGraph {
         // 复制映射关系
         subgraph.traceIdToRootNodeMap.putAll(traceIdToRootNodeMap);
         subgraph.brokenNodeToTraceId.putAll(brokenNodeToTraceId);
-        subgraph.virtualRootParentMap.putAll(virtualRootParentMap);
         
         return subgraph;
     }
@@ -853,10 +734,6 @@ public class ProcessChainGraph {
     
     public Map<String, String> getBrokenNodeToTraceId() {
         return new HashMap<>(brokenNodeToTraceId);
-    }
-    
-    public Map<String, String> getVirtualRootParentMap() {
-        return new HashMap<>(virtualRootParentMap);
     }
     
     /**

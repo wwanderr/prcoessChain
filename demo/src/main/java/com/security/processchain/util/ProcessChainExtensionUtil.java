@@ -143,11 +143,9 @@ public class ProcessChainExtensionUtil {
      * 跳过条件：
      * 1. Explore 虚拟节点：节点ID以"EXPLORE_"开头的节点是系统创建的虚拟节点，
      *    用于连接断链，这类节点没有实际的父进程，无需扩展
-     * 2. 虚拟根父节点：VIRTUAL_ROOT_PARENT_ 节点的 parentProcessGuid 固定为 null，
-     *    无法向上扩展（它们是从子进程日志的 parentXXX 字段构造的，本身就是扩展边界）
-     * 3. 断链节点：isBroken=true 的节点表示其父节点日志缺失，
+     * 2. 断链节点：isBroken=true 的节点表示其父节点日志缺失，
      *    无法继续向上追溯，因此跳过扩展
-     * 4. processGuid == parentProcessGuid：如果进程的 processGuid 等于 parentProcessGuid，
+     * 3. processGuid == parentProcessGuid：如果进程的 processGuid 等于 parentProcessGuid，
      *    说明自己指向自己，无法向上扩展
      * 
      * @param nodeId 节点ID
@@ -161,14 +159,7 @@ public class ProcessChainExtensionUtil {
             return true;
         }
         
-        // ========== 跳过条件2：虚拟根父节点 ==========
-        // 虚拟根父节点的 parentProcessGuid 固定为 null，无法向上扩展
-        if (nodeId != null && nodeId.startsWith("VIRTUAL_ROOT_PARENT_")) {
-            log.debug("【扩展溯源】-> 跳过虚拟根父节点（parentProcessGuid=null，无法扩展）: {}", nodeId);
-            return true;
-        }
-        
-        // ========== 跳过条件3：断链节点 ==========
+        // ========== 跳过条件2：断链节点 ==========
         ProcessNode node = findNodeById(allNodes, nodeId);
         if (node != null && node.getIsChainNode() && node.getChainNode() != null) {
             if (Boolean.TRUE.equals(node.getChainNode().getIsBroken())) {

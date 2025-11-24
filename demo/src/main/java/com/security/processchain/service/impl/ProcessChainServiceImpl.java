@@ -220,9 +220,6 @@ public class ProcessChainServiceImpl {
             // 单独获取 traceIdToRootNodeMap（不作为 IncidentProcessChain 的一部分）
             Map<String, String> traceIdToRootNodeMap = builder.getTraceIdToRootNodeMap();
             
-            // 获取虚拟根父节点映射（用于 processGuid==parentProcessGuid==traceId 的场景）
-            Map<String, String> virtualRootParentMap = builder.getVirtualRootParentMap();
-            
             // 设置 traceIds 和 hostAddresses
             if (endpointChain != null) {
                 endpointChain.setTraceIds(new ArrayList<>(allTraceIds));
@@ -257,8 +254,8 @@ public class ProcessChainServiceImpl {
                 return endpointChain;
             }
             
-            // 优化：将 traceIdToRootNodeMap 和 virtualRootParentMap 作为参数传递
-            return mergeNetworkAndEndpointChain(networkChain, endpointChain, hostToTraceId, traceIdToRootNodeMap, virtualRootParentMap);
+            // 优化：将 traceIdToRootNodeMap 作为参数传递
+            return mergeNetworkAndEndpointChain(networkChain, endpointChain, hostToTraceId, traceIdToRootNodeMap);
 
         } catch (Exception e) {
             log.error("【进程链生成】-> 批量生成进程链失败: {}", e.getMessage(), e);
@@ -359,8 +356,7 @@ public class ProcessChainServiceImpl {
             Pair<List<ProcessNode>, List<ProcessEdge>> networkChain,
             IncidentProcessChain endpointChain,
             Map<String, String> hostToTraceId,
-            Map<String, String> traceIdToRootNodeMap,
-            Map<String, String> virtualRootParentMap) {
+            Map<String, String> traceIdToRootNodeMap) {
         
         log.info("【进程链生成】-> ========================================");
         log.info("【进程链生成】-> 开始合并网侧和端侧进程链");
@@ -407,42 +403,12 @@ public class ProcessChainServiceImpl {
                         networkNodes,
                         networkEdges,  // 新增：传入网侧边列表，用于判断 victim 是否为 source
                         hostToTraceId, 
-                        finalRootMap,
-                        virtualRootParentMap);  // 新增：虚拟根父节点映射
+                        finalRootMap);
                 
                 // 添加虚拟节点到 allNodes
                 if (bridgeResult.getVirtualNodes() != null && !bridgeResult.getVirtualNodes().isEmpty()) {
                     allNodes.addAll(bridgeResult.getVirtualNodes());
                     log.info("【进程链生成】-> 添加虚拟节点数: {}", bridgeResult.getVirtualNodes().size());
-                    
-                    // ✅ 调整特殊根节点的 isRoot 属性
-                    // 如果添加了虚拟根父节点，需要将对应的子根节点的 isRoot 改为 false
-                    if (virtualRootParentMap != null && !virtualRootParentMap.isEmpty()) {
-                        for (ProcessNode virtualNode : bridgeResult.getVirtualNodes()) {
-                            // 检查是否是虚拟根父节点（nodeId 以 VIRTUAL_ROOT_PARENT_ 开头）
-                            if (virtualNode.getNodeId().startsWith("VIRTUAL_ROOT_PARENT_")) {
-                                // 找到对应的子根节点并修改其 isRoot 属性
-                                for (Map.Entry<String, String> entry : virtualRootParentMap.entrySet()) {
-                                    String childRootNodeId = entry.getKey();
-                                    String virtualParentNodeId = entry.getValue();
-                                    
-                                    if (virtualNode.getNodeId().equals(virtualParentNodeId)) {
-                                        // 找到子根节点
-                                        for (ProcessNode node : allNodes) {
-                                            if (node.getNodeId().equals(childRootNodeId) && 
-                                                node.getChainNode() != null) {
-                                                node.getChainNode().setIsRoot(false);  // ✅ 子根节点不再是根节点
-                                                log.info("【进程链生成-桥接】-> ✅ 调整子根节点 isRoot: {} -> false", 
-                                                        childRootNodeId);
-                                                break;
-                                            }
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
                 
                 // 添加桥接边到 allEdges
@@ -526,15 +492,13 @@ public class ProcessChainServiceImpl {
      * @param networkEdges 网侧边列表（用于判断 victim 是否为 source）
      * @param hostToTraceId host到traceId的映射
      * @param traceIdToRootNodeMap traceId到根节点ID的映射
-     * @param virtualRootParentMap 子根节点ID到虚拟父节点ID的映射
      * @return 桥接结果（包含虚拟节点和桥接边）
      */
     private BridgeResult createBridgeEdges(
             List<ProcessNode> networkNodes,
             List<ProcessEdge> networkEdges,
             Map<String, String> hostToTraceId,
-            Map<String, String> traceIdToRootNodeMap,
-            Map<String, String> virtualRootParentMap) {
+            Map<String, String> traceIdToRootNodeMap) {
         
         List<ProcessNode> virtualNodes = new ArrayList<>();
         List<ProcessEdge> bridgeEdges = new ArrayList<>();
@@ -627,33 +591,6 @@ public class ProcessChainServiceImpl {
             }
             
             log.debug("【进程链生成】-> traceId {} 对应的根节点: {}", traceId, rootNodeId);
-            
-            // ✅ 步骤2.4: 检查是否有虚拟根父节点（processGuid==parentProcessGuid==traceId 的场景）
-            // 只在桥接时动态处理，不影响全树遍历性能
-            String originalRootNodeId = rootNodeId;  // 保存原始的子根节点ID
-            if (virtualRootParentMap != null && virtualRootParentMap.containsKey(rootNodeId)) {
-                String virtualParentNodeId = virtualRootParentMap.get(rootNodeId);
-                log.info("【进程链生成-桥接】-> ✅ 检测到特殊根节点场景: " +
-                        "子根节点={}, 虚拟父节点={}, traceId={}", 
-                        rootNodeId, virtualParentNodeId, traceId);
-                
-                // 创建虚拟根父节点（作为真正的根节点）
-                ProcessNode virtualRootParent = createVirtualRootParentNode(virtualParentNodeId, victimIp);
-                virtualNodes.add(virtualRootParent);
-                log.info("【进程链生成-桥接】-> ✅ 创建虚拟根父节点: nodeId={}", virtualParentNodeId);
-                
-                // 创建从虚拟父节点到子根节点的边
-                ProcessEdge parentToChildEdge = new ProcessEdge();
-                parentToChildEdge.setSource(virtualParentNodeId);
-                parentToChildEdge.setTarget(originalRootNodeId);
-                parentToChildEdge.setVal("连接");
-                bridgeEdges.add(parentToChildEdge);
-                log.info("【进程链生成-桥接】-> ✅ 创建虚拟父→子根边: {} -> {}", 
-                        virtualParentNodeId, originalRootNodeId);
-                
-                // 使用虚拟父节点作为桥接目标
-                rootNodeId = virtualParentNodeId;
-            }
             
             // ========== 步骤3：判断 victim 是否为 source ==========
             // 检查当前 victim 的 nodeId 是否在网侧边中作为 source
@@ -757,10 +694,9 @@ public class ProcessChainServiceImpl {
     }
     
     /**
-     * 创建虚拟根父节点
-     * 用于 processGuid==parentProcessGuid==traceId 的特殊场景，在网端桥接时动态创建
+     * 创建虚拟根父节点（已废弃，保留用于其他可能的虚拟节点场景）
      * 
-     * @param virtualParentNodeId 虚拟父节点ID（例如：VIRTUAL_ROOT_PARENT_xxx）
+     * @param virtualParentNodeId 虚拟父节点ID
      * @param victimIp victim的IP地址（用于日志）
      * @return 虚拟根父节点
      */
