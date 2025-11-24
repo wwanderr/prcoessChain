@@ -49,19 +49,55 @@ public class DataConverter {
         
         RawAlarm alarm = new RawAlarm();
         
-        // 提取核心字段
+        // 基础字段
         alarm.setEventId(getStringValue(map, "eventId"));
         alarm.setTraceId(getStringValue(map, "traceId"));
         alarm.setHostAddress(getStringValue(map, "hostAddress"));
+        alarm.setHostName(getStringValue(map, "hostName"));
         alarm.setProcessGuid(getStringValue(map, "processGuid"));
         alarm.setParentProcessGuid(getStringValue(map, "parentProcessGuid"));
         alarm.setThreatSeverity(getStringValue(map, "threatSeverity"));
+        alarm.setSeverity(getIntegerValue(map, "severity"));
         alarm.setStartTime(getStringValue(map, "startTime"));
         alarm.setEndTime(getStringValue(map, "endTime"));
         alarm.setDeviceAssetSubType(getStringValue(map, "deviceAssetSubType"));
         alarm.setAlarmName(getStringValue(map, "alarmName"));
         alarm.setLogType(getStringValue(map, "logType"));
         alarm.setOpType(getStringValue(map, "opType"));
+        
+        // 进程相关字段
+        alarm.setProcessName(getStringValue(map, "processName"));
+        alarm.setProcessId(getIntegerValue(map, "processId"));
+        alarm.setImage(getStringValue(map, "image"));
+        alarm.setCommandLine(getStringValue(map, "commandLine"));
+        alarm.setProcessMd5(getStringValue(map, "processMd5"));
+        alarm.setProcessUserName(getStringValue(map, "processUserName"));
+        
+        // 父进程相关字段（用于创建虚拟父节点）
+        alarm.setParentProcessName(getStringValue(map, "parentProcessName"));
+        alarm.setParentProcessId(getIntegerValue(map, "parentProcessId"));
+        alarm.setParentImage(getStringValue(map, "parentImage"));
+        alarm.setParentCommandLine(getStringValue(map, "parentCommandLine"));
+        alarm.setParentProcessMd5(getStringValue(map, "parentProcessMd5"));
+        alarm.setParentProcessUserName(getStringValue(map, "parentProcessUserName"));
+        
+        // 文件相关字段
+        alarm.setFileName(getStringValue(map, "fileName"));
+        alarm.setFileMd5(getStringValue(map, "fileMd5"));
+        alarm.setTargetFilename(getStringValue(map, "targetFilename"));
+        
+        // 域名相关字段
+        alarm.setRequestDomain(getStringValue(map, "requestDomain"));
+        
+        // 网络相关字段
+        alarm.setSrcAddress(getStringValue(map, "srcAddress"));
+        alarm.setSrcPort(getStringValue(map, "srcPort"));
+        alarm.setDestAddress(getStringValue(map, "destAddress"));
+        alarm.setDestPort(getStringValue(map, "destPort"));
+        
+        // 注册表相关字段
+        alarm.setTargetObject(getStringValue(map, "targetObject"));
+        alarm.setRegValue(getStringValue(map, "regValue"));
         
         // 保存原始数据,便于后续扩展
         alarm.setOtherFields(map);
