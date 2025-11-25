@@ -106,6 +106,8 @@ public class ProcessChainGraphBuilder {
                 if (node != null) {
                     // 清空 parentProcessGuid（因为 processGuid == parentProcessGuid 是自环）
                     node.setParentProcessGuid(null);
+                    // ✅ 记录自引用节点ID，用于后续根节点识别
+                    graph.addSelfReferenceNodeId(processGuid);
                     log.info("【建图-阶段1】自引用节点清空 parentProcessGuid: processGuid={}, traceId={}", 
                             processGuid, traceId);
                 }
@@ -138,11 +140,19 @@ public class ProcessChainGraphBuilder {
                 // 2. 处理父进程边（如果有）
                 if (parentGuid != null && !parentGuid.isEmpty()) {
                     // ✅ 跳过自引用节点（自环）
-                    // 注意：自引用节点的 parentProcessGuid 已在阶段1中清空
-                    // 这里不应该再创建边（避免自环）
+                    // 注意：如果是自引用节点，需要清空并记录
                     if (childGuid.equals(parentGuid)) {
-                        log.info("【建图-阶段2】跳过自引用节点（自环）: childGuid={}, traceId={}", 
-                                childGuid, traceId);
+                        GraphNode node = graph.getNode(childGuid);
+                        if (node != null && node.getParentProcessGuid() != null) {
+                            // 如果还没被清空（可能是纯日志节点），清空并记录
+                            node.setParentProcessGuid(null);
+                            graph.addSelfReferenceNodeId(childGuid);
+                            log.info("【建图-阶段2】自引用节点清空 parentProcessGuid: childGuid={}, traceId={}", 
+                                    childGuid, traceId);
+                        } else {
+                            log.info("【建图-阶段2】跳过自引用节点（自环）: childGuid={}, traceId={}", 
+                                    childGuid, traceId);
+                        }
                         continue;
                     }
                     
@@ -174,6 +184,8 @@ public class ProcessChainGraphBuilder {
                     // ✅ 跳过自环（processGuid == parentProcessGuid）
                     if (childGuid.equals(parentGuid)) {
                         skippedSelfLoopCount++;
+                        // 确保记录自引用节点
+                        graph.addSelfReferenceNodeId(childGuid);
                         log.info("【建图-阶段3】跳过自环: {} -> {}", parentGuid, childGuid);
                         continue;
                     }

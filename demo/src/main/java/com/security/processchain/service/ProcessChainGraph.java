@@ -58,6 +58,9 @@ public class ProcessChainGraph {
     /** 断链节点到traceId的映射 */
     private Map<String, String> brokenNodeToTraceId;
     
+    /** 自引用节点集合（processGuid == parentProcessGuid 的节点） */
+    private Set<String> selfReferenceNodeIds;
+    
     public ProcessChainGraph() {
         this.nodes = new HashMap<>();
         this.outEdges = new HashMap<>();
@@ -70,6 +73,7 @@ public class ProcessChainGraph {
         this.alarmNodes = new HashSet<>();
         this.traceIdToRootNodeMap = new HashMap<>();
         this.brokenNodeToTraceId = new HashMap<>();
+        this.selfReferenceNodeIds = new HashSet<>();
     }
     
     // ========== 基础操作 ==========
@@ -199,6 +203,31 @@ public class ProcessChainGraph {
      */
     public Map<String, String> getEdgeVals() {
         return new HashMap<>(edgeVals);
+    }
+    
+    /**
+     * 添加自引用节点ID
+     */
+    public void addSelfReferenceNodeId(String nodeId) {
+        if (nodeId != null) {
+            selfReferenceNodeIds.add(nodeId);
+        }
+    }
+    
+    /**
+     * 设置自引用节点ID集合
+     */
+    public void setSelfReferenceNodeIds(Set<String> ids) {
+        if (ids != null) {
+            this.selfReferenceNodeIds = new HashSet<>(ids);
+        }
+    }
+    
+    /**
+     * 判断是否为自引用节点
+     */
+    public boolean isSelfReferenceNode(String nodeId) {
+        return selfReferenceNodeIds.contains(nodeId);
     }
     
     /**
@@ -377,14 +406,15 @@ public class ProcessChainGraph {
                 traceIdToRootNodeMap.put(node.getTraceId(), nodeId);
                 log.debug("【根节点识别-步骤1】找到真正的根节点: {} (processGuid==traceId)", nodeId);
             }
-            // 2. 自引用节点：parentProcessGuid 为 null 且入度为0（已被清空的自环节点）
-            else if (node.getParentProcessGuid() == null && getInDegree(nodeId) == 0 && !node.isVirtual()) {
+            // 2. 自引用节点：parentProcessGuid 为 null 且在自引用节点集合中（已被清空的自环节点）
+            // ✅ 不检查入度：自引用节点可能有子节点指向它，仍应作为根节点
+            else if (node.getParentProcessGuid() == null && !node.isVirtual() && isSelfReferenceNode(nodeId)) {
                 rootNodes.add(nodeId);
                 node.setRoot(true);
                 traceIdToRootNodeMap.put(node.getTraceId(), nodeId);
-                log.info("【根节点识别-步骤1】找到自引用根节点: nodeId={}, traceId={} " +
+                log.info("【根节点识别-步骤1】找到自引用根节点: nodeId={}, traceId={}, 入度={} " +
                         "(processGuid==parentProcessGuid，清空后作为根节点)", 
-                        nodeId, node.getTraceId());
+                        nodeId, node.getTraceId(), getInDegree(nodeId));
             }
         }
         
@@ -690,6 +720,7 @@ public class ProcessChainGraph {
         // 复制映射关系
         subgraph.traceIdToRootNodeMap.putAll(traceIdToRootNodeMap);
         subgraph.brokenNodeToTraceId.putAll(brokenNodeToTraceId);
+        subgraph.selfReferenceNodeIds.addAll(selfReferenceNodeIds);
         
         return subgraph;
     }
