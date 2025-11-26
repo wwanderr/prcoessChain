@@ -1365,7 +1365,12 @@ public class ProcessChainBuilder {
             List<ProcessNode> finalNodes = new ArrayList<>();
             List<ProcessEdge> finalEdges = new ArrayList<>();
             
+            // ✅ 预处理：找出需要标记的实体节点（只标记实体节点，不标记进程节点）
+            Set<String> entityNodesToMark = findEntityNodesToMark(result, associatedEventIds, startLogEventIds);
+            
             // 转换节点，映射到输出接结构体中，并添加实体等内容等，子图的内容都已经映射
+            int markedCount = 0;
+            
             if (result.getNodes() != null) {
                 for (ChainBuilderNode builderNode : result.getNodes()) {
                     ProcessNode finalNode = nodeMapper.toIncidentNode(builderNode);
@@ -1378,9 +1383,22 @@ public class ProcessChainBuilder {
                         if (result.getBrokenNodes() != null && result.getBrokenNodes().contains(nodeId)) {
                             finalNode.getChainNode().setIsBroken(true);
                         }
+                        
+                        // ✅ 设置网端关联标识：只标记预处理阶段识别的实体节点
+                        if (entityNodesToMark.contains(nodeId)) {
+                            finalNode.getChainNode().setIsNetworkAssociated(true);
+                            markedCount++;
+                            log.info("【网端关联标识】实体节点 {} (type={}) 被标记", 
+                                    nodeId, builderNode.getNodeType());
+                        }
                     }
                     
                     finalNodes.add(finalNode);
+                }
+                
+                // 关键日志
+                if (markedCount > 0) {
+                    log.info("【网端关联标识】标记完成: 标记实体节点数={}/{}", markedCount, entityNodesToMark.size());
                 }
             }
             
@@ -1441,6 +1459,83 @@ public class ProcessChainBuilder {
     }
     
     /**
+     * 找出需要标记为网端关联的实体节点
+     * 
+     * @param result 进程链构建结果
+     * @param associatedEventIds 告警关联的 eventId 集合
+     * @param startLogEventIds 日志关联的 eventId 集合
+     * @return 需要标记的实体节点 ID 集合
+     */
+    private Set<String> findEntityNodesToMark(
+            ProcessChainResult result, 
+            Set<String> associatedEventIds, 
+            Set<String> startLogEventIds) {
+        
+        Set<String> entityNodesToMark = new HashSet<>();
+        
+        // ✅ 收集所有网端关联的 eventId（告警+日志）
+        Set<String> networkAssociatedEventIds = new HashSet<>();
+        if (associatedEventIds != null) {
+            networkAssociatedEventIds.addAll(associatedEventIds);  // 告警关联
+        }
+        if (startLogEventIds != null) {
+            networkAssociatedEventIds.addAll(startLogEventIds);    // 日志关联
+        }
+        
+        // 没有网端关联，直接返回空集合
+        if (networkAssociatedEventIds.isEmpty() || result.getNodes() == null) {
+            return entityNodesToMark;
+        }
+        
+        // 遍历所有节点，找出需要标记的实体节点
+        for (ChainBuilderNode node : result.getNodes()) {
+            String nodeType = node.getNodeType();
+            
+            // ✅ 只处理实体节点（file/network/domain/registry）
+            if ("file".equals(nodeType) || "network".equals(nodeType) || 
+                "domain".equals(nodeType) || "registry".equals(nodeType)) {
+                
+                boolean shouldMark = false;
+                
+                // 检查该实体节点的告警 eventId
+                List<RawAlarm> nodeAlarms = node.getAlarms();
+                if (nodeAlarms != null) {
+                    for (RawAlarm alarm : nodeAlarms) {
+                        if (alarm != null && alarm.getEventId() != null && 
+                            networkAssociatedEventIds.contains(alarm.getEventId())) {
+                            shouldMark = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // 检查该实体节点的日志 eventId
+                if (!shouldMark) {
+                    List<RawLog> nodeLogs = node.getLogs();
+                    if (nodeLogs != null) {
+                        for (RawLog log : nodeLogs) {
+                            if (log != null && log.getEventId() != null && 
+                                networkAssociatedEventIds.contains(log.getEventId())) {
+                                shouldMark = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (shouldMark) {
+                    entityNodesToMark.add(node.getProcessGuid());
+                }
+            }
+        }
+        
+        log.info("【网端关联标识】预处理完成: 网端关联eventId数={}, 需标记实体节点数={}", 
+                networkAssociatedEventIds.size(), entityNodesToMark.size());
+        
+        return entityNodesToMark;
+    }
+    
+    /**
      * 为子图节点创建虚拟父节点（延迟拆分）
      * 
      * 流程：
@@ -1485,9 +1580,9 @@ public class ProcessChainBuilder {
                 }
                 
                 // 优先从日志中提取父进程信息
-                List<RawLog> logs = node.getLogs();
-                if (logs != null && !logs.isEmpty()) {
-                    GraphNode virtualParent = createVirtualParentNodeFromLog(logs.get(0), parentGuid);
+                List<RawLog> nodeLogs = node.getLogs();
+                if (nodeLogs != null && !nodeLogs.isEmpty()) {
+                    GraphNode virtualParent = createVirtualParentNodeFromLog(nodeLogs.get(0), parentGuid);
                     if (virtualParent != null) {
                         virtualParentsToAdd.put(parentGuid, virtualParent);
                         createdCount++;
@@ -1501,9 +1596,9 @@ public class ProcessChainBuilder {
                 }
                 
                 // ✅ 没有日志或日志信息不足时，从告警中提取父进程信息
-                List<RawAlarm> alarms = node.getAlarms();
-                if (alarms != null && !alarms.isEmpty()) {
-                    GraphNode virtualParent = createVirtualParentNodeFromAlarm(alarms.get(0), parentGuid);
+                List<RawAlarm> nodeAlarms = node.getAlarms();
+                if (nodeAlarms != null && !nodeAlarms.isEmpty()) {
+                    GraphNode virtualParent = createVirtualParentNodeFromAlarm(nodeAlarms.get(0), parentGuid);
                     if (virtualParent != null) {
                         virtualParentsToAdd.put(parentGuid, virtualParent);
                         createdCount++;

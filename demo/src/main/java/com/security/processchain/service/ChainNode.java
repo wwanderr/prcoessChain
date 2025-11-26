@@ -22,6 +22,14 @@ public class ChainNode {
      */
     private Integer extensionDepth;
     
+    /**
+     * 是否是网端关联节点（强关联）
+     * true: 该节点对应的告警/日志是网端关联确定的起点
+     * false/null: 普通节点
+     * 用于前端高亮显示
+     */
+    private Boolean isNetworkAssociated;
+    
     public ChainNode() {}
     
     public Boolean getIsRoot() {
@@ -86,6 +94,14 @@ public class ChainNode {
     
     public void setExtensionDepth(Integer extensionDepth) {
         this.extensionDepth = extensionDepth;
+    }
+    
+    public Boolean getIsNetworkAssociated() {
+        return isNetworkAssociated;
+    }
+    
+    public void setIsNetworkAssociated(Boolean isNetworkAssociated) {
+        this.isNetworkAssociated = isNetworkAssociated;
     }
 }
 
