@@ -247,7 +247,11 @@ public final class IncidentConverters {
         if (alarm.getOtherFields() != null) {
             Map<String, Object> fields = alarm.getOtherFields();
             alarmInfo.setDvcAction(getStringFromMap(fields, "dvcAction"));
-            alarmInfo.setAlarmDescription(getStringFromMap(fields, "alarmDescription"));
+            
+            // ✅ 告警描述需要去除换行符
+            String alarmDescription = getStringFromMap(fields, "alarmDescription");
+            alarmInfo.setAlarmDescription(removeNewLines(alarmDescription));
+            
             alarmInfo.setAlarmSource(getStringFromMap(fields, "alarmSource"));
             
             // 映射 alarmResults: OK→成功、FAIL→失败、UNKNOWN→尝试
@@ -694,6 +698,42 @@ public final class IncidentConverters {
         if (map == null || key == null) return null;
         Object value = map.get(key);
         return value != null ? value.toString() : null;
+    }
+    
+    /**
+     * 去除字符串中的换行符和多余空白
+     * 
+     * 处理逻辑：
+     * 1. 去除真正的换行符（\r、\n、\r\n）
+     * 2. 去除字面字符串形式的换行符（\\n、\\r、\\r\\n）
+     * 3. 将连续的空白字符（空格、制表符等）合并为单个空格
+     * 4. 去除首尾空格
+     * 
+     * @param str 原始字符串
+     * @return 清理后的字符串，如果输入为null则返回null
+     */
+    private static String removeNewLines(String str) {
+        if (str == null) {
+            return null;
+        }
+        
+        if (str.isEmpty()) {
+            return str;
+        }
+        
+        // 步骤1: 移除字面字符串形式的换行符（从数据库/JSON中读取的 "\n" 是两个字符）
+        String result = str.replace("\\r\\n", " ")   // 字面字符串 \r\n
+                          .replace("\\n", " ")       // 字面字符串 \n
+                          .replace("\\r", " ");      // 字面字符串 \r
+        
+        // 步骤2: 移除真正的换行符（ASCII控制字符）
+        result = result.replaceAll("\\r\\n|\\r|\\n", " ");
+        
+        // 步骤3: 将连续的空白字符（空格、制表符、全角空格等）合并为单个空格
+        result = result.replaceAll("\\s+", " ");
+        
+        // 步骤4: 去除首尾空格
+        return result.trim();
     }
 
     /**
