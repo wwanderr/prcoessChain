@@ -58,7 +58,7 @@ public class ProcessChainGraphBuilder {
         if (alarms != null) {
             int addedCount = 0;
             int mergedCount = 0;
-            // ✅ 优化：收集自引用节点告警（processGuid == parentProcessGuid）
+            // 优化：收集自引用节点告警（processGuid == parentProcessGuid）
             // 注意：这不是"真正的根节点"，只是"到头了"的节点
             List<RawAlarm> selfReferenceAlarms = new ArrayList<>();
             

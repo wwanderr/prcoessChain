@@ -12,7 +12,12 @@ import java.util.*;
 @Slf4j
 public class AlarmElectionUtil {
     /**
-     * 兼容旧调用：根据分组选举出最佳traceId
+     * 告警选举：按 alarmName 去重后选择数量最多的 traceId
+     * 
+     * 新规则：
+     * 1. 对每个 traceId 的告警，按 alarmName 去重
+     * 2. 选择去重后数量最多的 traceId
+     * 3. 如果有多个 traceId 数量相同（并列第一），随机选一个
      *
      * @param alarmGroups 按traceId分组的告警
      * @return 被选中的traceId，若无可选则返回null
@@ -39,18 +44,79 @@ public class AlarmElectionUtil {
                 return validGroups.keySet().iterator().next();
             }
 
-            String bestGroupKey = null;
-            ThreatStatistics bestStats = null;
-
+            // ✅ 新逻辑：统计每个 traceId 的唯一 alarmName 数量和威胁统计
+            Map<String, Integer> traceIdToUniqueAlarmNameCount = new HashMap<>();
+            Map<String, ThreatStatistics> traceIdToThreatStats = new HashMap<>();
+            
             for (Map.Entry<String, List<RawAlarm>> entry : validGroups.entrySet()) {
-                ThreatStatistics current = calculateThreatStatistics(entry.getValue());
-                if (bestStats == null || compareThreatStatistics(current, bestStats) > 0) {
-                    bestStats = current;
-                    bestGroupKey = entry.getKey();
+                String traceId = entry.getKey();
+                List<RawAlarm> alarms = entry.getValue();
+                
+                // 统计该 traceId 下的唯一 alarmName
+                Set<String> uniqueAlarmNames = new HashSet<>();
+                for (RawAlarm alarm : alarms) {
+                    if (alarm != null && alarm.getAlarmName() != null && !alarm.getAlarmName().trim().isEmpty()) {
+                        uniqueAlarmNames.add(alarm.getAlarmName().trim());
+                    }
+                }
+                
+                // 计算威胁统计
+                ThreatStatistics stats = calculateThreatStatistics(alarms);
+                
+                traceIdToUniqueAlarmNameCount.put(traceId, uniqueAlarmNames.size());
+                traceIdToThreatStats.put(traceId, stats);
+                
+                log.debug("【告警选举】traceId={}, 唯一alarmName数量={}, 威胁统计={}", 
+                         traceId, uniqueAlarmNames.size(), stats);
+            }
+            
+            // ✅ 找出唯一 alarmName 数量最多的 traceId
+            int maxCount = 0;
+            List<String> bestTraceIds = new ArrayList<>();
+            
+            for (Map.Entry<String, Integer> entry : traceIdToUniqueAlarmNameCount.entrySet()) {
+                int count = entry.getValue();
+                if (count > maxCount) {
+                    maxCount = count;
+                    bestTraceIds.clear();
+                    bestTraceIds.add(entry.getKey());
+                } else if (count == maxCount) {
+                    bestTraceIds.add(entry.getKey());
                 }
             }
-
-            return bestGroupKey;
+            
+            if (bestTraceIds.isEmpty()) {
+                log.warn("【告警选举】未找到有效的 traceId");
+                return null;
+            }
+            
+            // ✅ 如果有多个 traceId 并列第一（alarmName 数量相同）
+            String selectedTraceId;
+            if (bestTraceIds.size() == 1) {
+                selectedTraceId = bestTraceIds.get(0);
+                log.info("【告警选举】选中 traceId={}, 唯一alarmName数量={}", selectedTraceId, maxCount);
+            } else {
+                // ✅ 按威胁等级选择（高危最多的）
+                log.info("【告警选举】多个 traceId 并列（alarmName数量={}），按威胁等级选择", maxCount);
+                
+                String bestTraceId = null;
+                ThreatStatistics bestStats = null;
+                
+                for (String traceId : bestTraceIds) {
+                    ThreatStatistics stats = traceIdToThreatStats.get(traceId);
+                    if (bestStats == null || compareThreatStatistics(stats, bestStats) > 0) {
+                        bestStats = stats;
+                        bestTraceId = traceId;
+                    }
+                }
+                
+                selectedTraceId = bestTraceId;
+                log.info("【告警选举】按威胁等级选中: traceId={}, 威胁统计={}, 候选列表={}", 
+                        selectedTraceId, bestStats, bestTraceIds);
+            }
+            
+            return selectedTraceId;
+            
         } catch (Exception e) {
             log.error("告警选举过程异常: {}", e.getMessage(), e);
             return null;

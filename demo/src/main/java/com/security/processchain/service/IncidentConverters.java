@@ -360,11 +360,12 @@ public final class IncidentConverters {
             processEntity.setCommandline(log.getParentCommandLine());
             processEntity.setProcessUserName(log.getParentProcessUserName());
             
-            // 处理 processName：从 parentProcessName 获取
-            String processName = log.getParentProcessName();
-            if (processName == null || processName.trim().isEmpty()) {
-                processName = "进程.exe";
-            }
+            // ✅ 智能提取 processName：优先级 parentProcessName > parentImage > "未知进程(PID)"
+            String processName = extractProcessName(
+                log.getParentProcessName(), 
+                log.getParentImage(), 
+                log.getParentProcessId()
+            );
             processEntity.setProcessName(processName);
         } else {
             // ========== 真实节点：从日志的 process 字段中提取 ==========
@@ -377,11 +378,12 @@ public final class IncidentConverters {
             processEntity.setCommandline(log.getCommandLine());
             processEntity.setProcessUserName(log.getProcessUserName());
             
-            // 处理 processName：从 processName 获取
-            String processName = log.getProcessName();
-            if (processName == null || processName.trim().isEmpty()) {
-                processName = "进程.exe";
-            }
+            // ✅ 智能提取 processName：优先级 processName > image > "未知进程(PID)"
+            String processName = extractProcessName(
+                log.getProcessName(), 
+                log.getImage(), 
+                log.getProcessId()
+            );
             processEntity.setProcessName(processName);
         }
 
@@ -412,11 +414,12 @@ public final class IncidentConverters {
             processEntity.setCommandline(alarm.getParentCommandLine());
             processEntity.setProcessUserName(alarm.getParentProcessUserName());
             
-            // 处理 processName：从 parentProcessName 获取
-            String processName = alarm.getParentProcessName();
-            if (processName == null || processName.trim().isEmpty()) {
-                processName = "进程.exe";
-            }
+            // ✅ 智能提取 processName：优先级 parentProcessName > parentImage > "未知进程(PID)"
+            String processName = extractProcessName(
+                alarm.getParentProcessName(), 
+                alarm.getParentImage(), 
+                alarm.getParentProcessId()
+            );
             processEntity.setProcessName(processName);
         } else {
             // ========== 真实节点：从告警的 process 字段中提取 ==========
@@ -429,11 +432,12 @@ public final class IncidentConverters {
             processEntity.setCommandline(alarm.getCommandLine());
             processEntity.setProcessUserName(alarm.getProcessUserName());
             
-            // 处理 processName：从 processName 获取
-            String processName = alarm.getProcessName();
-            if (processName == null || processName.trim().isEmpty()) {
-                processName = "进程.exe";
-            }
+            // ✅ 智能提取 processName：优先级 processName > image > "未知进程(PID)"
+            String processName = extractProcessName(
+                alarm.getProcessName(), 
+                alarm.getImage(), 
+                alarm.getProcessId()
+            );
             processEntity.setProcessName(processName);
         }
         
@@ -481,13 +485,17 @@ public final class IncidentConverters {
         processEntity.setCommandline(log.getCommandLine());
         processEntity.setProcessUserName(log.getProcessUserName());
         
-        // 处理 processName：
-        // - logType=process 时，为空则显示 "进程.exe"
-        // - logType=file 时，为空则保持空
+        // ✅ 智能提取 processName：
+        // - logType=process 时：优先级 processName > image > "未知进程(PID)"
+        // - logType=file 时：为空则保持空
         String processName = log.getProcessName();
         if ((processName == null || processName.trim().isEmpty()) && 
             "process".equalsIgnoreCase(log.getLogType())) {
-            processName = "进程.exe";
+            processName = extractProcessName(
+                log.getProcessName(), 
+                log.getImage(), 
+                log.getProcessId()
+            );
         }
         processEntity.setProcessName(processName);
 
@@ -800,6 +808,71 @@ public final class IncidentConverters {
         }
         
         return entity;
+    }
+    
+    /**
+     * 从路径中提取文件名（支持 Windows 和 Linux 路径）
+     * 
+     * Linux: /usr/bin/date → date
+     * Windows: C:\Users\Public\Documents\asd\csrss.exe → csrss.exe
+     * 
+     * @param path 文件路径
+     * @return 文件名，如果路径为空则返回 null
+     */
+    private static String extractFileNameFromPath(String path) {
+        if (path == null || path.trim().isEmpty()) {
+            return null;
+        }
+        
+        String trimmedPath = path.trim();
+        
+        // 同时处理 Windows 反斜杠和 Linux 正斜杠
+        // 找到最后一个路径分隔符
+        int lastBackslash = trimmedPath.lastIndexOf('\\');
+        int lastSlash = trimmedPath.lastIndexOf('/');
+        int lastSeparator = Math.max(lastBackslash, lastSlash);
+        
+        if (lastSeparator >= 0 && lastSeparator < trimmedPath.length() - 1) {
+            return trimmedPath.substring(lastSeparator + 1);
+        }
+        
+        // 没有路径分隔符，直接返回原路径
+        return trimmedPath;
+    }
+    
+    /**
+     * 智能提取进程名称
+     * 
+     * 规则：
+     * 1. processName 不为空 → 直接返回
+     * 2. processName 为空且 image 存在 → 从 image 路径提取文件名
+     * 3. 都为空 → 返回 "未知进程(PID)"
+     * 
+     * @param processName 进程名称
+     * @param image 进程镜像路径
+     * @param processId 进程ID（用于显示）
+     * @return 提取后的进程名称
+     */
+    private static String extractProcessName(String processName, String image, Integer processId) {
+        // 1. processName 不为空，直接返回
+        if (processName != null && !processName.trim().isEmpty()) {
+            return processName;
+        }
+        
+        // 2. image 存在，从路径中提取文件名
+        if (image != null && !image.trim().isEmpty()) {
+            String fileName = extractFileNameFromPath(image);
+            if (fileName != null && !fileName.isEmpty()) {
+                return fileName;
+            }
+        }
+        
+        // 3. 都为空，返回 "未知进程(PID)"
+        if (processId != null) {
+            return "未知进程(" + processId + ")";
+        }
+        
+        return "未知进程";
     }
 }
 
