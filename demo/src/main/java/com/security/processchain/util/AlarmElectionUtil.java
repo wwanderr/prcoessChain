@@ -52,22 +52,34 @@ public class AlarmElectionUtil {
                 String traceId = entry.getKey();
                 List<RawAlarm> alarms = entry.getValue();
                 
-                // 统计该 traceId 下的唯一 alarmName
-                Set<String> uniqueAlarmNames = new HashSet<>();
+                // ✅ 按 alarmName 去重：保留每个 alarmName 中威胁等级最高的告警
+                Map<String, RawAlarm> uniqueAlarmsByName = new LinkedHashMap<>();
                 for (RawAlarm alarm : alarms) {
                     if (alarm != null && alarm.getAlarmName() != null && !alarm.getAlarmName().trim().isEmpty()) {
-                        uniqueAlarmNames.add(alarm.getAlarmName().trim());
+                        String alarmName = alarm.getAlarmName().trim();
+                        
+                        if (!uniqueAlarmsByName.containsKey(alarmName)) {
+                            // 该 alarmName 第一次出现
+                            uniqueAlarmsByName.put(alarmName, alarm);
+                        } else {
+                            // 该 alarmName 已存在，比较威胁等级，保留更高的
+                            RawAlarm existing = uniqueAlarmsByName.get(alarmName);
+                            if (compareSeverity(alarm.getThreatSeverity(), existing.getThreatSeverity()) > 0) {
+                                uniqueAlarmsByName.put(alarmName, alarm);  // 替换为威胁等级更高的
+                            }
+                        }
                     }
                 }
                 
-                // 计算威胁统计
-                ThreatStatistics stats = calculateThreatStatistics(alarms);
+                // ✅ 对去重后的告警列表计算威胁统计
+                List<RawAlarm> uniqueAlarms = new ArrayList<>(uniqueAlarmsByName.values());
+                ThreatStatistics stats = calculateThreatStatistics(uniqueAlarms);
                 
-                traceIdToUniqueAlarmNameCount.put(traceId, uniqueAlarmNames.size());
+                traceIdToUniqueAlarmNameCount.put(traceId, uniqueAlarms.size());
                 traceIdToThreatStats.put(traceId, stats);
                 
-                log.debug("【告警选举】traceId={}, 唯一alarmName数量={}, 威胁统计={}", 
-                         traceId, uniqueAlarmNames.size(), stats);
+                log.debug("【告警选举】traceId={}, 原始告警数={}, 去重后alarmName数量={}, 威胁统计={}", 
+                         traceId, alarms.size(), uniqueAlarms.size(), stats);
             }
             
             // ✅ 找出唯一 alarmName 数量最多的 traceId
@@ -255,6 +267,43 @@ public class AlarmElectionUtil {
         }
         
         // 完全相同,平局
+        return 0;
+    }
+    
+    /**
+     * 比较两个威胁等级
+     * 
+     * @param severity1 威胁等级1
+     * @param severity2 威胁等级2
+     * @return 正数表示severity1更高, 负数表示severity2更高, 0表示相同
+     */
+    private static int compareSeverity(String severity1, String severity2) {
+        int level1 = getSeverityLevel(severity1);
+        int level2 = getSeverityLevel(severity2);
+        return level1 - level2;
+    }
+    
+    /**
+     * 获取威胁等级的数值
+     * 
+     * @param severity 威胁等级字符串
+     * @return 等级数值：HIGH/高=3, MEDIUM/中=2, LOW/低=1, 其他=0
+     */
+    private static int getSeverityLevel(String severity) {
+        if (severity == null || severity.trim().isEmpty()) {
+            return 0;
+        }
+        
+        String trimmedSeverity = severity.trim();
+        
+        if ("HIGH".equalsIgnoreCase(trimmedSeverity) || "高".equals(trimmedSeverity)) {
+            return 3;
+        } else if ("MEDIUM".equalsIgnoreCase(trimmedSeverity) || "中".equals(trimmedSeverity)) {
+            return 2;
+        } else if ("LOW".equalsIgnoreCase(trimmedSeverity) || "低".equals(trimmedSeverity)) {
+            return 1;
+        }
+        
         return 0;
     }
     
