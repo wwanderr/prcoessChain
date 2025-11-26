@@ -242,19 +242,76 @@ public class EntityExtractor {
     /**
      * 从日志列表中提取实体日志，按类型分组
      * 
+     * 验证条件（同 IncidentConverters）：
+     * - file: logType=file 且 opType=create/write/delete
+     * - network: logType=network 且 opType=connect
+     * - domain: logType=domain 且 opType=connect
+     * - registry: logType=registry 且 opType=setValue
+     * 
      * @param logs 日志列表
      * @return 实体日志按类型分组的Map
      */
     private static Map<String, List<RawLog>> groupEntityLogs(List<RawLog> logs) {
         Map<String, List<RawLog>> result = new HashMap<>();
+        int skippedCount = 0;
         
         for (RawLog log : logs) {
             String logType = log.getLogType();
+            String opType = log.getOpType();
             
-            if (logType != null && ENTITY_LOG_TYPES.contains(logType.toLowerCase())) {
-                String entityType = logType.toLowerCase();
-                result.computeIfAbsent(entityType, k -> new ArrayList<>()).add(log);
+            if (logType == null || opType == null) {
+                continue;
             }
+            
+            String logTypeLower = logType.toLowerCase();
+            String opTypeLower = opType.toLowerCase();
+            
+            // 检查是否是实体类型
+            if (!ENTITY_LOG_TYPES.contains(logTypeLower)) {
+                continue;
+            }
+            
+            // ✅ 根据实体类型验证 opType（与 IncidentConverters 保持一致）
+            boolean isValid = false;
+            
+            switch (logTypeLower) {
+                case "file":
+                    // file 实体：opType 必须是 create/write/delete
+                    isValid = "create".equals(opTypeLower) || 
+                             "write".equals(opTypeLower) || 
+                             "delete".equals(opTypeLower);
+                    break;
+                    
+                case "network":
+                    // network 实体：opType 必须是 connect
+                    isValid = "connect".equals(opTypeLower);
+                    break;
+                    
+                case "domain":
+                    // domain 实体：opType 必须是 connect
+                    isValid = "connect".equals(opTypeLower);
+                    break;
+                    
+                case "registry":
+                    // registry 实体：opType 必须是 setValue
+                    isValid = "setvalue".equals(opTypeLower);
+                    break;
+                    
+                default:
+                    isValid = false;
+            }
+            
+            if (isValid) {
+                result.computeIfAbsent(logTypeLower, k -> new ArrayList<>()).add(log);
+            } else {
+                skippedCount++;
+                log.debug("【实体提取-日志筛选】opType 验证失败，跳过: logType={}, opType={}", 
+                         logType, opType);
+            }
+        }
+        
+        if (skippedCount > 0) {
+            log.debug("【实体提取-日志筛选】因 opType 不匹配跳过 {} 条日志", skippedCount);
         }
         
         return result;
