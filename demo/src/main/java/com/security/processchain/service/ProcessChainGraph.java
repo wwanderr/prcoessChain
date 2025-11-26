@@ -407,14 +407,30 @@ public class ProcessChainGraph {
                 log.debug("【根节点识别-步骤1】找到真正的根节点: {} (processGuid==traceId)", nodeId);
             }
             // 2. 自引用节点：parentProcessGuid 为 null 且在自引用节点集合中（已被清空的自环节点）
-            // ✅ 不检查入度：自引用节点可能有子节点指向它，仍应作为根节点
+            // 策略：
+            //   - 如果 traceId 还没有根节点映射 → 作为根节点
+            //   - 如果 traceId 已有根节点映射（真正的根存在）→ 作为断链节点
             else if (node.getParentProcessGuid() == null && !node.isVirtual() && isSelfReferenceNode(nodeId)) {
-                rootNodes.add(nodeId);
-                node.setRoot(true);
-                traceIdToRootNodeMap.put(node.getTraceId(), nodeId);
-                log.info("【根节点识别-步骤1】找到自引用根节点: nodeId={}, traceId={}, 入度={} " +
-                        "(processGuid==parentProcessGuid，清空后作为根节点)", 
-                        nodeId, node.getTraceId(), getInDegree(nodeId));
+                String traceId = node.getTraceId();
+                
+                if (!traceIdToRootNodeMap.containsKey(traceId)) {
+                    // 场景1：该 traceId 还没有根节点 → 自引用节点作为根节点
+                    rootNodes.add(nodeId);
+                    node.setRoot(true);
+                    traceIdToRootNodeMap.put(traceId, nodeId);
+                    log.info("【根节点识别-步骤1】自引用节点作为根节点: nodeId={}, traceId={}, 入度={} " +
+                            "(该 traceId 无其他根节点)", 
+                            nodeId, traceId, getInDegree(nodeId));
+                } else {
+                    // 场景2：该 traceId 已有根节点（真正的根）→ 自引用节点作为断链节点
+                    brokenNodes.add(nodeId);
+                    node.setBroken(true);
+                    brokenNodeToTraceId.put(nodeId, traceId);
+                    log.info("【根节点识别-步骤1】自引用节点作为断链节点: nodeId={}, traceId={}, " +
+                            "入度={}, 真正根节点={} (该 traceId 已有根节点)", 
+                            nodeId, traceId, getInDegree(nodeId), 
+                            traceIdToRootNodeMap.get(traceId));
+                }
             }
         }
         
@@ -765,6 +781,24 @@ public class ProcessChainGraph {
     
     public Map<String, String> getBrokenNodeToTraceId() {
         return new HashMap<>(brokenNodeToTraceId);
+    }
+    
+    /**
+     * 从断链节点集合中移除节点
+     * 
+     * @param nodeId 节点ID
+     */
+    public void removeBrokenNode(String nodeId) {
+        brokenNodes.remove(nodeId);
+    }
+    
+    /**
+     * 从断链节点到traceId的映射中移除节点
+     * 
+     * @param nodeId 节点ID
+     */
+    public void removeBrokenNodeToTraceId(String nodeId) {
+        brokenNodeToTraceId.remove(nodeId);
     }
     
     /**

@@ -1771,6 +1771,7 @@ public class ProcessChainBuilder {
         int adjustedCount = 0;
         int brokenVirtualCount = 0; // 统计断链的虚拟节点数量
         int brokenRealCount = 0;    // 统计断链的真实节点数量
+        int selfRefBrokenFixed = 0; // 统计修复的自引用断链节点数量
         Map<String, String> traceIdToRootMap = subgraph.getTraceIdToRootNodeMap();
         
         if (traceIdToRootMap == null || traceIdToRootMap.isEmpty()) {
@@ -1780,17 +1781,38 @@ public class ProcessChainBuilder {
         
         for (GraphNode node : subgraph.getAllNodes()) {
             String nodeId = node.getNodeId();
-            
-            // ✅ 新增：跳过已经标记为断链的节点
-            // 这些节点在 identifyRootNodes 中已经被标记，将由 createExploreNodes 处理
-            if (node.isBroken()) {
-                log.debug("【断链节点调整】跳过已标记为断链的节点（将由 EXPLORE 处理）: nodeId={}", nodeId);
-                continue;
-            }
-            
             String traceId = node.getTraceId();
             String originalParentGuid = node.getParentProcessGuid();
             boolean isVirtual = node.isVirtual();
+            
+            // ✅ 处理已标记为断链的节点（主要是自引用节点）
+            if (node.isBroken()) {
+                // 自引用断链节点：需要连接到真正的根节点
+                String rootNodeId = traceIdToRootMap.get(traceId);
+                
+                if (rootNodeId != null && !rootNodeId.equals(nodeId)) {
+                    // 有根节点且不是自己 → 连接到根节点
+                    node.setParentProcessGuid(rootNodeId);
+                    subgraph.addEdge(rootNodeId, nodeId);
+                    
+                    // ✅ 关键：已经处理的自引用断链节点，取消断链标记
+                    // 这样就不会在 addExploreNodesForBrokenChains 中重复创建断链边了
+                    node.setBroken(false);
+                    subgraph.removeBrokenNode(nodeId);
+                    subgraph.removeBrokenNodeToTraceId(nodeId);
+                    
+                    adjustedCount++;
+                    selfRefBrokenFixed++;
+                    log.info("【断链节点调整】✅ 自引用断链节点连接到根节点并取消断链标记: nodeId={}, " +
+                            "rootNodeId={}, traceId={}, 已创建边: {} → {}", 
+                            nodeId, rootNodeId, traceId, rootNodeId, nodeId);
+                } else {
+                    // 没有根节点或自己就是根节点 → 跳过（将由 EXPLORE 处理）
+                    log.debug("【断链节点调整】跳过已标记为断链的节点（将由 EXPLORE 处理）: nodeId={}, " +
+                             "rootNodeId={}", nodeId, rootNodeId);
+                }
+                continue;
+            }
             
             // ===== 步骤1：检查节点是否是断链 =====
             // 断链的定义：
@@ -1887,7 +1909,7 @@ public class ProcessChainBuilder {
             }
         }
         
-        log.info("【断链节点调整】调整完成: 总调整数={}, 断链虚拟节点={}, 断链真实节点={}", 
-                adjustedCount, brokenVirtualCount, brokenRealCount);
+        log.info("【断链节点调整】调整完成: 总调整数={}, 断链虚拟节点={}, 断链真实节点={}, 自引用断链节点={}", 
+                adjustedCount, brokenVirtualCount, brokenRealCount, selfRefBrokenFixed);
     }
 }
