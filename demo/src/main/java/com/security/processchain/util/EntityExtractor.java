@@ -131,8 +131,8 @@ public class EntityExtractor {
                             continue;
                         }
                         
-                        // 创建新的实体节点
-                        GraphNode entityNode = createEntityNode(entityNodeId, entityType, entityLog);// 日志从进程节点"移动"到实体节点
+                        // 创建新的实体节点（同时继承父进程节点的告警）
+                        GraphNode entityNode = createEntityNode(entityNodeId, entityType, entityLog, node);
                         entityNodesToAdd.add(entityNode);
                         entityToProcessMap.put(entityNodeId, processGuid);  // ✅ 记录映射关系
                         
@@ -323,9 +323,10 @@ public class EntityExtractor {
      * @param entityNodeId 实体节点ID
      * @param entityType 实体类型（file/domain/network/registry）
      * @param entityLog 实体日志
+     * @param parentProcessNode 父进程节点（用于继承告警信息）
      * @return 实体节点
      */
-    private static GraphNode createEntityNode(String entityNodeId, String entityType, RawLog entityLog) {
+    private static GraphNode createEntityNode(String entityNodeId, String entityType, RawLog entityLog, GraphNode parentProcessNode) {
         GraphNode node = new GraphNode();
         
         node.setNodeId(entityNodeId);
@@ -341,6 +342,18 @@ public class EntityExtractor {
         
         // 添加日志
         node.addLog(entityLog);
+        
+        // ✅ 继承父进程节点的告警（用于网端关联标识）
+        if (parentProcessNode != null) {
+            List<RawAlarm> parentAlarms = parentProcessNode.getAlarms();
+            if (parentAlarms != null && !parentAlarms.isEmpty()) {
+                for (RawAlarm alarm : parentAlarms) {
+                    node.addAlarm(alarm);
+                }
+                log.debug("【实体提取】实体节点继承 {} 条父进程告警: entityNodeId={}", 
+                        parentAlarms.size(), entityNodeId);
+            }
+        }
         
         return node;
     }

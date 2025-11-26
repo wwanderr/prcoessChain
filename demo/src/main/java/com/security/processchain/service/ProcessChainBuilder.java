@@ -1461,6 +1461,10 @@ public class ProcessChainBuilder {
     /**
      * 找出需要标记为网端关联的实体节点
      * 
+     * 说明：
+     * - 实体节点在创建时已经继承了父进程节点的告警信息
+     * - 因此只需要检查实体节点自身的告警和日志即可
+     * 
      * @param result 进程链构建结果
      * @param associatedEventIds 告警关联的 eventId 集合
      * @param startLogEventIds 日志关联的 eventId 集合
@@ -1491,41 +1495,41 @@ public class ProcessChainBuilder {
         for (ChainBuilderNode node : result.getNodes()) {
             String nodeType = node.getNodeType();
             
-            // ✅ 只处理实体节点（file/network/domain/registry）
-            if ("file".equals(nodeType) || "network".equals(nodeType) || 
-                "domain".equals(nodeType) || "registry".equals(nodeType)) {
-                
-                boolean shouldMark = false;
-                
-                // 检查该实体节点的告警 eventId
-                List<RawAlarm> nodeAlarms = node.getAlarms();
-                if (nodeAlarms != null) {
-                    for (RawAlarm alarm : nodeAlarms) {
-                        if (alarm != null && alarm.getEventId() != null && 
-                            networkAssociatedEventIds.contains(alarm.getEventId())) {
+            // ✅ 只处理实体节点（支持 file/network/domain/registry 和 file_entity/network_entity/domain_entity/registry_entity）
+            if (!isEntityNode(nodeType)) {
+                continue;
+            }
+            
+            boolean shouldMark = false;
+            
+            // 检查实体节点的告警 eventId（包含从父进程继承的告警）
+            List<RawAlarm> nodeAlarms = node.getAlarms();
+            if (nodeAlarms != null) {
+                for (RawAlarm alarm : nodeAlarms) {
+                    if (alarm != null && alarm.getEventId() != null && 
+                        networkAssociatedEventIds.contains(alarm.getEventId())) {
+                        shouldMark = true;
+                        break;
+                    }
+                }
+            }
+            
+            // 检查实体节点的日志 eventId
+            if (!shouldMark) {
+                List<RawLog> nodeLogs = node.getLogs();
+                if (nodeLogs != null) {
+                    for (RawLog log : nodeLogs) {
+                        if (log != null && log.getEventId() != null && 
+                            networkAssociatedEventIds.contains(log.getEventId())) {
                             shouldMark = true;
                             break;
                         }
                     }
                 }
-                
-                // 检查该实体节点的日志 eventId
-                if (!shouldMark) {
-                    List<RawLog> nodeLogs = node.getLogs();
-                    if (nodeLogs != null) {
-                        for (RawLog log : nodeLogs) {
-                            if (log != null && log.getEventId() != null && 
-                                networkAssociatedEventIds.contains(log.getEventId())) {
-                                shouldMark = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                if (shouldMark) {
-                    entityNodesToMark.add(node.getProcessGuid());
-                }
+            }
+            
+            if (shouldMark) {
+                entityNodesToMark.add(node.getProcessGuid());
             }
         }
         
@@ -1533,6 +1537,23 @@ public class ProcessChainBuilder {
                 networkAssociatedEventIds.size(), entityNodesToMark.size());
         
         return entityNodesToMark;
+    }
+    
+    /**
+     * 判断节点类型是否为实体节点
+     */
+    private boolean isEntityNode(String nodeType) {
+        if (nodeType == null) {
+            return false;
+        }
+        
+        // 支持两种格式：
+        // 1. file/network/domain/registry
+        // 2. file_entity/network_entity/domain_entity/registry_entity
+        return "file".equals(nodeType) || "network".equals(nodeType) || 
+               "domain".equals(nodeType) || "registry".equals(nodeType) ||
+               "file_entity".equals(nodeType) || "network_entity".equals(nodeType) ||
+               "domain_entity".equals(nodeType) || "registry_entity".equals(nodeType);
     }
     
     /**
