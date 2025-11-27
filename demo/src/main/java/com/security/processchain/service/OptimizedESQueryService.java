@@ -54,20 +54,104 @@ public class OptimizedESQueryService implements ESQueryService {
 
     /**
      * 告警查询需要的字段（减少网络传输，提升查询性能）
+     * 包含所有 RawAlarm 中定义的字段，用于ES查询时的字段过滤
      */
     private static final String[] ALARM_INCLUDES = new String[]{
+        // 基础字段
         "eventId",
         "traceId",
         "hostAddress",
+        "hostName",
+        "deviceAddress",
         "processGuid",
         "parentProcessGuid",
-        "alarmName",
         "threatSeverity",
+        "severity",
         "startTime",
         "endTime",
+        "deviceAssetSubType",
+        "alarmName",
         "alarmSource",
         "logType",
         "opType",
+        "eventType",
+        "eventNum",
+        
+        // 攻击相关字段（用于告警描述模板替换）
+        "attacker",
+        "victim",
+        
+        // 进程相关字段
+        "processName",
+        "processId",
+        "image",
+        "commandLine",
+        "processMd5",
+        "processUserName",
+        "sourceImage",
+        "destImage",
+        "imageLoaded",
+        
+        // 父进程相关字段
+        "parentProcessName",
+        "parentProcessId",
+        "parentImage",
+        "parentCommandLine",
+        "parentProcessMd5",
+        "parentProcessUserName",
+        
+        // 文件相关字段
+        "fileName",
+        "fileMd5",
+        "targetFilename",
+        "fileHash",
+        "fileContents",
+        "creationUtcTime",
+        "previousCreationUtcTime",
+        
+        // 网络相关字段
+        "srcAddress",
+        "srcPort",
+        "srcTransAddress",
+        "destAddress",
+        "destPort",
+        "destHostName",
+        
+        // 域名相关字段
+        "requestDomain",
+        
+        // Web攻击相关字段
+        "requestUrl",
+        "responseCode",
+        "appProtocol",
+        
+        // 注册表相关字段
+        "targetObject",
+        "regValue",
+        "regNewName",
+        
+        // 签名相关字段
+        "signature",
+        "company",
+        
+        // 访问相关字段
+        "grantedAccess",
+        "startAddress",
+        
+        // 管道相关字段
+        "pipeName",
+        
+        // WMI相关字段
+        "operation",
+        "wmiType",
+        "wmiEventNamespace",
+        "wmiName",
+        "wmiQuery",
+        "wmiDestination",
+        "wmiConsumer",
+        "wmiFilter",
+        
+        // 其他字段
         "otherFields"
     };
 

@@ -85,6 +85,10 @@ public class DataConverter {
         alarm.setFileName(getStringValue(map, "fileName"));
         alarm.setFileMd5(getStringValue(map, "fileMd5"));
         alarm.setTargetFilename(getStringValue(map, "targetFilename"));
+        alarm.setFileHash(getStringValue(map, "fileHash"));
+        alarm.setFileContents(getStringValue(map, "fileContents"));
+        alarm.setCreationUtcTime(getStringValue(map, "creationUtcTime"));
+        alarm.setPreviousCreationUtcTime(getStringValue(map, "previousCreationUtcTime"));
         
         // 域名相关字段
         alarm.setRequestDomain(getStringValue(map, "requestDomain"));
@@ -92,12 +96,55 @@ public class DataConverter {
         // 网络相关字段
         alarm.setSrcAddress(getStringValue(map, "srcAddress"));
         alarm.setSrcPort(getStringValue(map, "srcPort"));
+        alarm.setSrcTransAddress(getStringValue(map, "srcTransAddress"));
         alarm.setDestAddress(getStringValue(map, "destAddress"));
         alarm.setDestPort(getStringValue(map, "destPort"));
+        alarm.setDestHostName(getStringValue(map, "destHostName"));
+        
+        // Web攻击相关字段
+        alarm.setRequestUrl(getStringValue(map, "requestUrl"));
+        alarm.setResponseCode(getStringValue(map, "responseCode"));
+        alarm.setAppProtocol(getStringValue(map, "appProtocol"));
+        
+        // 攻击相关字段（用于告警描述模板替换）
+        alarm.setAttacker(getStringValue(map, "attacker"));
+        alarm.setVictim(getStringValue(map, "victim"));
+        
+        // 事件相关字段
+        alarm.setEventType(getStringValue(map, "eventType"));
+        alarm.setEventNum(getStringValue(map, "eventNum"));
+        alarm.setDeviceAddress(getStringValue(map, "deviceAddress"));
+        
+        // 进程相关字段（扩展）
+        alarm.setSourceImage(getStringValue(map, "sourceImage"));
+        alarm.setDestImage(getStringValue(map, "destImage"));
+        alarm.setImageLoaded(getStringValue(map, "imageLoaded"));
+        
+        // 签名相关字段
+        alarm.setSignature(getStringValue(map, "signature"));
+        alarm.setCompany(getStringValue(map, "company"));
+        
+        // 访问相关字段
+        alarm.setGrantedAccess(getStringValue(map, "grantedAccess"));
+        alarm.setStartAddress(getStringValue(map, "startAddress"));
         
         // 注册表相关字段
         alarm.setTargetObject(getStringValue(map, "targetObject"));
         alarm.setRegValue(getStringValue(map, "regValue"));
+        alarm.setRegNewName(getStringValue(map, "regNewName"));
+        
+        // 管道相关字段
+        alarm.setPipeName(getStringValue(map, "pipeName"));
+        
+        // WMI相关字段
+        alarm.setOperation(getStringValue(map, "operation"));
+        alarm.setWmiType(getStringValue(map, "wmiType"));
+        alarm.setWmiEventNamespace(getStringValue(map, "wmiEventNamespace"));
+        alarm.setWmiName(getStringValue(map, "wmiName"));
+        alarm.setWmiQuery(getStringValue(map, "wmiQuery"));
+        alarm.setWmiDestination(getStringValue(map, "wmiDestination"));
+        alarm.setWmiConsumer(getStringValue(map, "wmiConsumer"));
+        alarm.setWmiFilter(getStringValue(map, "wmiFilter"));
         
         // 保存原始数据,便于后续扩展
         alarm.setOtherFields(map);
