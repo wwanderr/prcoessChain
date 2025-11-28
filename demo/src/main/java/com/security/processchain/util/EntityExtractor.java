@@ -48,8 +48,9 @@ public class EntityExtractor {
      * 5. 应用实体过滤规则
      * 
      * @param graph 进程链图（只包含进程节点）
+     * @param networkAssociatedEventIds 网端关联的事件ID（告警+日志），用于优先设置 createdByEventId
      */
-    public static void extractEntitiesFromGraph(ProcessChainGraph graph) {
+    public static void extractEntitiesFromGraph(ProcessChainGraph graph, Set<String> networkAssociatedEventIds) {
         if (graph == null) {
             return;
         }
@@ -127,6 +128,16 @@ public class EntityExtractor {
                             // 节点已存在，合并日志
                             GraphNode existingNode = graph.getNode(entityNodeId);
                             existingNode.addLog(entityLog);// 日志从进程节点"移动"到实体节点
+                            
+                            // ✅ 如果当前日志是网端关联的，更新 createdByEventId（高优先级）
+                            if (networkAssociatedEventIds != null && 
+                                entityLog.getEventId() != null &&
+                                networkAssociatedEventIds.contains(entityLog.getEventId())) {
+                                existingNode.setCreatedByEventId(entityLog.getEventId());
+                                log.info("【实体提取】更新实体节点为网端关联（日志）: nodeId={}, eventId={}", 
+                                        entityNodeId, entityLog.getEventId());
+                            }
+                            
                             log.debug("【实体提取】实体节点已存在，合并日志: nodeId={}", entityNodeId);
                             continue;
                         }
@@ -171,6 +182,16 @@ public class EntityExtractor {
                         // 节点已存在，合并告警
                         GraphNode existingNode = graph.getNode(entityNodeId);
                         existingNode.addAlarm(alarm);
+                        
+                        // ✅ 如果当前告警是网端关联的，更新 createdByEventId（高优先级）
+                        if (networkAssociatedEventIds != null && 
+                            alarm.getEventId() != null &&
+                            networkAssociatedEventIds.contains(alarm.getEventId())) {
+                            existingNode.setCreatedByEventId(alarm.getEventId());
+                            log.info("【实体提取】更新实体节点为网端关联（告警）: nodeId={}, eventId={}", 
+                                    entityNodeId, alarm.getEventId());
+                        }
+                        
                         log.debug("【实体提取-告警】实体节点已存在，合并告警: nodeId={}", entityNodeId);
                         continue;
                     }

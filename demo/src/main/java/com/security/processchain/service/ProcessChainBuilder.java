@@ -355,7 +355,18 @@ public class ProcessChainBuilder {
             
             // ===== 阶段6：实体提取（晚拆分） =====
             // 在裁剪后的进程链上提取实体节点，避免实体节点断链
-            EntityExtractor.extractEntitiesFromGraph(subgraph);
+            
+            // ✅ 准备网端关联 eventId 集合（告警+日志）
+            Set<String> networkAssociatedEventIds = new HashSet<>();
+            if (associatedEventIds != null) {
+                networkAssociatedEventIds.addAll(associatedEventIds);  // 告警关联
+            }
+            if (startLogEventIds != null) {
+                networkAssociatedEventIds.addAll(startLogEventIds);    // 日志关联
+            }
+            
+            log.info("【实体提取】网端关联eventId数量={}, 开始提取实体...", networkAssociatedEventIds.size());
+            EntityExtractor.extractEntitiesFromGraph(subgraph, networkAssociatedEventIds);
             
             log.info("【实体提取完成】节点总数={}", subgraph.getNodeCount());
             
