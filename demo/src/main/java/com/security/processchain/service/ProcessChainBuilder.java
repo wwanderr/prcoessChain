@@ -545,6 +545,7 @@ public class ProcessChainBuilder {
         node.setIsAlarm(graphNode.isAlarm());
         node.setNodeType(graphNode.getNodeType());  // 传递节点类型
         node.setIsVirtual(graphNode.isVirtual());   // 传递虚拟节点标识
+        node.setCreatedByEventId(graphNode.getCreatedByEventId());  // 传递创建事件ID
         
         // 复制告警和日志
         if (graphNode.getAlarms() != null) {
@@ -1477,7 +1478,7 @@ public class ProcessChainBuilder {
         
         Set<String> entityNodesToMark = new HashSet<>();
         
-        // ✅ 收集所有网端关联的 eventId（告警+日志）
+        // 收集所有网端关联的 eventId（告警+日志）
         Set<String> networkAssociatedEventIds = new HashSet<>();
         if (associatedEventIds != null) {
             networkAssociatedEventIds.addAll(associatedEventIds);  // 告警关联
@@ -1486,53 +1487,60 @@ public class ProcessChainBuilder {
             networkAssociatedEventIds.addAll(startLogEventIds);    // 日志关联
         }
         
+        log.info("【网端关联-调试】开始查找需标记的实体节点");
+        log.info("【网端关联-调试】网端关联eventId={}", networkAssociatedEventIds);
+        log.info("【网端关联-调试】总节点数={}", result.getNodes() != null ? result.getNodes().size() : 0);
+        
         // 没有网端关联，直接返回空集合
         if (networkAssociatedEventIds.isEmpty() || result.getNodes() == null) {
+            log.warn("【网端关联-调试】网端关联eventId为空或节点列表为空，跳过标记");
             return entityNodesToMark;
         }
+        
+        int entityNodeCount = 0;
+        int processNodeCount = 0;
         
         // 遍历所有节点，找出需要标记的实体节点
         for (ChainBuilderNode node : result.getNodes()) {
             String nodeType = node.getNodeType();
+            String processGuid = node.getProcessGuid();
             
             // ✅ 只处理实体节点（支持 file/network/domain/registry 和 file_entity/network_entity/domain_entity/registry_entity）
-            if (!isEntityNode(nodeType)) {
+            boolean isEntity = isEntityNode(nodeType);
+            
+            if (isEntity) {
+                entityNodeCount++;
+                
+                String createdByEventId = node.getCreatedByEventId();
+                int alarmCount = node.getAlarms() != null ? node.getAlarms().size() : 0;
+                int logCount = node.getLogs() != null ? node.getLogs().size() : 0;
+                
+                log.info("【网端关联-调试】检查实体节点: processGuid={}, nodeType={}, createdByEventId={}, alarmCount={}, logCount={}", 
+                        processGuid, nodeType, createdByEventId, alarmCount, logCount);
+            } else {
+                processNodeCount++;
+            }
+            
+            if (!isEntity) {
                 continue;
             }
             
-            boolean shouldMark = false;
+            // ✅ 关键修改：直接检查该实体是否由网端关联 eventId 创建
+            String createdByEventId = node.getCreatedByEventId();
             
-            // 检查实体节点的告警 eventId（包含从父进程继承的告警）
-            List<RawAlarm> nodeAlarms = node.getAlarms();
-            if (nodeAlarms != null) {
-                for (RawAlarm alarm : nodeAlarms) {
-                    if (alarm != null && alarm.getEventId() != null && 
-                        networkAssociatedEventIds.contains(alarm.getEventId())) {
-                        shouldMark = true;
-                        break;
-                    }
-                }
-            }
-            
-            // 检查实体节点的日志 eventId
-            if (!shouldMark) {
-                List<RawLog> nodeLogs = node.getLogs();
-                if (nodeLogs != null) {
-                    for (RawLog log : nodeLogs) {
-                        if (log != null && log.getEventId() != null && 
-                            networkAssociatedEventIds.contains(log.getEventId())) {
-                            shouldMark = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            if (shouldMark) {
-                entityNodesToMark.add(node.getProcessGuid());
+            if (createdByEventId != null && networkAssociatedEventIds.contains(createdByEventId)) {
+                log.info("【网端关联-调试】  ✅ 节点 {} 由网端关联事件创建: createdByEventId={}", 
+                        processGuid, createdByEventId);
+                entityNodesToMark.add(processGuid);
+            } else {
+                log.info("【网端关联-调试】  ❌ 节点 {} 不是由网端关联事件创建: createdByEventId={}, 不标记", 
+                        processGuid, createdByEventId);
             }
         }
         
+        log.info("【网端关联-调试】遍历完成: 总节点数={}, 进程节点数={}, 实体节点数={}", 
+                result.getNodes().size(), processNodeCount, entityNodeCount);
+        log.info("【网端关联-调试】标记列表内容: {}", entityNodesToMark);
         log.info("【网端关联标识】预处理完成: 网端关联eventId数={}, 需标记实体节点数={}", 
                 networkAssociatedEventIds.size(), entityNodesToMark.size());
         

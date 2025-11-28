@@ -43,6 +43,13 @@ public class GraphNode {
     
     private String nodeType;  // process/file/domain/network/registry/entity
     
+    /**
+     * 创建该实体节点的事件ID
+     * 用于网端关联标识时精确匹配
+     * 只对实体节点有效，进程节点为null
+     */
+    private String createdByEventId;
+    
     public GraphNode() {
         this.alarms = new ArrayList<>();
         this.logs = new ArrayList<>();

@@ -175,8 +175,8 @@ public class EntityExtractor {
                         continue;
                     }
                     
-                    // 创建新的实体节点
-                    GraphNode entityNode = createEntityNodeFromAlarm(entityNodeId, entityType, alarm);
+                    // 创建新的实体节点（同时继承父进程节点的告警）
+                    GraphNode entityNode = createEntityNodeFromAlarm(entityNodeId, entityType, alarm, node);
                     entityNodesToAdd.add(entityNode);
                     entityToProcessMap.put(entityNodeId, processGuid);  // ✅ 记录映射关系
                     
@@ -339,6 +339,9 @@ public class EntityExtractor {
         // 它们通过边（process → entity）与进程节点关联
         node.setProcessGuid(null);
         node.setParentProcessGuid(null);
+        
+        // ✅ 记录创建该实体的日志 eventId（用于网端关联精确匹配）
+        node.setCreatedByEventId(entityLog.getEventId());
         
         // 添加日志
         node.addLog(entityLog);
@@ -509,7 +512,7 @@ public class EntityExtractor {
     /**
      * 从告警创建实体节点
      */
-    private static GraphNode createEntityNodeFromAlarm(String entityNodeId, String entityType, RawAlarm alarm) {
+    private static GraphNode createEntityNodeFromAlarm(String entityNodeId, String entityType, RawAlarm alarm, GraphNode parentProcessNode) {
         GraphNode entityNode = new GraphNode();
         
         entityNode.setNodeId(entityNodeId);
@@ -523,8 +526,26 @@ public class EntityExtractor {
         entityNode.setProcessGuid(null);
         entityNode.setParentProcessGuid(null);
         
+        // ✅ 记录创建该实体的告警 eventId（用于网端关联精确匹配）
+        entityNode.setCreatedByEventId(alarm.getEventId());
+        
         // 添加告警到节点
         entityNode.addAlarm(alarm);
+        
+        // ✅ 继承父进程节点的告警（用于网端关联标识）
+        if (parentProcessNode != null) {
+            List<RawAlarm> parentAlarms = parentProcessNode.getAlarms();
+            if (parentAlarms != null && !parentAlarms.isEmpty()) {
+                for (RawAlarm parentAlarm : parentAlarms) {
+                    // 避免重复添加（当前告警已经添加过了）
+                    if (!parentAlarm.getEventId().equals(alarm.getEventId())) {
+                        entityNode.addAlarm(parentAlarm);
+                    }
+                }
+                log.debug("【实体提取-告警】实体节点继承 {} 条父进程告警: entityNodeId={}", 
+                        parentAlarms.size(), entityNodeId);
+            }
+        }
         
         return entityNode;
     }
