@@ -52,7 +52,8 @@ public final class IncidentConverters {
                 if ("process".equals(nodeType)) {
                     // ========== 进程节点：设置告警信息和进程实体 ==========
                     finalNode.setLogType("process");
-                    finalNode.setOpType(latestLog.getOpType());
+                    // ✅ 进程节点强制设定 opType 为 create
+                    finalNode.setOpType("create");
                     
                     // 进程节点才设置告警信息
                     if (isAlarm) {
@@ -75,7 +76,8 @@ public final class IncidentConverters {
                     // ========== 实体节点：只设置实体信息，不设置告警和进程实体 ==========
                     String entityType = nodeType.replace("_entity", "");
                     finalNode.setLogType(entityType);  // "file", "domain", "network", "registry"
-                    finalNode.setOpType(latestLog.getOpType());
+                    // ✅ 根据实体类型强制设定 opType
+                    finalNode.setOpType(getNodeOpType(entityType));
                     
                     // 实体节点不设置告警信息
                     chainNode.setAlarmNodeInfo(null);
@@ -85,9 +87,11 @@ public final class IncidentConverters {
                     chainNode.setEntity(convertToEntity(latestLog, entityType));
                     
                 } else {
-                    // 兜底逻辑（保持原有逻辑）
-                    finalNode.setLogType(latestLog.getLogType());
-                    finalNode.setOpType(latestLog.getOpType());
+                    // 兜底逻辑（根据 logType 强制设定 opType）
+                    String logType = latestLog.getLogType();
+                    finalNode.setLogType(logType);
+                    // ✅ 根据 logType 强制设定 opType
+                    finalNode.setOpType(getNodeOpType(logType));
                     
                     // 兜底逻辑也可能有告警
                     if (isAlarm) {
@@ -112,11 +116,13 @@ public final class IncidentConverters {
 
                 // 设置基本信息
                 finalNode.setLogType(logType);
-                finalNode.setOpType(firstAlarm.getOpType());
                 
                 // 根据 nodeType 决定如何填充实体
                 if ("process".equals(nodeType)) {
                     // ========== 进程节点：设置告警信息和进程实体 ==========
+                    // ✅ 进程节点强制设定 opType 为 create
+                    finalNode.setOpType("create");
+                    
                     AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(firstAlarm);
                     chainNode.setAlarmNodeInfo(alarmInfo);
                     finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
@@ -131,6 +137,8 @@ public final class IncidentConverters {
                 } else if (nodeType != null && nodeType.endsWith("_entity")) {
                     // ========== 实体节点：只设置实体信息 ==========
                     String entityType = nodeType.replace("_entity", "");
+                    // ✅ 根据实体类型强制设定 opType
+                    finalNode.setOpType(getNodeOpType(entityType));
                     
                     // 实体节点不设置告警信息
                     chainNode.setAlarmNodeInfo(null);
@@ -141,6 +149,9 @@ public final class IncidentConverters {
                     
                 } else {
                     // 兜底逻辑：设置告警信息
+                    // ✅ 根据 logType 强制设定 opType
+                    finalNode.setOpType(getNodeOpType(logType));
+                    
                     AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(firstAlarm);
                     chainNode.setAlarmNodeInfo(alarmInfo);
                     finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
@@ -324,6 +335,37 @@ public final class IncidentConverters {
                 return "未知文件类型";
             default:
                 return fileType;  // 保持原值
+        }
+    }
+    
+    /**
+     * 根据节点类型返回对应的 opType（强制设定，不使用原始日志/告警中的 opType）
+     * 规则：
+     * - process: create
+     * - file: create
+     * - domain: connect
+     * - network: connect
+     * - registry: setValue
+     */
+    private static String getNodeOpType(String nodeType) {
+        if (nodeType == null) {
+            return "create";  // 默认值
+        }
+        
+        String type = nodeType.toLowerCase();
+        switch (type) {
+            case "process":
+                return "create";
+            case "file":
+                return "create";
+            case "domain":
+                return "connect";
+            case "network":
+                return "connect";
+            case "registry":
+                return "setValue";
+            default:
+                return "create";  // 默认值
         }
     }
     

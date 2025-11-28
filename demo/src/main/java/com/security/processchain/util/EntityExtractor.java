@@ -326,8 +326,6 @@ public class EntityExtractor {
                 result.computeIfAbsent(logTypeLower, k -> new ArrayList<>()).add(log);
             } else {
                 skippedCount++;
-                log.debug("【实体提取-日志筛选】opType 验证失败，跳过: logType={}, opType={}", 
-                         logType, opType);
             }
         }
         
@@ -453,33 +451,35 @@ public class EntityExtractor {
     /**
      * 判断告警的实体类型（根据字段，不是logType）
      * 
-     * 规则：
+     * 规则（只判断字段是否存在）：
      * - file: fileMd5 + targetFilename 存在，且 targetFilename != image
      * - domain: requestDomain 存在
      * - network: destAddress 存在，且 != hostAddress
      * - registry: targetObject 存在
      * - process: 其他情况
+     * 
+     * 注意：此方法不验证 opType，opType 由 IncidentConverters 在转换时统一强制设定
      */
     private static String determineEntityTypeFromAlarm(RawAlarm alarm) {
-        // 1. 文件实体
+        // 1. 文件实体：只判断字段是否存在
         if (alarm.getFileMd5() != null && !alarm.getFileMd5().isEmpty() &&
             alarm.getTargetFilename() != null && !alarm.getTargetFilename().isEmpty() &&
             !alarm.getTargetFilename().equals(alarm.getImage())) {
             return "file";
         }
         
-        // 2. 域名实体
+        // 2. 域名实体：只判断字段是否存在
         if (alarm.getRequestDomain() != null && !alarm.getRequestDomain().isEmpty()) {
             return "domain";
         }
         
-        // 3. 网络实体（排除本机地址）
+        // 3. 网络实体：只判断字段是否存在（排除本机地址）
         if (alarm.getDestAddress() != null && !alarm.getDestAddress().isEmpty() &&
             !alarm.getDestAddress().equals(alarm.getHostAddress())) {
             return "network";
         }
         
-        // 4. 注册表实体
+        // 4. 注册表实体：只判断字段是否存在
         if (alarm.getTargetObject() != null && !alarm.getTargetObject().isEmpty()) {
             return "registry";
         }
