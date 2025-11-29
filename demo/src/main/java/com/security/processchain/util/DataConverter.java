@@ -60,6 +60,8 @@ public class DataConverter {
         alarm.setSeverity(getIntegerValue(map, "severity"));
         alarm.setStartTime(getStringValue(map, "startTime"));
         alarm.setEndTime(getStringValue(map, "endTime"));
+        alarm.setProcessStartTime(getStringValue(map, "processStartTime"));
+        alarm.setParentProcessStartTime(getStringValue(map, "parentProcessStartTime"));
         alarm.setDeviceAssetSubType(getStringValue(map, "deviceAssetSubType"));
         alarm.setAlarmName(getStringValue(map, "alarmName"));
         alarm.setLogType(getStringValue(map, "logType"));
@@ -196,6 +198,8 @@ public class DataConverter {
         log.setParentProcessGuid(getStringValue(map, "parentProcessGuid"));
         log.setLogType(getStringValue(map, "logType"));
         log.setStartTime(getStringValue(map, "startTime"));
+        log.setProcessStartTime(getStringValue(map, "processStartTime"));
+        log.setParentProcessStartTime(getStringValue(map, "parentProcessStartTime"));
         
         // 进程相关字段
         log.setEventType(getStringValue(map, "eventType"));

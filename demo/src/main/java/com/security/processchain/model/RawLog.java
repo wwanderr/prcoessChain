@@ -15,6 +15,8 @@ public class RawLog {
     private String parentProcessGuid;
     private String logType;
     private String startTime;
+    private String processStartTime; // 进程启动时间
+    private String parentProcessStartTime; // 父进程启动时间
     
     // 进程相关字段
     private String eventType;
@@ -126,6 +128,22 @@ public class RawLog {
     
     public void setStartTime(String startTime) {
         this.startTime = startTime;
+    }
+    
+    public String getProcessStartTime() {
+        return processStartTime;
+    }
+    
+    public void setProcessStartTime(String processStartTime) {
+        this.processStartTime = processStartTime;
+    }
+    
+    public String getParentProcessStartTime() {
+        return parentProcessStartTime;
+    }
+    
+    public void setParentProcessStartTime(String parentProcessStartTime) {
+        this.parentProcessStartTime = parentProcessStartTime;
     }
     
     public String getEventType() {

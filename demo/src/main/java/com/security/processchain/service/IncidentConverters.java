@@ -133,7 +133,8 @@ public final class IncidentConverters {
                     // ✅ 从告警中抽取 ProcessEntity
                     chainNode.setProcessEntity(convertToProcessEntityFromAlarm(firstAlarm, isVirtualParent));
                     chainNode.setEntity(null);
-                    
+                    log.info("场景4：nodeType:{}.设置logType:{}, opType:{}",nodeType,finalNode.getLogType(),finalNode.getOpType());
+
                 } else if (nodeType != null && nodeType.endsWith("_entity")) {
                     // ========== 实体节点：只设置实体信息 ==========
                     String entityType = nodeType.replace("_entity", "");
@@ -146,6 +147,7 @@ public final class IncidentConverters {
                     // ✅ 从告警中抽取对应的实体
                     chainNode.setProcessEntity(null);
                     chainNode.setEntity(convertToEntityFromAlarm(firstAlarm, entityType));
+                    log.info("场景5：nodeType:{}.设置logType:{}, opType:{}",nodeType,finalNode.getLogType(),finalNode.getOpType());
                     
                 } else {
                     // 兜底逻辑：设置告警信息
@@ -349,24 +351,37 @@ public final class IncidentConverters {
      */
     private static String getNodeOpType(String nodeType) {
         if (nodeType == null) {
+            log.warn("【opType设定】nodeType为null，返回默认值create");
             return "create";  // 默认值
         }
         
         String type = nodeType.toLowerCase();
+        String result;
+        
         switch (type) {
             case "process":
-                return "create";
+                result = "create";
+                break;
             case "file":
-                return "create";
+                result = "create";
+                break;
             case "domain":
-                return "connect";
+                result = "connect";
+                break;
             case "network":
-                return "connect";
+                result = "connect";
+                break;
             case "registry":
-                return "setValue";
+                result = "setValue";
+                break;
             default:
-                return "create";  // 默认值
+                result = "create";
+                log.warn("【opType设定】未识别的nodeType={}，返回默认值create", nodeType);
+                break;
         }
+        
+        log.info("【opType设定】nodeType={}, 返回opType={}", nodeType, result);
+        return result;
     }
     
     /**
@@ -398,7 +413,7 @@ public final class IncidentConverters {
         if (isVirtualParent) {
             // ========== 虚拟父节点：从日志的 parent 字段中提取 ==========
             processEntity.setOpType(log.getOpType());
-            processEntity.setLocaltime(log.getStartTime());
+            processEntity.setLocaltime(log.getParentProcessStartTime() != null ? log.getParentProcessStartTime() : log.getStartTime());
             processEntity.setProcessId(log.getParentProcessId() != null ? String.valueOf(log.getParentProcessId()) : null);
             processEntity.setProcessGuid(log.getParentProcessGuid());  // 虚拟父节点的 processGuid 就是 parentProcessGuid
             processEntity.setParentProcessGuid(null);  // 虚拟父节点的 parentProcessGuid 永远是 null
@@ -416,7 +431,7 @@ public final class IncidentConverters {
         } else {
             // ========== 真实节点：从日志的 process 字段中提取 ==========
             processEntity.setOpType(log.getOpType());
-            processEntity.setLocaltime(log.getStartTime());
+            processEntity.setLocaltime(log.getProcessStartTime() != null ? log.getProcessStartTime() : log.getStartTime());
             processEntity.setProcessId(log.getProcessId() != null ? String.valueOf(log.getProcessId()) : null);
             processEntity.setProcessGuid(log.getProcessGuid());
             processEntity.setParentProcessGuid(log.getParentProcessGuid());
@@ -452,7 +467,7 @@ public final class IncidentConverters {
         if (isVirtualParent) {
             // ========== 虚拟父节点：从告警的 parent 字段中提取 ==========
             processEntity.setOpType(alarm.getOpType());
-            processEntity.setLocaltime(alarm.getStartTime());
+            processEntity.setLocaltime(alarm.getParentProcessStartTime() != null ? alarm.getParentProcessStartTime() : alarm.getStartTime());
             processEntity.setProcessId(alarm.getParentProcessId() != null ? String.valueOf(alarm.getParentProcessId()) : null);
             processEntity.setProcessGuid(alarm.getParentProcessGuid());  // 虚拟父节点的 processGuid 就是 parentProcessGuid
             processEntity.setParentProcessGuid(null);  // 虚拟父节点的 parentProcessGuid 永远是 null
@@ -470,7 +485,7 @@ public final class IncidentConverters {
         } else {
             // ========== 真实节点：从告警的 process 字段中提取 ==========
             processEntity.setOpType(alarm.getOpType());
-            processEntity.setLocaltime(alarm.getStartTime());
+            processEntity.setLocaltime(alarm.getProcessStartTime() != null ? alarm.getProcessStartTime() : alarm.getStartTime());
             processEntity.setProcessId(alarm.getProcessId() != null ? String.valueOf(alarm.getProcessId()) : null);
             processEntity.setProcessGuid(alarm.getProcessGuid());
             processEntity.setParentProcessGuid(alarm.getParentProcessGuid());
@@ -525,7 +540,7 @@ public final class IncidentConverters {
         // 构建 ProcessEntity
         ProcessEntity processEntity = new ProcessEntity();
         processEntity.setOpType(log.getOpType());
-        processEntity.setLocaltime(log.getStartTime());
+        processEntity.setLocaltime(log.getProcessStartTime() != null ? log.getProcessStartTime() : log.getStartTime());
         processEntity.setProcessId(log.getProcessId() != null ? String.valueOf(log.getProcessId()) : null);
         processEntity.setImage(log.getImage());
         processEntity.setCommandline(log.getCommandLine());
