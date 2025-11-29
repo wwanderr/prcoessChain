@@ -87,6 +87,9 @@ public class DataConverter {
         alarm.setFileName(getStringValue(map, "fileName"));
         alarm.setFileMd5(getStringValue(map, "fileMd5"));
         alarm.setTargetFilename(getStringValue(map, "targetFilename"));
+        alarm.setFilePath(getStringValue(map, "filePath"));
+        alarm.setFileType(getStringValue(map, "fileType"));
+        alarm.setFileSize(getStringValue(map, "fileSize"));
         alarm.setFileHash(getStringValue(map, "fileHash"));
         alarm.setFileContents(getStringValue(map, "fileContents"));
         alarm.setCreationUtcTime(getStringValue(map, "creationUtcTime"));
@@ -94,6 +97,7 @@ public class DataConverter {
         
         // 域名相关字段
         alarm.setRequestDomain(getStringValue(map, "requestDomain"));
+        alarm.setQueryResults(getStringValue(map, "queryResults"));
         
         // 网络相关字段
         alarm.setSrcAddress(getStringValue(map, "srcAddress"));
@@ -101,6 +105,8 @@ public class DataConverter {
         alarm.setSrcTransAddress(getStringValue(map, "srcTransAddress"));
         alarm.setDestAddress(getStringValue(map, "destAddress"));
         alarm.setDestPort(getStringValue(map, "destPort"));
+        alarm.setTransProtocol(getStringValue(map, "transProtocol"));
+        alarm.setInitiated(getStringValue(map, "initiated"));
         alarm.setDestHostName(getStringValue(map, "destHostName"));
         
         // Web攻击相关字段

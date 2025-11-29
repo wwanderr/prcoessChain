@@ -142,15 +142,21 @@ public class RawAlarm {
     private String fileName;
     private String fileMd5;
     private String targetFilename;
+    private String filePath;  // 文件路径
+    private String fileType;  // 文件类型
+    private String fileSize;  // 文件大小（字节）
     
     // 域名相关字段
     private String requestDomain;
+    private String queryResults;  // DNS查询结果
     
     // 网络相关字段
     private String srcAddress;
     private String srcPort;
     private String destAddress;
     private String destPort;
+    private String transProtocol;  // 传输协议（TCP/UDP）
+    private String initiated;  // 是否主动发起连接
     
     // 注册表相关字段
     private String targetObject;
@@ -473,12 +479,44 @@ public class RawAlarm {
         this.targetFilename = targetFilename;
     }
     
+    public String getFilePath() {
+        return filePath;
+    }
+    
+    public void setFilePath(String filePath) {
+        this.filePath = filePath;
+    }
+    
+    public String getFileType() {
+        return fileType;
+    }
+    
+    public void setFileType(String fileType) {
+        this.fileType = fileType;
+    }
+    
+    public String getFileSize() {
+        return fileSize;
+    }
+    
+    public void setFileSize(String fileSize) {
+        this.fileSize = fileSize;
+    }
+    
     public String getRequestDomain() {
         return requestDomain;
     }
     
     public void setRequestDomain(String requestDomain) {
         this.requestDomain = requestDomain;
+    }
+    
+    public String getQueryResults() {
+        return queryResults;
+    }
+    
+    public void setQueryResults(String queryResults) {
+        this.queryResults = queryResults;
     }
     
     public String getSrcAddress() {
@@ -511,6 +549,22 @@ public class RawAlarm {
     
     public void setDestPort(String destPort) {
         this.destPort = destPort;
+    }
+    
+    public String getTransProtocol() {
+        return transProtocol;
+    }
+    
+    public void setTransProtocol(String transProtocol) {
+        this.transProtocol = transProtocol;
+    }
+    
+    public String getInitiated() {
+        return initiated;
+    }
+    
+    public void setInitiated(String initiated) {
+        this.initiated = initiated;
     }
     
     public String getTargetObject() {

@@ -838,12 +838,23 @@ public final class IncidentConverters {
         if (alarm == null) return null;
         
         FileEntity entity = new FileEntity();
+        entity.setFilePath(alarm.getFilePath());
         entity.setTargetFilename(alarm.getTargetFilename());
         entity.setFileName(alarm.getFileName());
         entity.setFileMd5(alarm.getFileMd5());
         
-        // 注意：告警数据中可能缺少一些字段（如 filePath, fileSize, fileType）
-        // 这些字段保持为 null
+        // 映射文件类型为中文
+        entity.setFileType(mapFileType(alarm.getFileType()));
+
+        // 转换文件大小为 MB 格式
+        try {
+            if (alarm.getFileSize() != null && !alarm.getFileSize().trim().isEmpty()) {
+                Long bytes = Long.parseLong(alarm.getFileSize());
+                entity.setFileSize(formatFileSize(bytes));
+            }
+        } catch (NumberFormatException e) {
+            // 忽略格式错误，保持空字符串
+        }
         
         return entity;
     }
@@ -855,9 +866,10 @@ public final class IncidentConverters {
         if (alarm == null) return null;
         
         NetworkEntity entity = new NetworkEntity();
+        entity.setTransProtocol(alarm.getTransProtocol());
         entity.setSrcAddress(alarm.getSrcAddress());
         entity.setDestAddress(alarm.getDestAddress());
-        
+
         try {
             if (alarm.getSrcPort() != null) {
                 entity.setSrcPort(Integer.parseInt(alarm.getSrcPort()));
@@ -868,8 +880,10 @@ public final class IncidentConverters {
         } catch (NumberFormatException e) {
             // 忽略格式错误
         }
-        
-        // 注意：告警数据中可能缺少 transProtocol、initiated 字段
+
+        if (alarm.getInitiated() != null) {
+            entity.setInitiated(Boolean.parseBoolean(alarm.getInitiated()));
+        }
         
         return entity;
     }
@@ -882,9 +896,7 @@ public final class IncidentConverters {
         
         DomainEntity entity = new DomainEntity();
         entity.setRequestDomain(alarm.getRequestDomain());
-        
-        // 注意：告警数据中可能缺少 queryResults 字段
-        
+        entity.setQueryResults(alarm.getQueryResults());
         return entity;
     }
     

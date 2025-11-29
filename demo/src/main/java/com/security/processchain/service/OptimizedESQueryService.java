@@ -106,6 +106,9 @@ public class OptimizedESQueryService implements ESQueryService {
         "fileName",
         "fileMd5",
         "targetFilename",
+        "filePath",
+        "fileType",
+        "fileSize",
         "fileHash",
         "fileContents",
         "creationUtcTime",
@@ -117,10 +120,13 @@ public class OptimizedESQueryService implements ESQueryService {
         "srcTransAddress",
         "destAddress",
         "destPort",
+        "transProtocol",
+        "initiated",
         "destHostName",
         
         // 域名相关字段
         "requestDomain",
+        "queryResults",
         
         // Web攻击相关字段
         "requestUrl",
