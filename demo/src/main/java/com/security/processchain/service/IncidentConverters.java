@@ -50,20 +50,9 @@ public final class IncidentConverters {
             if (latestLog != null) {
                 // 根据 nodeType 决定如何填充实体
                 if ("process".equals(nodeType)) {
-                    // ========== 进程节点：设置告警信息和进程实体 ==========
+                    // ========== 进程节点：设置进程实体 ==========
                     finalNode.setLogType("process");
-                    // ✅ 进程节点强制设定 opType 为 create
                     finalNode.setOpType("create");
-                    
-                    // 进程节点才设置告警信息
-                    if (isAlarm) {
-                        RawAlarm latestAlarm = getLatestAlarm(alarms);
-                        if (latestAlarm != null) {
-                            AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(latestAlarm);
-                            chainNode.setAlarmNodeInfo(alarmInfo);
-                            finalNode.setNodeThreatSeverity(mapToThreatSeverity(latestAlarm.getThreatSeverity()));
-                        }
-                    }
                     
                     // ✅ 判断是否是虚拟父节点
                     boolean isVirtualParent = builderNode.getParentProcessGuid() == null && builderNode.getIsVirtual();
@@ -73,35 +62,20 @@ public final class IncidentConverters {
                     chainNode.setEntity(null);
                     
                 } else if (nodeType != null && nodeType.endsWith("_entity")) {
-                    // ========== 实体节点：只设置实体信息，不设置告警和进程实体 ==========
+                    // ========== 实体节点：只设置实体信息 ==========
                     String entityType = nodeType.replace("_entity", "");
                     finalNode.setLogType(entityType);  // "file", "domain", "network", "registry"
-                    // ✅ 根据实体类型强制设定 opType
                     finalNode.setOpType(getNodeOpType(entityType));
-                    
-                    // 实体节点不设置告警信息
-                    chainNode.setAlarmNodeInfo(null);
                     
                     // 只设置 entity，processEntity 为 null
                     chainNode.setProcessEntity(null);
                     chainNode.setEntity(convertToEntity(latestLog, entityType));
                     
                 } else {
-                    // 兜底逻辑（根据 logType 强制设定 opType）
+                    // 兜底逻辑
                     String logType = latestLog.getLogType();
                     finalNode.setLogType(logType);
-                    // ✅ 根据 logType 强制设定 opType
                     finalNode.setOpType(getNodeOpType(logType));
-                    
-                    // 兜底逻辑也可能有告警
-                    if (isAlarm) {
-                        RawAlarm latestAlarm = getLatestAlarm(alarms);
-                        if (latestAlarm != null) {
-                            AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(latestAlarm);
-                            chainNode.setAlarmNodeInfo(alarmInfo);
-                            finalNode.setNodeThreatSeverity(mapToThreatSeverity(latestAlarm.getThreatSeverity()));
-                        }
-                    }
                     
                     Object entity = convertToEntity(latestLog, latestLog.getLogType());
                     chainNode.setEntity(entity);
@@ -119,13 +93,8 @@ public final class IncidentConverters {
                 
                 // 根据 nodeType 决定如何填充实体
                 if ("process".equals(nodeType)) {
-                    // ========== 进程节点：设置告警信息和进程实体 ==========
-                    // ✅ 进程节点强制设定 opType 为 create
+                    // ========== 进程节点：设置进程实体 ==========
                     finalNode.setOpType("create");
-                    
-                    AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(firstAlarm);
-                    chainNode.setAlarmNodeInfo(alarmInfo);
-                    finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
                     
                     // ✅ 判断是否是虚拟父节点
                     boolean isVirtualParent = builderNode.getParentProcessGuid() == null && builderNode.getIsVirtual();
@@ -133,31 +102,55 @@ public final class IncidentConverters {
                     // ✅ 从告警中抽取 ProcessEntity
                     chainNode.setProcessEntity(convertToProcessEntityFromAlarm(firstAlarm, isVirtualParent));
                     chainNode.setEntity(null);
-                    log.info("场景4：nodeType:{}.设置logType:{}, opType:{}",nodeType,finalNode.getLogType(),finalNode.getOpType());
+                    log.info("场景4：nodeType:{}, logType:{}, opType:{}, isVirtualParent={}", 
+                            nodeType, finalNode.getLogType(), finalNode.getOpType(), isVirtualParent);
 
                 } else if (nodeType != null && nodeType.endsWith("_entity")) {
                     // ========== 实体节点：只设置实体信息 ==========
                     String entityType = nodeType.replace("_entity", "");
-                    // ✅ 根据实体类型强制设定 opType
                     finalNode.setOpType(getNodeOpType(entityType));
-                    
-                    // 实体节点不设置告警信息
-                    chainNode.setAlarmNodeInfo(null);
                     
                     // ✅ 从告警中抽取对应的实体
                     chainNode.setProcessEntity(null);
                     chainNode.setEntity(convertToEntityFromAlarm(firstAlarm, entityType));
-                    log.info("场景5：nodeType:{}.设置logType:{}, opType:{}",nodeType,finalNode.getLogType(),finalNode.getOpType());
+                    log.info("场景5：nodeType={}, logType={}, opType={}", 
+                            nodeType, finalNode.getLogType(), finalNode.getOpType());
                     
                 } else {
-                    // 兜底逻辑：设置告警信息
-                    // ✅ 根据 logType 强制设定 opType
+                    // 兜底逻辑
                     finalNode.setOpType(getNodeOpType(logType));
-                    
-                    AlarmNodeInfo alarmInfo = convertToAlarmNodeInfo(firstAlarm);
-                    chainNode.setAlarmNodeInfo(alarmInfo);
-                    finalNode.setNodeThreatSeverity(mapToThreatSeverity(firstAlarm.getThreatSeverity()));
                 }
+            }
+        } else if (builderNode.getIsVirtual() && alarms != null && !alarms.isEmpty()) {
+            // ========== 分支3：虚拟父节点（没有日志，有告警，但不是告警节点） ==========
+            RawAlarm firstAlarm = alarms.get(0);
+            if (firstAlarm != null) {
+                finalNode.setLogType("process");
+                finalNode.setOpType("create");
+                
+                // ✅ 虚拟父节点永远是 isVirtualParent=true
+                chainNode.setProcessEntity(convertToProcessEntityFromAlarm(firstAlarm, true));
+                chainNode.setEntity(null);
+                
+                log.info("场景6-虚拟父节点：nodeType={}, logType={}, opType={}, processEntity={}", 
+                        nodeType, finalNode.getLogType(), finalNode.getOpType(), 
+                        chainNode.getProcessEntity() != null ? "已设置" : "null");
+            }
+        }
+
+        // ========== 统一处理告警信息（避免重复设置）==========
+        // 规则：只有真实的告警节点（isAlarm=true）且是进程节点才设置告警信息
+        if (isAlarm && "process".equals(nodeType)) {
+            RawAlarm latestAlarm = getLatestAlarm(alarms);
+            if (latestAlarm != null) {
+                chainNode.setAlarmNodeInfo(convertToAlarmNodeInfo(latestAlarm));
+                finalNode.setNodeThreatSeverity(mapToThreatSeverity(latestAlarm.getThreatSeverity()));
+            }
+        } else {
+            // 实体节点和虚拟父节点不设置告警信息
+            chainNode.setAlarmNodeInfo(null);
+            if (!isAlarm) {
+                finalNode.setNodeThreatSeverity(null);
             }
         }
 
