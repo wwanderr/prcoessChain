@@ -34,7 +34,7 @@ public final class IncidentConverters {
         // existingNode.addLog(entityLog);这块流转
         List<RawLog> logs = builderNode.getLogs();
 
-        boolean isAlarm = alarms != null && !alarms.isEmpty();
+        boolean isAlarm = alarms != null && !alarms.isEmpty() && !builderNode.getIsVirtual();
         chainNode.setIsAlarm(isAlarm);
 
         boolean isRoot = builderNode.getParentProcessGuid() == null || 
