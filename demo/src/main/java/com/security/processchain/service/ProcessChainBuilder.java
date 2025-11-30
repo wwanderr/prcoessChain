@@ -1377,8 +1377,8 @@ public class ProcessChainBuilder {
             List<ProcessNode> finalNodes = new ArrayList<>();
             List<ProcessEdge> finalEdges = new ArrayList<>();
             
-            // ✅ 预处理：找出需要标记的实体节点（只标记实体节点，不标记进程节点）
-            Set<String> entityNodesToMark = findEntityNodesToMark(result, associatedEventIds, startLogEventIds);
+            // ✅ 预处理：找出需要标记的节点（可能是实体节点或进程节点）
+            Set<String> nodesToMark = findEntityNodesToMark(result, associatedEventIds, startLogEventIds);
             
             // 转换节点，映射到输出接结构体中，并添加实体等内容等，子图的内容都已经映射
             int markedCount = 0;
@@ -1396,11 +1396,11 @@ public class ProcessChainBuilder {
                             finalNode.getChainNode().setIsBroken(true);
                         }
                         
-                        // ✅ 设置网端关联标识：只标记预处理阶段识别的实体节点
-                        if (entityNodesToMark.contains(nodeId)) {
+                        // ✅ 设置网端关联标识：标记预处理阶段识别的节点（进程或实体）
+                        if (nodesToMark.contains(nodeId)) {
                             finalNode.getChainNode().setIsNetworkAssociated(true);
                             markedCount++;
-                            log.info("【网端关联标识】实体节点 {} (type={}) 被标记", 
+                            log.info("【网端关联标识】节点 {} (type={}) 被标记", 
                                     nodeId, builderNode.getNodeType());
                         }
                     }
@@ -1410,7 +1410,7 @@ public class ProcessChainBuilder {
                 
                 // 关键日志
                 if (markedCount > 0) {
-                    log.info("【网端关联标识】标记完成: 标记实体节点数={}/{}", markedCount, entityNodesToMark.size());
+                    log.info("【网端关联标识】标记完成: 标记节点数={}/{}", markedCount, nodesToMark.size());
                 }
             }
             
@@ -1487,7 +1487,7 @@ public class ProcessChainBuilder {
             Set<String> associatedEventIds, 
             Set<String> startLogEventIds) {
         
-        Set<String> entityNodesToMark = new HashSet<>();
+        Set<String> nodesToMark = new HashSet<>();
         
         // 收集所有网端关联的 eventId（告警+日志）
         Set<String> networkAssociatedEventIds = new HashSet<>();
@@ -1498,64 +1498,265 @@ public class ProcessChainBuilder {
             networkAssociatedEventIds.addAll(startLogEventIds);    // 日志关联
         }
         
-        log.info("【网端关联-调试】开始查找需标记的实体节点");
+        log.info("【网端关联-调试】开始查找需标记的节点");
         log.info("【网端关联-调试】网端关联eventId={}", networkAssociatedEventIds);
-        log.info("【网端关联-调试】总节点数={}", result.getNodes() != null ? result.getNodes().size() : 0);
         
         // 没有网端关联，直接返回空集合
         if (networkAssociatedEventIds.isEmpty() || result.getNodes() == null) {
             log.warn("【网端关联-调试】网端关联eventId为空或节点列表为空，跳过标记");
-            return entityNodesToMark;
+            return nodesToMark;
         }
         
-        int entityNodeCount = 0;
-        int processNodeCount = 0;
+        // ✅ 步骤1：找到网端关联的进程及其对应的告警/日志
+        Map<String, Object> processToNetworkData = new HashMap<>(); // processGuid -> RawAlarm or RawLog
         
-        // 遍历所有节点，找出需要标记的实体节点
         for (ChainBuilderNode node : result.getNodes()) {
-            String nodeType = node.getNodeType();
+            if (isEntityNode(node.getNodeType())) {
+                continue; // 跳过实体节点
+            }
+            
             String processGuid = node.getProcessGuid();
             
-            // ✅ 只处理实体节点（支持 file/network/domain/registry 和 file_entity/network_entity/domain_entity/registry_entity）
-            boolean isEntity = isEntityNode(nodeType);
-            
-            if (isEntity) {
-                entityNodeCount++;
-                
-                String createdByEventId = node.getCreatedByEventId();
-                int alarmCount = node.getAlarms() != null ? node.getAlarms().size() : 0;
-                int logCount = node.getLogs() != null ? node.getLogs().size() : 0;
-                
-                log.info("【网端关联-调试】检查实体节点: processGuid={}, nodeType={}, createdByEventId={}, alarmCount={}, logCount={}", 
-                        processGuid, nodeType, createdByEventId, alarmCount, logCount);
-            } else {
-                processNodeCount++;
+            // 检查告警
+            if (node.getAlarms() != null) {
+                for (RawAlarm alarm : node.getAlarms()) {
+                    if (alarm.getEventId() != null && 
+                        networkAssociatedEventIds.contains(alarm.getEventId())) {
+                        processToNetworkData.put(processGuid, alarm);
+                        log.info("【网端关联-调试】进程 {} 包含网端关联告警: eventId={}", 
+                                processGuid, alarm.getEventId());
+                        break;
+                    }
+                }
             }
             
-            if (!isEntity) {
-                continue;
-            }
-            
-            // ✅ 关键修改：直接检查该实体是否由网端关联 eventId 创建
-            String createdByEventId = node.getCreatedByEventId();
-            
-            if (createdByEventId != null && networkAssociatedEventIds.contains(createdByEventId)) {
-                log.info("【网端关联-调试】  ✅ 节点 {} 由网端关联事件创建: createdByEventId={}", 
-                        processGuid, createdByEventId);
-                entityNodesToMark.add(processGuid);
-            } else {
-                log.info("【网端关联-调试】  ❌ 节点 {} 不是由网端关联事件创建: createdByEventId={}, 不标记", 
-                        processGuid, createdByEventId);
+            // 检查日志（如果还没找到）
+            if (!processToNetworkData.containsKey(processGuid) && node.getLogs() != null) {
+                for (RawLog log : node.getLogs()) {
+                    if (log.getEventId() != null && 
+                        networkAssociatedEventIds.contains(log.getEventId())) {
+                        processToNetworkData.put(processGuid, log);
+                        log.info("【网端关联-调试】进程 {} 包含网端关联日志: eventId={}, logType={}", 
+                                processGuid, log.getEventId(), log.getLogType());
+                        break;
+                    }
+                }
             }
         }
         
-        log.info("【网端关联-调试】遍历完成: 总节点数={}, 进程节点数={}, 实体节点数={}", 
-                result.getNodes().size(), processNodeCount, entityNodeCount);
-        log.info("【网端关联-调试】标记列表内容: {}", entityNodesToMark);
-        log.info("【网端关联标识】预处理完成: 网端关联eventId数={}, 需标记实体节点数={}", 
-                networkAssociatedEventIds.size(), entityNodesToMark.size());
+        log.info("【网端关联-调试】找到网端关联进程数={}", processToNetworkData.size());
         
-        return entityNodesToMark;
+        // ✅ 步骤2：对每个网端关联的进程，找到匹配的实体或标记进程本身
+        for (Map.Entry<String, Object> entry : processToNetworkData.entrySet()) {
+            String processGuid = entry.getKey();
+            Object networkData = entry.getValue();
+            
+            // 收集该进程的所有实体节点
+            List<ChainBuilderNode> entityNodes = new ArrayList<>();
+            for (ChainBuilderNode node : result.getNodes()) {
+                if (!isEntityNode(node.getNodeType())) {
+                    continue;
+                }
+                
+                String entityNodeId = node.getProcessGuid();
+                if (entityNodeId != null && entityNodeId.startsWith(processGuid + "_")) {
+                    entityNodes.add(node);
+                }
+            }
+            
+            if (entityNodes.isEmpty()) {
+                // 情况1：没有实体节点 → 标记进程节点本身
+                nodesToMark.add(processGuid);
+                log.info("【网端关联-调试】  ✅ 进程 {} 没有实体节点，标记进程本身", processGuid);
+            } else {
+                // 情况2：有实体节点 → 根据告警/日志内容匹配实体
+                ChainBuilderNode matchedEntity = findMatchingEntity(entityNodes, networkData);
+                
+                if (matchedEntity != null) {
+                    nodesToMark.add(matchedEntity.getProcessGuid());
+                    log.info("【网端关联-调试】  ✅ 进程 {} 找到匹配的实体节点: {}", 
+                            processGuid, matchedEntity.getProcessGuid());
+                } else {
+                    // 找不到匹配的实体 → 标记进程本身
+                    nodesToMark.add(processGuid);
+                    log.info("【网端关联-调试】  ⚠️ 进程 {} 有 {} 个实体但无法匹配，标记进程本身", 
+                            processGuid, entityNodes.size());
+                }
+            }
+        }
+        
+        log.info("【网端关联-调试】标记完成: 总标记数={}", nodesToMark.size());
+        log.info("【网端关联-调试】标记列表: {}", nodesToMark);
+        
+        return nodesToMark;
+    }
+    
+    /**
+     * 根据网端关联的告警/日志匹配实体节点
+     * 
+     * @param entityNodes 实体节点列表
+     * @param networkData 网端关联的告警或日志（RawAlarm 或 RawLog）
+     * @return 匹配的实体节点，如果没找到则返回 null
+     */
+    private ChainBuilderNode findMatchingEntity(List<ChainBuilderNode> entityNodes, Object networkData) {
+        if (entityNodes == null || entityNodes.isEmpty() || networkData == null) {
+            return null;
+        }
+        
+        // 判断是告警还是日志
+        boolean isAlarm = networkData instanceof RawAlarm;
+        RawAlarm alarm = isAlarm ? (RawAlarm) networkData : null;
+        RawLog log = !isAlarm ? (RawLog) networkData : null;
+        
+        // 提取匹配字段（按优先级）
+        String requestDomain = isAlarm ? alarm.getRequestDomain() : log.getRequestDomain();
+        String destAddress = isAlarm ? alarm.getDestAddress() : log.getDestAddress();
+        String targetFilename = isAlarm ? alarm.getTargetFilename() : log.getTargetFilename();
+        String targetObject = isAlarm ? alarm.getTargetObject() : log.getTargetObject();
+        
+        log.info("【网端关联-匹配】网端关联数据字段: requestDomain={}, destAddress={}, targetFilename={}, targetObject={}", 
+                requestDomain, destAddress, targetFilename, targetObject);
+        
+        // 按优先级匹配：domain > network > file > registry
+        
+        // 1. 尝试匹配 domain
+        if (requestDomain != null && !requestDomain.isEmpty()) {
+            for (ChainBuilderNode entity : entityNodes) {
+                if (entity.getNodeType().toLowerCase().contains("domain")) {
+                    String entityDomain = extractRequestDomainFromEntity(entity);
+                    if (requestDomain.equals(entityDomain)) {
+                        log.info("【网端关联-匹配】✅ 匹配到 domain 实体: nodeId={}, domain={}", 
+                                entity.getProcessGuid(), requestDomain);
+                        return entity;
+                    }
+                }
+            }
+        }
+        
+        // 2. 尝试匹配 network
+        if (destAddress != null && !destAddress.isEmpty()) {
+            for (ChainBuilderNode entity : entityNodes) {
+                if (entity.getNodeType().toLowerCase().contains("network")) {
+                    String entityDestAddr = extractDestAddressFromEntity(entity);
+                    if (destAddress.equals(entityDestAddr)) {
+                        log.info("【网端关联-匹配】✅ 匹配到 network 实体: nodeId={}, destAddress={}", 
+                                entity.getProcessGuid(), destAddress);
+                        return entity;
+                    }
+                }
+            }
+        }
+        
+        // 3. 尝试匹配 file
+        if (targetFilename != null && !targetFilename.isEmpty()) {
+            for (ChainBuilderNode entity : entityNodes) {
+                if (entity.getNodeType().toLowerCase().contains("file")) {
+                    String entityFilename = extractFilenameFromEntity(entity);
+                    if (targetFilename.equals(entityFilename)) {
+                        log.info("【网端关联-匹配】✅ 匹配到 file 实体: nodeId={}, filename={}", 
+                                entity.getProcessGuid(), targetFilename);
+                        return entity;
+                    }
+                }
+            }
+        }
+        
+        // 4. 尝试匹配 registry
+        if (targetObject != null && !targetObject.isEmpty()) {
+            for (ChainBuilderNode entity : entityNodes) {
+                if (entity.getNodeType().toLowerCase().contains("registry")) {
+                    String entityTargetObj = extractTargetObjectFromEntity(entity);
+                    if (targetObject.equals(entityTargetObj)) {
+                        log.info("【网端关联-匹配】✅ 匹配到 registry 实体: nodeId={}, targetObject={}", 
+                                entity.getProcessGuid(), targetObject);
+                        return entity;
+                    }
+                }
+            }
+        }
+        
+        log.warn("【网端关联-匹配】❌ 未找到匹配的实体节点");
+        return null;
+    }
+    
+    /**
+     * 从实体节点中提取 requestDomain
+     */
+    private String extractRequestDomainFromEntity(ChainBuilderNode entity) {
+        // 优先从日志中提取
+        if (entity.getLogs() != null && !entity.getLogs().isEmpty()) {
+            String domain = entity.getLogs().get(0).getRequestDomain();
+            if (domain != null && !domain.isEmpty()) {
+                return domain;
+            }
+        }
+        
+        // 从告警中提取
+        if (entity.getAlarms() != null && !entity.getAlarms().isEmpty()) {
+            return entity.getAlarms().get(0).getRequestDomain();
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 从实体节点中提取 destAddress
+     */
+    private String extractDestAddressFromEntity(ChainBuilderNode entity) {
+        // 优先从日志中提取
+        if (entity.getLogs() != null && !entity.getLogs().isEmpty()) {
+            String addr = entity.getLogs().get(0).getDestAddress();
+            if (addr != null && !addr.isEmpty()) {
+                return addr;
+            }
+        }
+        
+        // 从告警中提取
+        if (entity.getAlarms() != null && !entity.getAlarms().isEmpty()) {
+            return entity.getAlarms().get(0).getDestAddress();
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 从实体节点中提取 targetFilename
+     */
+    private String extractFilenameFromEntity(ChainBuilderNode entity) {
+        // 优先从日志中提取
+        if (entity.getLogs() != null && !entity.getLogs().isEmpty()) {
+            String filename = entity.getLogs().get(0).getTargetFilename();
+            if (filename != null && !filename.isEmpty()) {
+                return filename;
+            }
+        }
+        
+        // 从告警中提取
+        if (entity.getAlarms() != null && !entity.getAlarms().isEmpty()) {
+            return entity.getAlarms().get(0).getTargetFilename();
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 从实体节点中提取 targetObject
+     */
+    private String extractTargetObjectFromEntity(ChainBuilderNode entity) {
+        // 优先从日志中提取
+        if (entity.getLogs() != null && !entity.getLogs().isEmpty()) {
+            String obj = entity.getLogs().get(0).getTargetObject();
+            if (obj != null && !obj.isEmpty()) {
+                return obj;
+            }
+        }
+        
+        // 从告警中提取
+        if (entity.getAlarms() != null && !entity.getAlarms().isEmpty()) {
+            return entity.getAlarms().get(0).getTargetObject();
+        }
+        
+        return null;
     }
     
     /**
