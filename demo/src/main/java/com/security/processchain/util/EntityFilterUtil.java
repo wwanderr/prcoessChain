@@ -274,48 +274,61 @@ public class EntityFilterUtil {
      * 过滤file节点
      * 规则：
      * 1. 优先后缀（.exe .dll等）+ opType=create → 全部保留
-     * 2. 其他文件 → 保留最早的3个
+     * 2. 非优先后缀的文件：
+     *    - create 操作：保留最早的 3 个
+     *    - write 操作：保留最早的 3 个
+     *    - delete 操作：保留最早的 3 个
      */
     private static List<GraphNode> filterFileNodes(
             List<GraphNode> nodes, int limit) {
         
-        // 1. 分类：优先文件（后缀+create） vs 普通文件
+        // 1. 分类：优先文件（优先后缀+create） vs 普通文件（按opType分组）
         List<GraphNode> priorityFiles = new ArrayList<>();
-        List<GraphNode> normalFiles = new ArrayList<>();
+        Map<String, List<GraphNode>> normalFilesByOpType = new HashMap<>();
         
         for (GraphNode node : nodes) {
             String filename = extractFilename(node);
             String opType = extractOpType(node);
             
+            // 判断是否有优先后缀
+            boolean hasPriorityExt = hasPriorityExtension(filename);
+            
             // 优先后缀 + opType=create → 全部保留
-            if (hasPriorityExtension(filename) && "create".equalsIgnoreCase(opType)) {
+            if (hasPriorityExt && "create".equalsIgnoreCase(opType)) {
                 priorityFiles.add(node);
             } else {
-                normalFiles.add(node);
+                // 非优先后缀的文件，按 opType 分组
+                String opTypeKey = (opType == null || opType.isEmpty()) ? "unknown" : opType.toLowerCase();
+                normalFilesByOpType.computeIfAbsent(opTypeKey, k -> new ArrayList<>()).add(node);
             }
         }
         
-        log.debug("【文件过滤】优先文件(后缀+create)数={}, 普通文件数={}", 
-                priorityFiles.size(), normalFiles.size());
+        log.debug("【文件过滤】优先文件(优先后缀+create)数={}, 普通文件分组={}", 
+                priorityFiles.size(), normalFilesByOpType.keySet());
         
         // 2. 优先文件全部保留
         List<GraphNode> result = new ArrayList<>(priorityFiles);
         
-        // 3. 普通文件保留最早的3个
-        if (!normalFiles.isEmpty()) {
+        // 3. 普通文件按 opType 分组，每组保留最早的 3 个
+        int totalNormalFiles = 0;
+        for (Map.Entry<String, List<GraphNode>> entry : normalFilesByOpType.entrySet()) {
+            String opType = entry.getKey();
+            List<GraphNode> filesOfType = entry.getValue();
+            
             // 按时间升序排序（最早的在前）
-            normalFiles.sort((a, b) -> compareByTime(a, b, true));
+            filesOfType.sort((a, b) -> compareByTime(a, b, true));
             
-            // 取前3个
-            int count = Math.min(limit, normalFiles.size());
-            result.addAll(normalFiles.subList(0, count));
+            // 取前 3 个
+            int count = Math.min(limit, filesOfType.size());
+            result.addAll(filesOfType.subList(0, count));
+            totalNormalFiles += count;
             
-            log.debug("【文件过滤】普通文件保留最早的{}个", count);
+            log.debug("【文件过滤】普通文件 opType={}, 总数={}, 保留最早的{}个", 
+                    opType, filesOfType.size(), count);
         }
         
         log.debug("【文件过滤】最终保留文件数={} (优先{}个 + 普通{}个)", 
-                result.size(), priorityFiles.size(), 
-                Math.min(limit, normalFiles.size()));
+                result.size(), priorityFiles.size(), totalNormalFiles);
         
         return result;
     }
