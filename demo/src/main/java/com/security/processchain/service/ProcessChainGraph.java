@@ -408,17 +408,23 @@ public class ProcessChainGraph {
             }
             // 2. 自引用节点：parentProcessGuid 为 null 且在自引用节点集合中（已被清空的自环节点）
             // 策略：
-            //   - 如果 traceId 还没有根节点映射 → 作为根节点
+            //   - 如果 traceId 还没有根节点映射 → 作为根节点，同时标记为断链
             //   - 如果 traceId 已有根节点映射（真正的根存在）→ 作为断链节点
             else if (node.getParentProcessGuid() == null && !node.isVirtual() && isSelfReferenceNode(nodeId)) {
                 String traceId = node.getTraceId();
                 
                 if (!traceIdToRootNodeMap.containsKey(traceId)) {
-                    // 场景1：该 traceId 还没有根节点 → 自引用节点作为根节点
+                    // 场景1：该 traceId 还没有根节点 → 自引用节点作为根节点，同时标记为断链
                     rootNodes.add(nodeId);
                     node.setRoot(true);
                     traceIdToRootNodeMap.put(traceId, nodeId);
-                    log.info("【根节点识别-步骤1】自引用节点作为根节点: nodeId={}, traceId={}, 入度={} " +
+                    
+                    // ✅ 同时标记为断链节点（自引用节点属于异常情况）
+                    brokenNodes.add(nodeId);
+                    node.setBroken(true);
+                    brokenNodeToTraceId.put(nodeId, traceId);
+                    
+                    log.info("【根节点识别-步骤1】自引用节点作为根节点同时标记为断链: nodeId={}, traceId={}, 入度={} " +
                             "(该 traceId 无其他根节点)", 
                             nodeId, traceId, getInDegree(nodeId));
                 } else {
