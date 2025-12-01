@@ -115,6 +115,7 @@ public class RawAlarm {
     private Integer severity; // 告警严重程度（数字）
     private String startTime;
     private String endTime;
+    private String collectorReceiptTime; // 采集器接收时间（用于实体排序）
     private String processStartTime; // 进程启动时间
     private String parentProcessStartTime; // 父进程启动时间
     private String deviceAssetSubType;
@@ -285,6 +286,14 @@ public class RawAlarm {
     
     public void setEndTime(String endTime) {
         this.endTime = endTime;
+    }
+    
+    public String getCollectorReceiptTime() {
+        return collectorReceiptTime;
+    }
+    
+    public void setCollectorReceiptTime(String collectorReceiptTime) {
+        this.collectorReceiptTime = collectorReceiptTime;
     }
     
     public String getProcessStartTime() {

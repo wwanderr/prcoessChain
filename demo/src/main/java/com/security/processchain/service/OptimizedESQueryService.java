@@ -69,6 +69,7 @@ public class OptimizedESQueryService implements ESQueryService {
         "severity",
         "startTime",
         "endTime",
+        "collectorReceiptTime",  // 采集器接收时间（用于实体排序）
         "processStartTime",
         "parentProcessStartTime",
         "deviceAssetSubType",

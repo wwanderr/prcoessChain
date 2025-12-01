@@ -60,6 +60,7 @@ public class DataConverter {
         alarm.setSeverity(getIntegerValue(map, "severity"));
         alarm.setStartTime(getStringValue(map, "startTime"));
         alarm.setEndTime(getStringValue(map, "endTime"));
+        alarm.setCollectorReceiptTime(getStringValue(map, "collectorReceiptTime"));
         alarm.setProcessStartTime(getStringValue(map, "processStartTime"));
         alarm.setParentProcessStartTime(getStringValue(map, "parentProcessStartTime"));
         alarm.setDeviceAssetSubType(getStringValue(map, "deviceAssetSubType"));

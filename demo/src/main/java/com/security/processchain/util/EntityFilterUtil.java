@@ -1,5 +1,6 @@
 package com.security.processchain.util;
 
+import com.security.processchain.model.RawAlarm;
 import com.security.processchain.model.RawLog;
 import com.security.processchain.service.GraphNode;
 import com.security.processchain.service.ProcessChainGraph;
@@ -476,22 +477,39 @@ public class EntityFilterUtil {
      * 提取开始时间
      * 
      * 优先级：
-     * 1. 优先从日志中提取（logs 优先于 alarms）
-     * 2. 如果没有日志，从告警中提取
+     * 1. 日志：优先取 startTime
+     * 2. 告警：优先取 collectorReceiptTime，如果为空则取 startTime
      */
     private static String extractStartTime(GraphNode node) {
-        // 1. 优先从日志中提取
+        // 1. 优先从日志中提取 startTime
         if (node.getLogs() != null && !node.getLogs().isEmpty()) {
-            RawLog log = node.getLogs().get(0);
-            String startTime = log.getStartTime();
+            RawLog rawLog = node.getLogs().get(0);
+            String startTime = rawLog.getStartTime();
             if (startTime != null && !startTime.isEmpty()) {
+                log.debug("【时间提取】节点 {} 从日志提取时间: {}", node.getNodeId(), startTime);
                 return startTime;
             }
         }
         
-        // 2. 如果没有日志，从告警中提取
+        // 2. 从告警中提取：优先 collectorReceiptTime，其次 startTime
         if (node.getAlarms() != null && !node.getAlarms().isEmpty()) {
-            return node.getAlarms().get(0).getStartTime();
+            RawAlarm alarm = node.getAlarms().get(0);
+            
+            // 优先取 collectorReceiptTime
+            String collectorReceiptTime = alarm.getCollectorReceiptTime();
+            if (collectorReceiptTime != null && !collectorReceiptTime.isEmpty()) {
+                log.debug("【时间提取】节点 {} 从告警提取 collectorReceiptTime: {}", 
+                         node.getNodeId(), collectorReceiptTime);
+                return collectorReceiptTime;
+            }
+            
+            // 如果 collectorReceiptTime 为空，使用 startTime
+            String startTime = alarm.getStartTime();
+            if (startTime != null && !startTime.isEmpty()) {
+                log.debug("【时间提取】节点 {} 从告警提取 startTime: {}", 
+                         node.getNodeId(), startTime);
+                return startTime;
+            }
         }
         
         return null;
