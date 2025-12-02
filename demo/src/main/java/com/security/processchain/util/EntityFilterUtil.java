@@ -86,19 +86,22 @@ public class EntityFilterUtil {
                 List<GraphNode> uniqueNodes = 
                         deduplicateNodes(nodesOfType, entityType);
                 
-                // ✅ 在外层分离网端关联和普通实体，避免重复遍历
+                // ✅ 分离网端关联和普通实体
+                // 注意：只有网端关联的日志/告警创建的实体才会有 createdByEventId
                 List<GraphNode> networkAssociatedNodes = new ArrayList<>();
                 List<GraphNode> normalNodes = new ArrayList<>();
                 
                 for (GraphNode node : uniqueNodes) {
                     if (node.getCreatedByEventId() != null && !node.getCreatedByEventId().isEmpty()) {
                         networkAssociatedNodes.add(node);
+                        log.debug("【实体过滤】网端关联实体: nodeId={}, createdByEventId={}", 
+                                node.getNodeId(), node.getCreatedByEventId());
                     } else {
                         normalNodes.add(node);
                     }
                 }
                 
-                log.debug("【实体过滤】processGuid={}, type={}, 总数={}, 网端关联={}, 普通={}", 
+                log.info("【实体过滤】processGuid={}, type={}, 总数={}, 网端关联={}, 普通={}", 
                         processGuid, entityType, uniqueNodes.size(), 
                         networkAssociatedNodes.size(), normalNodes.size());
                 

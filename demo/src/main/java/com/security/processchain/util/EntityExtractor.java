@@ -123,35 +123,42 @@ public class EntityExtractor {
                     for (RawLog entityLog : entityLogs) {
                         String entityNodeId = generateEntityNodeId(processGuid, entityLog);
                         
-                        // 检查节点是否已存在（去重）
+                        // 获取或创建实体节点
+                        GraphNode entityNode;
+                        boolean isNewNode;
+                        
                         if (graph.hasNode(entityNodeId)) {
                             // 节点已存在，合并日志
-                            GraphNode existingNode = graph.getNode(entityNodeId);
-                            existingNode.addLog(entityLog);// 日志从进程节点"移动"到实体节点
-                            
-                            // ✅ 如果当前日志是网端关联的，更新 createdByEventId（高优先级）
-                            if (networkAssociatedEventIds != null && 
-                                entityLog.getEventId() != null &&
-                                networkAssociatedEventIds.contains(entityLog.getEventId())) {
-                                existingNode.setCreatedByEventId(entityLog.getEventId());
-                                log.info("【实体提取】更新实体节点为网端关联（日志）: nodeId={}, eventId={}", 
-                                        entityNodeId, entityLog.getEventId());
-                            }
-                            
+                            entityNode = graph.getNode(entityNodeId);
+                            entityNode.addLog(entityLog);
+                            isNewNode = false;
                             log.debug("【实体提取】实体节点已存在，合并日志: nodeId={}", entityNodeId);
-                            continue;
+                        } else {
+                            // 创建新的实体节点
+                            entityNode = createEntityNode(entityNodeId, entityType, entityLog, node);
+                            isNewNode = true;
                         }
                         
-                        // 创建新的实体节点（同时继承父进程节点的告警）
-                        GraphNode entityNode = createEntityNode(entityNodeId, entityType, entityLog, node);
-                        entityNodesToAdd.add(entityNode);
-                        entityToProcessMap.put(entityNodeId, processGuid);  // ✅ 记录映射关系
+                        // ✅ 统一检查是否是网端关联的实体（只在未设置时检查）
+                        if (entityNode.getCreatedByEventId() == null) {
+                            String networkEventId = findNetworkAssociatedEventId(
+                                    entityLog, entityType, node, networkAssociatedEventIds);
+                            if (networkEventId != null) {
+                                entityNode.setCreatedByEventId(networkEventId);
+                                log.info("【实体提取】✅ 网端关联实体（日志）: nodeId={}, eventId={}, isNew={}", 
+                                        entityNodeId, networkEventId, isNewNode);
+                            }
+                        }
                         
-                        createdEntityNodes++;
-                        entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
-                        
-                        log.info("【实体提取】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
-                                processGuid, entityType, entityNodeId);
+                        // 新节点需要添加到集合
+                        if (isNewNode) {
+                            entityNodesToAdd.add(entityNode);
+                            entityToProcessMap.put(entityNodeId, processGuid);
+                            createdEntityNodes++;
+                            entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
+                            log.debug("【实体提取】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
+                                    processGuid, entityType, entityNodeId);
+                        }
                     }
                 }
                 
@@ -177,35 +184,41 @@ public class EntityExtractor {
                     // 3. 为每个实体告警创建实体节点id
                     String entityNodeId = generateEntityNodeIdFromAlarm(processGuid, alarm, entityType);
                     
-                    // 检查节点是否已存在（去重）
+                    // 获取或创建实体节点
+                    GraphNode entityNode;
+                    boolean isNewNode;
+                    
                     if (graph.hasNode(entityNodeId)) {
                         // 节点已存在，合并告警
-                        GraphNode existingNode = graph.getNode(entityNodeId);
-                        existingNode.addAlarm(alarm);
-                        
-                        // ✅ 如果当前告警是网端关联的，更新 createdByEventId（高优先级）
-                        if (networkAssociatedEventIds != null && 
-                            alarm.getEventId() != null &&
-                            networkAssociatedEventIds.contains(alarm.getEventId())) {
-                            existingNode.setCreatedByEventId(alarm.getEventId());
-                            log.info("【实体提取】更新实体节点为网端关联（告警）: nodeId={}, eventId={}", 
-                                    entityNodeId, alarm.getEventId());
-                        }
-                        
+                        entityNode = graph.getNode(entityNodeId);
+                        entityNode.addAlarm(alarm);
+                        isNewNode = false;
                         log.debug("【实体提取-告警】实体节点已存在，合并告警: nodeId={}", entityNodeId);
-                        continue;
+                    } else {
+                        // 创建新的实体节点
+                        entityNode = createEntityNodeFromAlarm(entityNodeId, entityType, alarm, node);
+                        isNewNode = true;
                     }
                     
-                    // 创建新的实体节点（同时继承父进程节点的告警）
-                    GraphNode entityNode = createEntityNodeFromAlarm(entityNodeId, entityType, alarm, node);
-                    entityNodesToAdd.add(entityNode);
-                    entityToProcessMap.put(entityNodeId, processGuid);  // ✅ 记录映射关系
+                    // ✅ 统一检查是否是网端关联的实体（只在未设置时检查）
+                    if (entityNode.getCreatedByEventId() == null &&
+                        networkAssociatedEventIds != null && 
+                        alarm.getEventId() != null &&
+                        networkAssociatedEventIds.contains(alarm.getEventId())) {
+                        entityNode.setCreatedByEventId(alarm.getEventId());
+                        log.info("【实体提取-告警】✅ 网端关联实体: nodeId={}, eventId={}, isNew={}", 
+                                entityNodeId, alarm.getEventId(), isNewNode);
+                    }
                     
-                    createdEntityNodes++;
-                    entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
-                    
-                    log.info("【实体提取-告警】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
-                            processGuid, entityType, entityNodeId);
+                    // 新节点需要添加到集合
+                    if (isNewNode) {
+                        entityNodesToAdd.add(entityNode);
+                        entityToProcessMap.put(entityNodeId, processGuid);
+                        createdEntityNodes++;
+                        entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
+                        log.debug("【实体提取-告警】创建实体节点: processGuid={}, entityType={}, entityNodeId={}", 
+                                processGuid, entityType, entityNodeId);
+                    }
                 }
             }
         }
@@ -359,8 +372,8 @@ public class EntityExtractor {
         node.setProcessGuid(null);
         node.setParentProcessGuid(null);
         
-        // ✅ 记录创建该实体的日志 eventId（用于网端关联精确匹配）
-        node.setCreatedByEventId(entityLog.getEventId());
+        // ✅ createdByEventId 在外层根据 networkAssociatedEventIds 设置
+        // 只有网端关联的日志创建的实体才设置，非网端关联的保持 null
         
         // 添加日志
         node.addLog(entityLog);
@@ -547,8 +560,8 @@ public class EntityExtractor {
         entityNode.setProcessGuid(null);
         entityNode.setParentProcessGuid(null);
         
-        // ✅ 记录创建该实体的告警 eventId（用于网端关联精确匹配）
-        entityNode.setCreatedByEventId(alarm.getEventId());
+        // ✅ createdByEventId 在外层根据 networkAssociatedEventIds 设置
+        // 只有网端关联的告警创建的实体才设置，非网端关联的保持 null
         
         // 添加告警到节点
         entityNode.addAlarm(alarm);
@@ -569,6 +582,102 @@ public class EntityExtractor {
         }
         
         return entityNode;
+    }
+    
+    /**
+     * 查找网端关联的 eventId
+     * 
+     * 逻辑：
+     * 1. 首先检查日志本身的 eventId 是否在 networkAssociatedEventIds 中
+     * 2. 如果不在，检查父进程节点的告警中是否有网端关联的，并且内容匹配的
+     * 
+     * 场景：告警关联成功（networkAssociatedEventIds 包含告警的 eventId），
+     *       但从日志抽取实体时，需要通过告警内容匹配来确定网端关联
+     * 
+     * @param entityLog 当前日志
+     * @param entityType 实体类型
+     * @param parentNode 父进程节点（包含告警）
+     * @param networkAssociatedEventIds 网端关联的 eventId 集合
+     * @return 网端关联的 eventId，如果不是网端关联则返回 null
+     */
+    private static String findNetworkAssociatedEventId(
+            RawLog entityLog, 
+            String entityType, 
+            GraphNode parentNode, 
+            Set<String> networkAssociatedEventIds) {
+        
+        if (networkAssociatedEventIds == null || networkAssociatedEventIds.isEmpty()) {
+            return null;
+        }
+        
+        // 1. 首先检查日志本身的 eventId
+        if (entityLog.getEventId() != null && 
+            networkAssociatedEventIds.contains(entityLog.getEventId())) {
+            return entityLog.getEventId();
+        }
+        
+        // 2. 检查父进程节点的告警中是否有网端关联的，并且内容匹配的
+        if (parentNode != null && parentNode.getAlarms() != null) {
+            for (RawAlarm alarm : parentNode.getAlarms()) {
+                // 检查告警是否是网端关联的
+                if (alarm.getEventId() != null && 
+                    networkAssociatedEventIds.contains(alarm.getEventId())) {
+                    // 检查告警内容是否与当前日志匹配
+                    if (matchEntityContent(entityType, entityLog, alarm)) {
+                        log.debug("【实体提取】通过告警匹配找到网端关联: logEventId={}, alarmEventId={}, entityType={}", 
+                                entityLog.getEventId(), alarm.getEventId(), entityType);
+                        return alarm.getEventId();
+                    }
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 匹配实体内容（日志 vs 告警）
+     * 
+     * 用于判断日志和告警是否描述同一个实体
+     */
+    private static boolean matchEntityContent(String entityType, RawLog log, RawAlarm alarm) {
+        if (entityType == null) {
+            return false;
+        }
+        
+        switch (entityType.toLowerCase()) {
+            case "file":
+                // 匹配 targetFilename 或 fileMd5
+                String logFile = log.getTargetFilename();
+                String alarmFile = alarm.getTargetFilename();
+                if (logFile != null && !logFile.isEmpty() && logFile.equals(alarmFile)) {
+                    return true;
+                }
+                String logMd5 = log.getFileMd5();
+                String alarmMd5 = alarm.getFileMd5();
+                if (logMd5 != null && !logMd5.isEmpty() && logMd5.equals(alarmMd5)) {
+                    return true;
+                }
+                return false;
+                
+            case "domain":
+                String logDomain = log.getRequestDomain();
+                String alarmDomain = alarm.getRequestDomain();
+                return logDomain != null && !logDomain.isEmpty() && logDomain.equals(alarmDomain);
+                
+            case "network":
+                String logDest = log.getDestAddress();
+                String alarmDest = alarm.getDestAddress();
+                return logDest != null && !logDest.isEmpty() && logDest.equals(alarmDest);
+                
+            case "registry":
+                String logTarget = log.getTargetObject();
+                String alarmTarget = alarm.getTargetObject();
+                return logTarget != null && !logTarget.isEmpty() && logTarget.equals(alarmTarget);
+                
+            default:
+                return false;
+        }
     }
 }
 
