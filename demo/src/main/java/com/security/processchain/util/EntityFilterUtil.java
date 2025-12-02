@@ -86,9 +86,25 @@ public class EntityFilterUtil {
                 List<GraphNode> uniqueNodes = 
                         deduplicateNodes(nodesOfType, entityType);
                 
-                // 应用过滤规则，去除不必要的实体节点，防止过多
+                // ✅ 在外层分离网端关联和普通实体，避免重复遍历
+                List<GraphNode> networkAssociatedNodes = new ArrayList<>();
+                List<GraphNode> normalNodes = new ArrayList<>();
+                
+                for (GraphNode node : uniqueNodes) {
+                    if (node.getCreatedByEventId() != null && !node.getCreatedByEventId().isEmpty()) {
+                        networkAssociatedNodes.add(node);
+                    } else {
+                        normalNodes.add(node);
+                    }
+                }
+                
+                log.debug("【实体过滤】processGuid={}, type={}, 总数={}, 网端关联={}, 普通={}", 
+                        processGuid, entityType, uniqueNodes.size(), 
+                        networkAssociatedNodes.size(), normalNodes.size());
+                
+                // 应用过滤规则（网端关联优先，但占用配额）
                 List<GraphNode> filtered = 
-                        applyFilterRules(entityType, uniqueNodes);
+                        applyFilterRules(entityType, networkAssociatedNodes, normalNodes);
                 
                 // 标记要移除的节点
                 for (GraphNode node : uniqueNodes) {
@@ -97,9 +113,8 @@ public class EntityFilterUtil {
                     }
                 }
                 
-                log.debug("【实体过滤】processGuid={}, type={}, 原数量={}, 去重后={}, 过滤后={}", 
-                        processGuid, entityType, nodesOfType.size(), 
-                        uniqueNodes.size(), filtered.size());
+                log.debug("【实体过滤】processGuid={}, type={}, 去重后={}, 过滤后={}", 
+                        processGuid, entityType, uniqueNodes.size(), filtered.size());
             }
         }
         
@@ -248,26 +263,35 @@ public class EntityFilterUtil {
     
     /**
      * 应用过滤规则
+     * 
+     * @param entityType 实体类型
+     * @param networkAssociatedNodes 网端关联的实体（优先保留）
+     * @param normalNodes 普通实体
+     * @return 过滤后的节点列表
      */
     private static List<GraphNode> applyFilterRules(
             String entityType, 
-            List<GraphNode> nodes) {
+            List<GraphNode> networkAssociatedNodes,
+            List<GraphNode> normalNodes) {
         
         switch (entityType.toLowerCase()) {
             case "file":
-                return filterFileNodes(nodes, 3);
+                return filterFileNodes(networkAssociatedNodes, normalNodes, 3);
                 
             case "domain":
-                return filterDomainNodes(nodes, 5);
+                return filterDomainNodes(networkAssociatedNodes, normalNodes, 5);
                 
             case "network":
-                return filterNetworkNodes(nodes, 5);
+                return filterNetworkNodes(networkAssociatedNodes, normalNodes, 5);
                 
             case "registry":
-                return filterRegistryNodes(nodes, 3);
+                return filterRegistryNodes(networkAssociatedNodes, normalNodes, 3);
                 
             default:
-                return nodes;
+                // 默认情况：合并返回
+                List<GraphNode> result = new ArrayList<>(networkAssociatedNodes);
+                result.addAll(normalNodes);
+                return result;
         }
     }
     
@@ -276,20 +300,35 @@ public class EntityFilterUtil {
      * 规则：
      * 1. 优先后缀（.exe .dll等）+ opType=create → 全部保留
      * 2. 非优先后缀的文件：
-     *    - create 操作：保留最早的 3 个
-     *    - write 操作：保留最早的 3 个
-     *    - delete 操作：保留最早的 3 个
+     *    - create 操作：保留最早的 3 个（网端关联优先，占用配额）
+     *    - write 操作：保留最早的 3 个（网端关联优先，占用配额）
+     *    - delete 操作：保留最早的 3 个（网端关联优先，占用配额）
      */
     private static List<GraphNode> filterFileNodes(
-            List<GraphNode> nodes, int limit) {
+            List<GraphNode> networkAssociatedNodes,
+            List<GraphNode> normalNodes,
+            int limit) {
+        
+        // 合并所有节点用于分类
+        List<GraphNode> allNodes = new ArrayList<>(networkAssociatedNodes);
+        allNodes.addAll(normalNodes);
         
         // 1. 分类：优先文件（优先后缀+create） vs 普通文件（按opType分组）
         List<GraphNode> priorityFiles = new ArrayList<>();
+        // opType -> (网端关联列表, 普通列表)
+        Map<String, List<GraphNode>> networkFilesByOpType = new HashMap<>();
         Map<String, List<GraphNode>> normalFilesByOpType = new HashMap<>();
         
-        for (GraphNode node : nodes) {
+        // 用于快速判断是否网端关联
+        Set<String> networkAssociatedIds = new HashSet<>();
+        for (GraphNode node : networkAssociatedNodes) {
+            networkAssociatedIds.add(node.getNodeId());
+        }
+        
+        for (GraphNode node : allNodes) {
             String filename = extractFilename(node);
             String opType = extractOpType(node);
+            boolean isNetworkAssociated = networkAssociatedIds.contains(node.getNodeId());
             
             // 判断是否有优先后缀
             boolean hasPriorityExt = hasPriorityExtension(filename);
@@ -298,34 +337,50 @@ public class EntityFilterUtil {
             if (hasPriorityExt && "create".equalsIgnoreCase(opType)) {
                 priorityFiles.add(node);
             } else {
-                // 非优先后缀的文件，按 opType 分组
+                // 非优先后缀的文件，按 opType 分组，并区分网端关联和普通
                 String opTypeKey = (opType == null || opType.isEmpty()) ? "unknown" : opType.toLowerCase();
-                normalFilesByOpType.computeIfAbsent(opTypeKey, k -> new ArrayList<>()).add(node);
+                if (isNetworkAssociated) {
+                    networkFilesByOpType.computeIfAbsent(opTypeKey, k -> new ArrayList<>()).add(node);
+                } else {
+                    normalFilesByOpType.computeIfAbsent(opTypeKey, k -> new ArrayList<>()).add(node);
+                }
             }
         }
         
-        log.debug("【文件过滤】优先文件(优先后缀+create)数={}, 普通文件分组={}", 
-                priorityFiles.size(), normalFilesByOpType.keySet());
+        log.debug("【文件过滤】优先文件(优先后缀+create)数={}, opType分组数={}", 
+                priorityFiles.size(), 
+                new HashSet<String>() {{ addAll(networkFilesByOpType.keySet()); addAll(normalFilesByOpType.keySet()); }}.size());
         
         // 2. 优先文件全部保留
         List<GraphNode> result = new ArrayList<>(priorityFiles);
         
-        // 3. 普通文件按 opType 分组，每组保留最早的 3 个
+        // 3. 普通文件按 opType 分组，每组保留最早的 limit 个（网端关联优先，占用配额）
+        Set<String> allOpTypes = new HashSet<>();
+        allOpTypes.addAll(networkFilesByOpType.keySet());
+        allOpTypes.addAll(normalFilesByOpType.keySet());
+        
         int totalNormalFiles = 0;
-        for (Map.Entry<String, List<GraphNode>> entry : normalFilesByOpType.entrySet()) {
-            String opType = entry.getKey();
-            List<GraphNode> filesOfType = entry.getValue();
+        for (String opType : allOpTypes) {
+            List<GraphNode> networkFiles = networkFilesByOpType.getOrDefault(opType, new ArrayList<>());
+            List<GraphNode> normalFiles = normalFilesByOpType.getOrDefault(opType, new ArrayList<>());
             
-            // 按时间升序排序（最早的在前）
-            filesOfType.sort((a, b) -> compareByTime(a, b, true));
+            int totalOfType = networkFiles.size() + normalFiles.size();
+            List<GraphNode> filteredFiles;
             
-            // 取前 3 个
-            int count = Math.min(limit, filesOfType.size());
-            result.addAll(filesOfType.subList(0, count));
-            totalNormalFiles += count;
+            if (totalOfType <= limit) {
+                // 数量未超限，全部保留
+                filteredFiles = new ArrayList<>(networkFiles);
+                filteredFiles.addAll(normalFiles);
+            } else {
+                // ✅ 使用网端关联优先的选择逻辑（占用配额）
+                filteredFiles = selectWithNetworkPriority(networkFiles, normalFiles, limit, true);
+            }
             
-            log.debug("【文件过滤】普通文件 opType={}, 总数={}, 保留最早的{}个", 
-                    opType, filesOfType.size(), count);
+            result.addAll(filteredFiles);
+            totalNormalFiles += filteredFiles.size();
+            
+            log.debug("【文件过滤】普通文件 opType={}, 网端={}, 普通={}, 保留{}个", 
+                    opType, networkFiles.size(), normalFiles.size(), filteredFiles.size());
         }
         
         log.debug("【文件过滤】最终保留文件数={} (优先{}个 + 普通{}个)", 
@@ -336,59 +391,105 @@ public class EntityFilterUtil {
     
     /**
      * 过滤domain节点
-     * 规则：保留最早的5个
+     * 规则：保留最早的5个（网端关联的优先，占用配额）
      */
     private static List<GraphNode> filterDomainNodes(
-            List<GraphNode> nodes, int limit) {
+            List<GraphNode> networkAssociatedNodes,
+            List<GraphNode> normalNodes,
+            int limit) {
         
-        if (nodes.size() <= limit) {
-            return nodes;
+        int total = networkAssociatedNodes.size() + normalNodes.size();
+        if (total <= limit) {
+            List<GraphNode> result = new ArrayList<>(networkAssociatedNodes);
+            result.addAll(normalNodes);
+            return result;
         }
         
-        // ✅ 修改：按时间升序排序（最早的在前）
-        nodes.sort((a, b) -> compareByTime(a, b, true));
-        
-        return nodes.stream()
-                .limit(limit)
-                .collect(Collectors.toList());
+        // ✅ 网端关联优先，占用配额
+        return selectWithNetworkPriority(networkAssociatedNodes, normalNodes, limit, true);
     }
     
     /**
      * 过滤network节点
-     * 规则：保留最早的5个
+     * 规则：保留最早的5个（网端关联的优先，占用配额）
      */
     private static List<GraphNode> filterNetworkNodes(
-            List<GraphNode> nodes, int limit) {
+            List<GraphNode> networkAssociatedNodes,
+            List<GraphNode> normalNodes,
+            int limit) {
         
-        if (nodes.size() <= limit) {
-            return nodes;
+        int total = networkAssociatedNodes.size() + normalNodes.size();
+        if (total <= limit) {
+            List<GraphNode> result = new ArrayList<>(networkAssociatedNodes);
+            result.addAll(normalNodes);
+            return result;
         }
         
-        // ✅ 修改：与domain相同，保留最早的
-        nodes.sort((a, b) -> compareByTime(a, b, true));
-        
-        return nodes.stream()
-                .limit(limit)
-                .collect(Collectors.toList());
+        // ✅ 网端关联优先，占用配额
+        return selectWithNetworkPriority(networkAssociatedNodes, normalNodes, limit, true);
     }
     
     /**
      * 过滤registry节点
-     * 规则：保留最早的3个
+     * 规则：保留最早的3个（网端关联的优先，占用配额）
      */
     private static List<GraphNode> filterRegistryNodes(
-            List<GraphNode> nodes, int limit) {
+            List<GraphNode> networkAssociatedNodes,
+            List<GraphNode> normalNodes,
+            int limit) {
         
-        if (nodes.size() <= limit) {
-            return nodes;
+        int total = networkAssociatedNodes.size() + normalNodes.size();
+        if (total <= limit) {
+            List<GraphNode> result = new ArrayList<>(networkAssociatedNodes);
+            result.addAll(normalNodes);
+            return result;
         }
         
-        // 按时间升序排序（最早的在前）
-        nodes.sort((a, b) -> compareByTime(a, b, true));
+        // ✅ 网端关联优先，占用配额
+        return selectWithNetworkPriority(networkAssociatedNodes, normalNodes, limit, true);
+    }
+    
+    /**
+     * 网端关联优先的选择方法
+     * 
+     * 逻辑：
+     * 1. 网端关联的实体优先保留（占用配额）
+     * 2. 剩余配额用普通实体填充
+     * 
+     * @param networkAssociatedNodes 网端关联的实体（已分离好）
+     * @param normalNodes 普通实体（已分离好）
+     * @param limit 保留数量限制
+     * @param ascending true=按时间升序（最早的在前），false=按时间降序
+     * @return 过滤后的节点列表
+     */
+    private static List<GraphNode> selectWithNetworkPriority(
+            List<GraphNode> networkAssociatedNodes,
+            List<GraphNode> normalNodes,
+            int limit, 
+            boolean ascending) {
         
-        return nodes.stream()
-                .limit(limit)
-                .collect(Collectors.toList());
+        // 1. 对两组分别按时间排序
+        List<GraphNode> sortedNetwork = new ArrayList<>(networkAssociatedNodes);
+        List<GraphNode> sortedNormal = new ArrayList<>(normalNodes);
+        sortedNetwork.sort((a, b) -> compareByTime(a, b, ascending));
+        sortedNormal.sort((a, b) -> compareByTime(a, b, ascending));
+        
+        // 2. 优先保留网端关联的实体（占用配额）
+        List<GraphNode> result = new ArrayList<>();
+        int networkCount = Math.min(sortedNetwork.size(), limit);
+        result.addAll(sortedNetwork.subList(0, networkCount));
+        
+        // 3. 剩余配额用普通实体填充
+        int remainingQuota = limit - result.size();
+        if (remainingQuota > 0 && !sortedNormal.isEmpty()) {
+            int normalCount = Math.min(sortedNormal.size(), remainingQuota);
+            result.addAll(sortedNormal.subList(0, normalCount));
+        }
+        
+        log.debug("【网端优先选择】配额={}, 保留网端关联={}个, 保留普通={}个, 总保留={}个", 
+                limit, networkCount, result.size() - networkCount, result.size());
+        
+        return result;
     }
     
     /**
