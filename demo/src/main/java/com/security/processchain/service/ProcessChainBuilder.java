@@ -292,12 +292,26 @@ public class ProcessChainBuilder {
                 log.warn("  - 图节点总数: {}", fullGraph.getNodeCount());
                 log.warn("  - 根节点数: {}", fullGraph.getRootNodes().size());
                 
-                // 兜底方案：使用根节点
+                // 兜底方案1：使用根节点
                 if (!fullGraph.getRootNodes().isEmpty()) {
                     startNodes.addAll(fullGraph.getRootNodes());
-                    log.info("【兜底方案】✅ 使用 {} 个根节点作为起点", startNodes.size());
-                } else {
-                    log.error("【致命错误】❌ 图中没有根节点，无法生成进程链！");
+                    log.info("【兜底方案1】✅ 使用 {} 个根节点作为起点", startNodes.size());
+                }
+                // 兜底方案2：如果没有根节点，使用logs的第一条日志作为起点
+                else if (logs != null && !logs.isEmpty()) {
+                    RawLog firstLog = logs.get(0);
+                    if (firstLog.getProcessGuid() != null) {
+                        startNodes.add(firstLog.getProcessGuid());
+                        log.info("【兜底方案2】✅ 使用logs的第一条日志作为起点: processGuid={}, eventId={}, traceId={}", 
+                                firstLog.getProcessGuid(), firstLog.getEventId(), firstLog.getTraceId());
+                    } else {
+                        log.error("【兜底方案2】❌ logs的第一条日志没有processGuid");
+                        return new ProcessChainResult();  // 返回空结果
+                    }
+                }
+                // 兜底失败：既没有根节点，也没有可用的日志
+                else {
+                    log.error("【致命错误】❌ 图中没有根节点，且没有可用的日志，无法生成进程链！");
                     return new ProcessChainResult();  // 返回空结果
                 }
             }
