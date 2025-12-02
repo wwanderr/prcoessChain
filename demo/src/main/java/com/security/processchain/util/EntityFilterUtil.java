@@ -43,8 +43,9 @@ public class EntityFilterUtil {
      * 过滤图中的实体节点
      * 
      * @param graph 进程链图
+     * @param networkAssociatedEventIds 网端关联的 eventId 集合（用于标识网端关联实体）
      */
-    public static void filterEntityNodesInGraph(ProcessChainGraph graph) {
+    public static void filterEntityNodesInGraph(ProcessChainGraph graph, Set<String> networkAssociatedEventIds) {
         if (graph == null) {
             return;
         }
@@ -87,14 +88,18 @@ public class EntityFilterUtil {
                         deduplicateNodes(nodesOfType, entityType);
                 
                 // ✅ 分离网端关联和普通实体
-                // 注意：只有网端关联的日志/告警创建的实体才会有 createdByEventId
+                // 条件：createdByEventId 不为空且在 networkAssociatedEventIds 中
                 List<GraphNode> networkAssociatedNodes = new ArrayList<>();
                 List<GraphNode> normalNodes = new ArrayList<>();
                 
                 for (GraphNode node : uniqueNodes) {
-                    if (node.getCreatedByEventId() != null && !node.getCreatedByEventId().isEmpty()) {
+                    // ✅ 必须同时满足：1. 有 createdByEventId  2. 在 networkAssociatedEventIds 中
+                    if (node.getCreatedByEventId() != null && 
+                        !node.getCreatedByEventId().isEmpty() &&
+                        networkAssociatedEventIds != null &&
+                        networkAssociatedEventIds.contains(node.getCreatedByEventId())) {
                         networkAssociatedNodes.add(node);
-                        log.debug("【实体过滤】网端关联实体: nodeId={}, createdByEventId={}", 
+                        log.debug("【实体过滤】✅ 网端关联实体: nodeId={}, createdByEventId={}", 
                                 node.getNodeId(), node.getCreatedByEventId());
                     } else {
                         normalNodes.add(node);

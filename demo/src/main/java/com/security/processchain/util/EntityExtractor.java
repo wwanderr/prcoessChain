@@ -639,6 +639,12 @@ public class EntityExtractor {
      * 匹配实体内容（日志 vs 告警）
      * 
      * 用于判断日志和告警是否描述同一个实体
+     * 
+     * 规则必须与 generateEntityNodeId 保持一致：
+     * - file: fileMd5 + targetFilename 组合匹配
+     * - domain: requestDomain 匹配
+     * - network: destAddress 匹配
+     * - registry: targetObject 匹配
      */
     private static boolean matchEntityContent(String entityType, RawLog log, RawAlarm alarm) {
         if (entityType == null) {
@@ -647,33 +653,53 @@ public class EntityExtractor {
         
         switch (entityType.toLowerCase()) {
             case "file":
-                // 匹配 targetFilename 或 fileMd5
-                String logFile = log.getTargetFilename();
-                String alarmFile = alarm.getTargetFilename();
-                if (logFile != null && !logFile.isEmpty() && logFile.equals(alarmFile)) {
-                    return true;
-                }
+                // ✅ 必须同时匹配 fileMd5 + targetFilename（与 generateEntityNodeId 一致）
                 String logMd5 = log.getFileMd5();
                 String alarmMd5 = alarm.getFileMd5();
-                if (logMd5 != null && !logMd5.isEmpty() && logMd5.equals(alarmMd5)) {
-                    return true;
-                }
-                return false;
+                String logFile = log.getTargetFilename();
+                String alarmFile = alarm.getTargetFilename();
+                
+                // 规范化 null 值（与 generateEntityNodeId 保持一致）
+                String logMd5Key = (logMd5 != null && !logMd5.isEmpty()) ? logMd5 : "NOMD5";
+                String alarmMd5Key = (alarmMd5 != null && !alarmMd5.isEmpty()) ? alarmMd5 : "NOMD5";
+                String logFileKey = (logFile != null && !logFile.isEmpty()) ? logFile : "NONAME";
+                String alarmFileKey = (alarmFile != null && !alarmFile.isEmpty()) ? alarmFile : "NONAME";
+                
+                // 组合键必须完全相同
+                String logCompositeKey = logMd5Key + "_" + logFileKey;
+                String alarmCompositeKey = alarmMd5Key + "_" + alarmFileKey;
+                
+                return logCompositeKey.equals(alarmCompositeKey);
                 
             case "domain":
                 String logDomain = log.getRequestDomain();
                 String alarmDomain = alarm.getRequestDomain();
-                return logDomain != null && !logDomain.isEmpty() && logDomain.equals(alarmDomain);
+                
+                // 规范化 null 值
+                String logDomainKey = (logDomain != null && !logDomain.isEmpty()) ? logDomain : "NODOMAIN";
+                String alarmDomainKey = (alarmDomain != null && !alarmDomain.isEmpty()) ? alarmDomain : "NODOMAIN";
+                
+                return logDomainKey.equals(alarmDomainKey);
                 
             case "network":
                 String logDest = log.getDestAddress();
                 String alarmDest = alarm.getDestAddress();
-                return logDest != null && !logDest.isEmpty() && logDest.equals(alarmDest);
+                
+                // 规范化 null 值
+                String logDestKey = (logDest != null && !logDest.isEmpty()) ? logDest : "NOADDR";
+                String alarmDestKey = (alarmDest != null && !alarmDest.isEmpty()) ? alarmDest : "NOADDR";
+                
+                return logDestKey.equals(alarmDestKey);
                 
             case "registry":
                 String logTarget = log.getTargetObject();
                 String alarmTarget = alarm.getTargetObject();
-                return logTarget != null && !logTarget.isEmpty() && logTarget.equals(alarmTarget);
+                
+                // 规范化 null 值
+                String logTargetKey = (logTarget != null && !logTarget.isEmpty()) ? logTarget : "NOOBJ";
+                String alarmTargetKey = (alarmTarget != null && !alarmTarget.isEmpty()) ? alarmTarget : "NOOBJ";
+                
+                return logTargetKey.equals(alarmTargetKey);
                 
             default:
                 return false;

@@ -385,7 +385,7 @@ public class ProcessChainBuilder {
             log.info("【实体提取完成】节点总数={}", subgraph.getNodeCount());
             
             // ===== 阶段7：实体过滤 =====
-            EntityFilterUtil.filterEntityNodesInGraph(subgraph);
+            EntityFilterUtil.filterEntityNodesInGraph(subgraph, networkAssociatedEventIds);
             
             log.info("【实体过滤完成】最终节点数={}", subgraph.getNodeCount());
             
