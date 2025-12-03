@@ -316,9 +316,13 @@ public class ProcessChainBuilder {
                 }
             }
             
-            // ===== 阶段3：子图提取（遍历） =====
-            // 从告警/起点日志出发，提取所有连通的节点
+            // ===== 阶段3：子图提取（遍历） - 已优化 =====
+            // 优化：先找出所有唯一的顶端节点，再遍历，避免重复遍历同一棵树
             Set<String> relevantNodes = new HashSet<>();
+            
+            // 步骤1：收集所有顶端节点并去重
+            Set<String> uniqueTopNodes = new HashSet<>();
+            int validStartCount = 0;
             
             for (String startNode : startNodes) {
                 GraphNode node = fullGraph.getNode(startNode);
@@ -328,12 +332,21 @@ public class ProcessChainBuilder {
                     continue;
                 }
                 
-                // 全树遍历：向上到root，对路径上每个节点向下遍历所有子树
-                // 保证所有连通关系（包括兄弟分支）都被包含
-                Set<String> connectedNodes = fullGraph.fullTreeTraversal(startNode);
-                relevantNodes.addAll(connectedNodes);
-                
-                log.info("【全树遍历】起点={}, 连通节点数={}", startNode, connectedNodes.size());
+                validStartCount++;
+                // 快速向上找到所有顶端节点（支持 DAG 和环）
+                Set<String> topNodes = fullGraph.findAllTopNodes(startNode);
+                uniqueTopNodes.addAll(topNodes);
+            }
+            
+            log.info("【全树遍历优化】原起点数={}, 有效起点数={}, 唯一顶端节点数={}, 减少遍历次数={}",
+                    startNodes.size(), validStartCount, uniqueTopNodes.size(), 
+                    Math.max(0, validStartCount - uniqueTopNodes.size()));
+            
+            // 步骤2：对每个唯一顶端节点只遍历一次
+            for (String topNode : uniqueTopNodes) {
+                Set<String> subtree = fullGraph.bfsTraversal(topNode, false);  // 向下遍历
+                relevantNodes.addAll(subtree);
+                log.debug("【全树遍历】顶端节点={}, 子树节点数={}", topNode, subtree.size());
             }
             
             log.info("【子图提取】相关节点总数={}", relevantNodes.size());

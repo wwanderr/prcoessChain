@@ -705,6 +705,91 @@ public class ProcessChainGraph {
     }
     
     /**
+     * 【优化】快速向上找到所有顶端节点
+     * 
+     * 顶端节点的定义：
+     * 1. isRoot=true 的根节点（processGuid == traceId）
+     * 2. 自环节点（processGuid == parentProcessGuid，已被记录到 selfReferenceNodeIds）
+     * 3. 没有父节点的节点（入度为0）
+     * 
+     * 支持 DAG（多父节点）：使用 BFS 向上遍历所有路径
+     * 支持环：使用 visited 集合防止死循环，环中取代表节点
+     * 
+     * @param startNodeId 起始节点ID
+     * @return 所有顶端节点ID的集合
+     */
+    public Set<String> findAllTopNodes(String startNodeId) {
+        Set<String> topNodes = new HashSet<>();
+        Set<String> visited = new HashSet<>();
+        Queue<String> queue = new LinkedList<>();
+        
+        queue.offer(startNodeId);
+        visited.add(startNodeId);
+        
+        // 记录环中的节点，用于后续选取代表节点
+        Set<String> cycleNodes = new HashSet<>();
+        
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            GraphNode node = nodes.get(current);
+            
+            if (node == null) {
+                topNodes.add(current);
+                continue;
+            }
+            
+            // 条件1：找到根节点（processGuid == traceId）
+            if (node.isRoot()) {
+                topNodes.add(current);
+                continue;  // 根节点是顶端，不继续向上
+            }
+            
+            // 条件2：自环节点（已被记录到 selfReferenceNodeIds）
+            if (isSelfReferenceNode(current)) {
+                topNodes.add(current);
+                continue;  // 自环节点是顶端，不继续向上（会死循环）
+            }
+            
+            // 向上找父节点
+            List<String> parents = getParents(current);
+            if (parents.isEmpty()) {
+                // 条件3：没有父节点，当前就是顶端
+                topNodes.add(current);
+            } else {
+                boolean hasUnvisitedParent = false;
+                for (String parent : parents) {
+                    if (!visited.contains(parent)) {
+                        visited.add(parent);
+                        queue.offer(parent);
+                        hasUnvisitedParent = true;
+                    } else {
+                        // 父节点已访问过，可能是环
+                        cycleNodes.add(parent);
+                        cycleNodes.add(current);
+                    }
+                }
+                
+                // 如果所有父节点都已访问（全是环），当前节点作为顶端
+                if (!hasUnvisitedParent && !parents.isEmpty()) {
+                    // 从环中选取代表节点（ID 最小的）
+                    cycleNodes.add(current);
+                }
+            }
+        }
+        
+        // 如果有环且没有找到其他顶端节点，从环中选取代表节点
+        if (topNodes.isEmpty() && !cycleNodes.isEmpty()) {
+            String representative = cycleNodes.stream().min(String::compareTo).orElse(null);
+            if (representative != null) {
+                topNodes.add(representative);
+                log.debug("【findAllTopNodes】检测到环，选取代表节点: {}", representative);
+            }
+        }
+        
+        return topNodes;
+    }
+    
+    /**
      * 提取子图
      * 
      * @param nodeIds 要包含的节点ID集合
