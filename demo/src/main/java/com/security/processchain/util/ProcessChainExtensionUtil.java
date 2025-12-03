@@ -191,6 +191,7 @@ public class ProcessChainExtensionUtil {
      * <p><b>处理流程</b>：</p>
      * <ol>
      *   <li>获取原始根节点的 parentProcessGuid</li>
+     *   <li>如果是虚拟父节点（parentProcessGuid为null但有子节点指向它），先查询自己的日志来获取真正的parentProcessGuid</li>
      *   <li>通过 traceId 反向查找对应的 hostAddress</li>
      *   <li>调用 ES 查询服务，查询父节点及其祖先节点的日志（最多 maxDepth 层）</li>
      *   <li>将查询到的日志按 processGuid 分组</li>
@@ -227,39 +228,53 @@ public class ProcessChainExtensionUtil {
             return originalRootId; // 节点不存在或不是进程链节点，无法扩展
         }
         
-        // ========== 步骤2：获取父节点 GUID ==========
+        // ========== 步骤2：获取 ProcessEntity ==========
         ProcessEntity processEntity = originalNode.getChainNode().getProcessEntity();
-        if (processEntity == null || processEntity.getParentProcessGuid() == null) {
-            log.debug("【扩展溯源】-> 节点 {} 无父节点", originalRootId);
-            return originalRootId; // 无父节点信息，无法扩展
+        if (processEntity == null) {
+            log.debug("【扩展溯源】-> 节点 {} 无 ProcessEntity", originalRootId);
+            return originalRootId;
         }
         
+        // ========== 步骤3：判断是否是虚拟父节点 ==========
+        boolean isVirtualParent = isVirtualParentNode(originalNode, allNodes);
         String parentGuid = processEntity.getParentProcessGuid();
         
-        // ========== 步骤3：获取 hostAddress ==========
-        // 需要知道主机地址才能查询 ES
+        // ========== 步骤4：获取 hostAddress ==========
         String hostAddress = getHostAddressForTraceId(traceId, hostToTraceId);
         if (hostAddress == null) {
             log.warn("【扩展溯源】-> 无法获取 traceId={} 的 hostAddress", traceId);
             return originalRootId;
         }
         
-        // ========== 步骤4：查询父节点日志 ==========
         try {
-            List<String> parentGuids = Arrays.asList(parentGuid);
-            
-            // 调用 ES 查询服务，查询父节点及其祖先的日志
-            // 注意：queryLogsByProcessGuids 方法会递归查询 maxDepth 层
-            List<RawLog> extensionLogs = esQueryService.queryLogsByProcessGuids(
-                    hostAddress, parentGuids, maxDepth);
-            
-            if (extensionLogs.isEmpty()) {
-                log.debug("【扩展溯源】-> 未查询到父节点日志: {}", parentGuid);
-                return originalRootId; // 查询为空，无法扩展
+            // ========== 步骤5：确定查询的 GUID ==========
+            String queryGuid;
+            if (isVirtualParent) {
+                // 虚拟父节点：用自己的 processGuid 查询（会递归查到父节点日志）
+                queryGuid = processEntity.getProcessGuid();
+                log.info("【扩展溯源】-> 检测到虚拟父节点，使用 processGuid 查询: nodeId={}, processGuid={}", 
+                        originalRootId, queryGuid);
+            } else {
+                // 普通节点：用 parentProcessGuid 查询父节点日志
+                queryGuid = parentGuid;
+                if (queryGuid == null) {
+                    log.debug("【扩展溯源】-> 节点 {} 无父节点", originalRootId);
+                    return originalRootId;
+                }
             }
             
-            // ========== ✅ 关键修复：过滤掉不同 traceId 的日志 ==========
-            // 扩展溯源必须在同一个 traceId 内进行，不能跨 traceId
+            // ========== 步骤6：统一查询 ES ==========
+            // 对于虚拟父节点，会查到自己的日志 + 父节点日志
+            // 对于普通节点，只查父节点日志
+            List<RawLog> extensionLogs = esQueryService.queryLogsByProcessGuids(
+                    hostAddress, Arrays.asList(queryGuid), maxDepth);
+            
+            if (extensionLogs.isEmpty()) {
+                log.debug("【扩展溯源】-> 未查询到日志: {}", queryGuid);
+                return originalRootId;
+            }
+            
+            // ========== 步骤7：过滤掉不同 traceId 的日志 ==========
             List<RawLog> filteredLogs = extensionLogs.stream()
                     .filter(rawLog -> traceId.equals(rawLog.getTraceId()))
                     .collect(Collectors.toList());
@@ -275,12 +290,42 @@ public class ProcessChainExtensionUtil {
                 return originalRootId;
             }
             
-            // ========== 步骤5：按 processGuid 分组 ==========
-            // 将日志按进程GUID分组，方便后续构建节点
+            // ========== 步骤8：按 processGuid 分组 ==========
             Map<String, List<RawLog>> logsByGuid = groupLogsByProcessGuid(filteredLogs);
             
-            // ========== 步骤6：递归构建扩展链 ==========
-            // 从父节点开始，递归向上构建扩展链，返回最顶端节点ID
+            // ========== 步骤9：虚拟父节点特殊处理 ==========
+            if (isVirtualParent) {
+                String selfGuid = processEntity.getProcessGuid();
+                
+                // 从查询结果中提取自己的日志，丰富节点信息
+                List<RawLog> selfLogs = logsByGuid.get(selfGuid);
+                if (selfLogs != null && !selfLogs.isEmpty()) {
+                    enrichVirtualParentNode(originalNode, selfLogs);
+                    
+                    // 获取真正的 parentProcessGuid
+                    parentGuid = processEntity.getParentProcessGuid();
+                    log.info("【扩展溯源】-> 虚拟父节点丰富成功，获取到真正的 parentProcessGuid: {}", parentGuid);
+                    
+                    // 从 logsByGuid 中移除自己的日志（避免重复创建节点）
+                    logsByGuid.remove(selfGuid);
+                } else {
+                    log.info("【扩展溯源】-> 虚拟父节点在查询结果中无自己的日志: {}", selfGuid);
+                }
+                
+                // 如果没有获取到 parentGuid，无法继续扩展
+                if (parentGuid == null) {
+                    log.info("【扩展溯源】-> 虚拟父节点丰富后仍无父节点，停止扩展: {}", originalRootId);
+                    return originalRootId;
+                }
+                
+                // 如果父节点日志不在查询结果中，也无法扩展
+                if (!logsByGuid.containsKey(parentGuid)) {
+                    log.info("【扩展溯源】-> 父节点日志不在查询结果中: {}", parentGuid);
+                    return originalRootId;
+                }
+            }
+            
+            // ========== 步骤10：递归构建扩展链 ==========
             return buildExtensionChain(
                     originalRootId,    // 子节点ID（原始根节点）
                     parentGuid,        // 当前节点ID（父节点）
@@ -294,6 +339,92 @@ public class ProcessChainExtensionUtil {
             log.error("【扩展溯源】-> 查询失败: {}", e.getMessage(), e);
             return originalRootId; // 异常情况，保持原样
         }
+    }
+    
+    /**
+     * 判断是否是虚拟父节点
+     * 
+     * <p><b>虚拟父节点特征</b>：</p>
+     * <ol>
+     *   <li>parentProcessGuid == null（没有父节点信息，因为是从子节点日志构造的）</li>
+     *   <li>isRoot == true（是根节点）</li>
+     *   <li>有子节点引用它（它的 processGuid 被其他节点作为 parentProcessGuid）</li>
+     * </ol>
+     * 
+     * @param node 要判断的节点
+     * @param allNodes 所有节点列表
+     * @return true-是虚拟父节点，false-不是
+     */
+    private static boolean isVirtualParentNode(ProcessNode node, List<ProcessNode> allNodes) {
+        if (node == null || node.getChainNode() == null) return false;
+        
+        ProcessEntity pe = node.getChainNode().getProcessEntity();
+        if (pe == null) return false;
+        
+        // 条件1：parentProcessGuid 为 null
+        if (pe.getParentProcessGuid() != null) return false;
+        
+        // 条件2：是根节点
+        if (!Boolean.TRUE.equals(node.getChainNode().getIsRoot())) return false;
+        
+        // 条件3：有子节点引用它（说明它是作为"父节点"角色存在的）
+        String myProcessGuid = pe.getProcessGuid();
+        if (myProcessGuid == null) return false;
+        
+        for (ProcessNode other : allNodes) {
+            if (other == node || other.getChainNode() == null) continue;
+            ProcessEntity otherPe = other.getChainNode().getProcessEntity();
+            if (otherPe != null && myProcessGuid.equals(otherPe.getParentProcessGuid())) {
+                return true;  // 有子节点引用它 → 是虚拟父节点
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 用查询到的真实日志丰富虚拟父节点信息
+     * 
+     * <p><b>功能说明</b>：虚拟父节点是从子节点日志的 parentXXX 字段构造的，信息不完整。
+     * 通过查询 ES 获取该进程的真实日志后，可以丰富节点信息，特别是获取真正的 parentProcessGuid。</p>
+     * 
+     * @param virtualNode 虚拟父节点
+     * @param logs 查询到的真实日志
+     */
+    private static void enrichVirtualParentNode(ProcessNode virtualNode, List<RawLog> logs) {
+        if (logs == null || logs.isEmpty()) return;
+        
+        RawLog realLog = logs.get(0);
+        ProcessEntity pe = virtualNode.getChainNode().getProcessEntity();
+        if (pe == null) return;
+        
+        // ✅ 关键：更新 parentProcessGuid，使扩展溯源能继续向上
+        if (realLog.getParentProcessGuid() != null) {
+            pe.setParentProcessGuid(realLog.getParentProcessGuid());
+            log.info("【扩展溯源】-> 虚拟父节点获取到真正的 parentProcessGuid: {}", 
+                    realLog.getParentProcessGuid());
+        }
+        
+        // 丰富其他信息（用真实日志替换从子节点提取的信息）
+        if (realLog.getCommandLine() != null) {
+            pe.setCommandline(realLog.getCommandLine());
+        }
+        if (realLog.getProcessName() != null) {
+            pe.setProcessName(realLog.getProcessName());
+        }
+        if (realLog.getImage() != null) {
+            pe.setImage(realLog.getImage());
+        }
+        if (realLog.getProcessId() != null) {
+            pe.setProcessId(String.valueOf(realLog.getProcessId()));
+        }
+        if (realLog.getProcessMd5() != null) {
+            pe.setProcessMd5(realLog.getProcessMd5());
+        }
+        if (realLog.getProcessUserName() != null) {
+            pe.setProcessUserName(realLog.getProcessUserName());
+        }
+        
+        log.info("【扩展溯源】-> 虚拟父节点信息已丰富: nodeId={}", virtualNode.getNodeId());
     }
     
     /**
