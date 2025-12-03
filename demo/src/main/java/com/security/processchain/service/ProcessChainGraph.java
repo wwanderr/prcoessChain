@@ -407,35 +407,41 @@ public class ProcessChainGraph {
                 log.debug("【根节点识别-步骤1】找到真正的根节点: {} (processGuid==traceId)", nodeId);
             }
             // 2. 自引用节点：parentProcessGuid 为 null 且在自引用节点集合中（已被清空的自环节点）
-            // 策略：
-            //   - 如果 traceId 还没有根节点映射 → 作为根节点，同时标记为断链
-            //   - 如果 traceId 已有根节点映射（真正的根存在）→ 作为断链节点
+            // 关键区分：
+            //   1. processGuid == traceId: 这是真正的根节点，应该加入 traceIdToRootNodeMap
+            //   2. processGuid != traceId: 这是断链节点，不应该加入 traceIdToRootNodeMap
             else if (node.getParentProcessGuid() == null && !node.isVirtual() && isSelfReferenceNode(nodeId)) {
                 String traceId = node.getTraceId();
+                String processGuid = node.getProcessGuid();
                 
-                if (!traceIdToRootNodeMap.containsKey(traceId)) {
-                    // 场景1：该 traceId 还没有根节点 → 自引用节点作为根节点，同时标记为断链
-                    rootNodes.add(nodeId);
-                    node.setRoot(true);
-                    traceIdToRootNodeMap.put(traceId, nodeId);
-                    
-                    // ✅ 同时标记为断链节点（自引用节点属于异常情况）
-                    brokenNodes.add(nodeId);
-                    node.setBroken(true);
-                    brokenNodeToTraceId.put(nodeId, traceId);
-                    
-                    log.info("【根节点识别-步骤1】自引用节点作为根节点同时标记为断链: nodeId={}, traceId={}, 入度={} " +
-                            "(该 traceId 无其他根节点)", 
-                            nodeId, traceId, getInDegree(nodeId));
+                // ✅ 关键判断: processGuid == traceId?
+                if (processGuid != null && processGuid.equals(traceId)) {
+                    // 情况1: processGuid == parentProcessGuid == traceId
+                    // 这是真正的根节点
+                    if (!traceIdToRootNodeMap.containsKey(traceId)) {
+                        rootNodes.add(nodeId);
+                        node.setRoot(true);
+                        traceIdToRootNodeMap.put(traceId, nodeId);
+                        
+                        log.info("【根节点识别-步骤1】自引用根节点 (processGuid==traceId): nodeId={}, traceId={}, 入度={}", 
+                                nodeId, traceId, getInDegree(nodeId));
+                    } else {
+                        // 如果该 traceId 已有其他根节点,这个自引用节点作为断链
+                        brokenNodes.add(nodeId);
+                        node.setBroken(true);
+                        brokenNodeToTraceId.put(nodeId, traceId);
+                        log.info("【根节点识别-步骤1】自引用节点作为断链 (processGuid==traceId但已有根节点): nodeId={}, traceId={}, 真正根节点={}", 
+                                nodeId, traceId, traceIdToRootNodeMap.get(traceId));
+                    }
                 } else {
-                    // 场景2：该 traceId 已有根节点（真正的根）→ 自引用节点作为断链节点
+                    // 情况2: processGuid == parentProcessGuid != traceId
+                    // 这是真正的断链节点,不是根节点
                     brokenNodes.add(nodeId);
                     node.setBroken(true);
                     brokenNodeToTraceId.put(nodeId, traceId);
-                    log.info("【根节点识别-步骤1】自引用节点作为断链节点: nodeId={}, traceId={}, " +
-                            "入度={}, 真正根节点={} (该 traceId 已有根节点)", 
-                            nodeId, traceId, getInDegree(nodeId), 
-                            traceIdToRootNodeMap.get(traceId));
+                    
+                    log.info("【根节点识别-步骤1】自引用断链节点 (processGuid!=traceId): nodeId={}, processGuid={}, traceId={}, 入度={}", 
+                            nodeId, processGuid, traceId, getInDegree(nodeId));
                 }
             }
         }
