@@ -397,7 +397,10 @@ public final class IncidentConverters {
      * @param isVirtualParent 是否是虚拟父节点（true：从 parent 字段提取；false：从 process 字段提取）
      * @return ProcessEntity，如果没有进程信息返回null
      */
-    private static ProcessEntity convertToProcessEntityForProcessNode(RawLog log, boolean isVirtualParent) {
+    /**
+     * 从日志转换为 ProcessEntity（公共方法，供扩展溯源使用）
+     */
+    public static ProcessEntity convertToProcessEntityForProcessNode(RawLog log, boolean isVirtualParent) {
         if (log == null) return null;
         
         // 构建 ProcessEntity

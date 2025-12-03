@@ -392,39 +392,17 @@ public class ProcessChainExtensionUtil {
      */
     private static void enrichVirtualParentNode(ProcessNode virtualNode, List<RawLog> logs) {
         if (logs == null || logs.isEmpty()) return;
+        if (virtualNode.getChainNode() == null) return;
         
         RawLog realLog = logs.get(0);
-        ProcessEntity pe = virtualNode.getChainNode().getProcessEntity();
-        if (pe == null) return;
         
-        // ✅ 关键：更新 parentProcessGuid，使扩展溯源能继续向上
-        if (realLog.getParentProcessGuid() != null) {
-            pe.setParentProcessGuid(realLog.getParentProcessGuid());
-            log.info("【扩展溯源】-> 虚拟父节点获取到真正的 parentProcessGuid: {}", 
-                    realLog.getParentProcessGuid());
+        // 使用通用转换方法，从日志的进程字段提取完整信息（isVirtualParent=false）
+        ProcessEntity newEntity = IncidentConverters.convertToProcessEntityForProcessNode(realLog, false);
+        if (newEntity != null) {
+            virtualNode.getChainNode().setProcessEntity(newEntity);
+            log.info("【扩展溯源】-> 虚拟父节点信息已丰富: nodeId={}, parentProcessGuid={}", 
+                    virtualNode.getNodeId(), newEntity.getParentProcessGuid());
         }
-        
-        // 丰富其他信息（用真实日志替换从子节点提取的信息）
-        if (realLog.getCommandLine() != null) {
-            pe.setCommandline(realLog.getCommandLine());
-        }
-        if (realLog.getProcessName() != null) {
-            pe.setProcessName(realLog.getProcessName());
-        }
-        if (realLog.getImage() != null) {
-            pe.setImage(realLog.getImage());
-        }
-        if (realLog.getProcessId() != null) {
-            pe.setProcessId(String.valueOf(realLog.getProcessId()));
-        }
-        if (realLog.getProcessMd5() != null) {
-            pe.setProcessMd5(realLog.getProcessMd5());
-        }
-        if (realLog.getProcessUserName() != null) {
-            pe.setProcessUserName(realLog.getProcessUserName());
-        }
-        
-        log.info("【扩展溯源】-> 虚拟父节点信息已丰富: nodeId={}", virtualNode.getNodeId());
     }
     
     /**
