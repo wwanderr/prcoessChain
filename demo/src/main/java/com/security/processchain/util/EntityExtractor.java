@@ -66,7 +66,8 @@ public class EntityExtractor {
         Map<String, Integer> allLogTypeCount = new HashMap<>();
         
         // 收集所有要添加的实体节点和边信息（避免在遍历时修改图）
-        List<GraphNode> entityNodesToAdd = new ArrayList<>();
+        // ✅ 使用 Map 保证 nodeId 唯一性，避免覆盖（网端关联优先）
+        Map<String, GraphNode> entityNodesToAdd = new HashMap<>();  // entityNodeId -> GraphNode
         Map<String, String> entityToProcessMap = new HashMap<>();  // entityNodeId -> processGuid
         
         // 1. 遍历所有节点
@@ -122,37 +123,71 @@ public class EntityExtractor {
                     // 3. 为每个实体日志创建实体节点
                     for (RawLog entityLog : entityLogs) {
                         String entityNodeId = generateEntityNodeId(processGuid, entityLog);
+                        String currentEventId = entityLog.getEventId();
                         
                         // 获取或创建实体节点
                         GraphNode entityNode;
                         boolean isNewNode;
                         
                         if (graph.hasNode(entityNodeId)) {
-                            // 节点已存在，合并日志
+                            // 节点已存在于 graph 中
                             entityNode = graph.getNode(entityNodeId);
                             entityNode.addLog(entityLog);
                             isNewNode = false;
-                            log.debug("【实体提取】实体节点已存在，合并日志: nodeId={}", entityNodeId);
+                            log.debug("【实体提取】实体节点已存在（graph）: nodeId={}", entityNodeId);
+                        } else if (entityNodesToAdd.containsKey(entityNodeId)) {
+                            // 节点已存在于待添加列表中
+                            entityNode = entityNodesToAdd.get(entityNodeId);
+                            entityNode.addLog(entityLog);
+                            isNewNode = false;
+                            log.debug("【实体提取】实体节点已存在（待添加列表）: nodeId={}", entityNodeId);
                         } else {
                             // 创建新的实体节点
                             entityNode = createEntityNode(entityNodeId, entityType, entityLog, node);
                             isNewNode = true;
                         }
                         
-                        // ✅ 统一检查是否是网端关联的实体（只在未设置时检查）
-                        if (entityNode.getCreatedByEventId() == null) {
-                            String networkEventId = findNetworkAssociatedEventId(
-                                    entityLog, entityType, node, networkAssociatedEventIds);
-                            if (networkEventId != null) {
+                        // ✅ 检查是否有匹配的网端关联告警（通过内容匹配）
+                        String networkEventId = findNetworkAssociatedEventId(
+                                entityLog, entityType, node, networkAssociatedEventIds);
+                        
+                        // ✅ 合并时判断网端关联优先级
+                        String oldEventId = entityNode.getCreatedByEventId();
+                        
+                        // 如果找到了匹配的网端关联告警，优先使用
+                        if (networkEventId != null) {
+                            if (!networkEventId.equals(oldEventId)) {
                                 entityNode.setCreatedByEventId(networkEventId);
-                                log.info("【实体提取】✅ 网端关联实体（日志）: nodeId={}, eventId={}, isNew={}", 
-                                        entityNodeId, networkEventId, isNewNode);
+                                log.info("【实体提取】✅ 通过告警匹配设置网端关联（日志）: nodeId={}, networkEventId={}", 
+                                        entityNodeId, networkEventId);
+                            }
+                        } else {
+                            // 没有匹配的网端关联告警，判断当前日志的优先级
+                            boolean oldIsNetwork = networkAssociatedEventIds != null && 
+                                                  oldEventId != null &&
+                                                  networkAssociatedEventIds.contains(oldEventId);
+                            boolean newIsNetwork = networkAssociatedEventIds != null && 
+                                                  currentEventId != null &&
+                                                  networkAssociatedEventIds.contains(currentEventId);
+                            
+                            if (newIsNetwork && !oldIsNetwork) {
+                                // 新的是网端关联，旧的不是 → 覆盖为网端关联
+                                entityNode.setCreatedByEventId(currentEventId);
+                                log.info("【实体提取】✅ 覆盖为网端关联（日志）: nodeId={}, oldEventId={}, newEventId={}", 
+                                        entityNodeId, oldEventId, currentEventId);
+                            } else if (oldIsNetwork && !newIsNetwork) {
+                                // 旧的是网端关联，新的不是 → 保持旧值
+                                log.debug("【实体提取】保留网端关联（日志）: nodeId={}, eventId={}", 
+                                        entityNodeId, oldEventId);
+                            } else if (!isNewNode && oldEventId == null && currentEventId != null) {
+                                // 旧的没有 eventId，新的有 → 设置
+                                entityNode.setCreatedByEventId(currentEventId);
                             }
                         }
                         
-                        // 新节点需要添加到集合
+                        // 新节点需要添加到 Map
                         if (isNewNode) {
-                            entityNodesToAdd.add(entityNode);
+                            entityNodesToAdd.put(entityNodeId, entityNode);  // ✅ 使用 put
                             entityToProcessMap.put(entityNodeId, processGuid);
                             createdEntityNodes++;
                             entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
@@ -183,36 +218,57 @@ public class EntityExtractor {
                     
                     // 3. 为每个实体告警创建实体节点id
                     String entityNodeId = generateEntityNodeIdFromAlarm(processGuid, alarm, entityType);
+                    String currentEventId = alarm.getEventId();
                     
                     // 获取或创建实体节点
                     GraphNode entityNode;
                     boolean isNewNode;
                     
                     if (graph.hasNode(entityNodeId)) {
-                        // 节点已存在，合并告警
+                        // 节点已存在于 graph 中
                         entityNode = graph.getNode(entityNodeId);
                         entityNode.addAlarm(alarm);
                         isNewNode = false;
-                        log.debug("【实体提取-告警】实体节点已存在，合并告警: nodeId={}", entityNodeId);
+                        log.debug("【实体提取-告警】实体节点已存在（graph）: nodeId={}", entityNodeId);
+                    } else if (entityNodesToAdd.containsKey(entityNodeId)) {
+                        // 节点已存在于待添加列表中
+                        entityNode = entityNodesToAdd.get(entityNodeId);
+                        entityNode.addAlarm(alarm);
+                        isNewNode = false;
+                        log.debug("【实体提取-告警】实体节点已存在（待添加列表）: nodeId={}", entityNodeId);
                     } else {
                         // 创建新的实体节点
                         entityNode = createEntityNodeFromAlarm(entityNodeId, entityType, alarm, node);
                         isNewNode = true;
                     }
                     
-                    // ✅ 统一检查是否是网端关联的实体（只在未设置时检查）
-                    if (entityNode.getCreatedByEventId() == null &&
-                        networkAssociatedEventIds != null && 
-                        alarm.getEventId() != null &&
-                        networkAssociatedEventIds.contains(alarm.getEventId())) {
-                        entityNode.setCreatedByEventId(alarm.getEventId());
-                        log.info("【实体提取-告警】✅ 网端关联实体: nodeId={}, eventId={}, isNew={}", 
-                                entityNodeId, alarm.getEventId(), isNewNode);
-                    }
+                    // ✅ 合并时判断网端关联优先级
+                    String oldEventId = entityNode.getCreatedByEventId();
+                    boolean oldIsNetwork = networkAssociatedEventIds != null && 
+                                          oldEventId != null &&
+                                          networkAssociatedEventIds.contains(oldEventId);
+                    boolean newIsNetwork = networkAssociatedEventIds != null && 
+                                          currentEventId != null &&
+                                          networkAssociatedEventIds.contains(currentEventId);
                     
-                    // 新节点需要添加到集合
+                    if (newIsNetwork && !oldIsNetwork) {
+                        // 新的是网端关联，旧的不是 → 覆盖为网端关联
+                        entityNode.setCreatedByEventId(currentEventId);
+                        log.info("【实体提取-告警】✅ 覆盖为网端关联: nodeId={}, oldEventId={}, newEventId={}", 
+                                entityNodeId, oldEventId, currentEventId);
+                    } else if (oldIsNetwork && !newIsNetwork) {
+                        // 旧的是网端关联，新的不是 → 保持旧值
+                        log.debug("【实体提取-告警】保留网端关联: nodeId={}, eventId={}", 
+                                entityNodeId, oldEventId);
+                    } else if (!isNewNode && oldEventId == null && currentEventId != null) {
+                        // 旧的没有 eventId，新的有 → 设置
+                        entityNode.setCreatedByEventId(currentEventId);
+                    }
+                    // 否则保持第一个（先到先得）
+                    
+                    // 新节点需要添加到 Map
                     if (isNewNode) {
-                        entityNodesToAdd.add(entityNode);
+                        entityNodesToAdd.put(entityNodeId, entityNode);  // ✅ 使用 put
                         entityToProcessMap.put(entityNodeId, processGuid);
                         createdEntityNodes++;
                         entityTypeCount.put(entityType, entityTypeCount.getOrDefault(entityType, 0) + 1);
@@ -224,8 +280,56 @@ public class EntityExtractor {
         }
         
         // 4. 批量添加实体节点和边到图中
-        for (GraphNode entityNode : entityNodesToAdd) {
-            graph.addNode(entityNode);
+        for (GraphNode entityNode : entityNodesToAdd.values()) {
+            String entityNodeId = entityNode.getNodeId();
+            
+            // ✅ 检查 graph 中是否已有该节点（避免覆盖）
+            if (graph.hasNode(entityNodeId)) {
+                GraphNode existingNode = graph.getNode(entityNodeId);
+                
+                // 合并日志
+                if (entityNode.getLogs() != null) {
+                    for (RawLog log : entityNode.getLogs()) {
+                        existingNode.addLog(log);
+                    }
+                }
+                
+                // 合并告警
+                if (entityNode.getAlarms() != null) {
+                    for (RawAlarm alarm : entityNode.getAlarms()) {
+                        existingNode.addAlarm(alarm);
+                    }
+                }
+                
+                // ✅ 判断网端关联优先级
+                String oldEventId = existingNode.getCreatedByEventId();
+                String newEventId = entityNode.getCreatedByEventId();
+                
+                boolean oldIsNetwork = networkAssociatedEventIds != null && 
+                                      oldEventId != null &&
+                                      networkAssociatedEventIds.contains(oldEventId);
+                boolean newIsNetwork = networkAssociatedEventIds != null && 
+                                      newEventId != null &&
+                                      networkAssociatedEventIds.contains(newEventId);
+                
+                if (newIsNetwork && !oldIsNetwork) {
+                    // 新的是网端关联，旧的不是 → 覆盖
+                    existingNode.setCreatedByEventId(newEventId);
+                    log.info("【实体添加】覆盖为网端关联: nodeId={}, oldEventId={}, newEventId={}", 
+                            entityNodeId, oldEventId, newEventId);
+                } else if (oldIsNetwork && !newIsNetwork) {
+                    // 旧的是网端关联，新的不是 → 保持
+                    log.debug("【实体添加】保留网端关联: nodeId={}, eventId={}", 
+                            entityNodeId, oldEventId);
+                }
+                // 否则保持原值
+                
+                log.debug("【实体添加】合并到已存在节点: nodeId={}", entityNodeId);
+            } else {
+                // 节点不存在，直接添加
+                graph.addNode(entityNode);
+                log.debug("【实体添加】添加新节点: nodeId={}", entityNodeId);
+            }
         }
         
         // ✅ 批量创建边：进程节点 → 实体节点，val="连接"
@@ -372,8 +476,8 @@ public class EntityExtractor {
         node.setProcessGuid(null);
         node.setParentProcessGuid(null);
         
-        // ✅ createdByEventId 在外层根据 networkAssociatedEventIds 设置
-        // 只有网端关联的日志创建的实体才设置，非网端关联的保持 null
+        // ✅ 设置 createdByEventId（所有实体都设置，记录创建它的日志）
+        node.setCreatedByEventId(entityLog.getEventId());
         
         // 添加日志
         node.addLog(entityLog);
@@ -560,8 +664,8 @@ public class EntityExtractor {
         entityNode.setProcessGuid(null);
         entityNode.setParentProcessGuid(null);
         
-        // ✅ createdByEventId 在外层根据 networkAssociatedEventIds 设置
-        // 只有网端关联的告警创建的实体才设置，非网端关联的保持 null
+        // ✅ 设置 createdByEventId（所有实体都设置，记录创建它的告警）
+        entityNode.setCreatedByEventId(alarm.getEventId());
         
         // 添加告警到节点
         entityNode.addAlarm(alarm);
@@ -640,11 +744,11 @@ public class EntityExtractor {
      * 
      * 用于判断日志和告警是否描述同一个实体
      * 
-     * 规则必须与 generateEntityNodeId 保持一致：
-     * - file: fileMd5 + targetFilename 组合匹配
-     * - domain: requestDomain 匹配
-     * - network: destAddress 匹配
-     * - registry: targetObject 匹配
+     * ✅ 严格按照 determineEntityTypeFromAlarm 的逻辑：
+     * - file: fileMd5 + targetFilename 存在且匹配，且 targetFilename != image
+     * - domain: requestDomain 存在且匹配
+     * - network: destAddress 存在且匹配，且 != hostAddress
+     * - registry: targetObject 存在且匹配
      */
     private static boolean matchEntityContent(String entityType, RawLog log, RawAlarm alarm) {
         if (entityType == null) {
@@ -653,53 +757,72 @@ public class EntityExtractor {
         
         switch (entityType.toLowerCase()) {
             case "file":
-                // ✅ 必须同时匹配 fileMd5 + targetFilename（与 generateEntityNodeId 一致）
+                // ✅ 只检查 fileMd5 和 targetFilename 是否匹配
+                // 注意：此方法用于判断已识别为 file 实体的日志和告警是否是同一个实体
+                // image 的检查已经在 determineEntityTypeFromAlarm 中完成
                 String logMd5 = log.getFileMd5();
                 String alarmMd5 = alarm.getFileMd5();
                 String logFile = log.getTargetFilename();
                 String alarmFile = alarm.getTargetFilename();
                 
-                // 规范化 null 值（与 generateEntityNodeId 保持一致）
-                String logMd5Key = (logMd5 != null && !logMd5.isEmpty()) ? logMd5 : "NOMD5";
-                String alarmMd5Key = (alarmMd5 != null && !alarmMd5.isEmpty()) ? alarmMd5 : "NOMD5";
-                String logFileKey = (logFile != null && !logFile.isEmpty()) ? logFile : "NONAME";
-                String alarmFileKey = (alarmFile != null && !alarmFile.isEmpty()) ? alarmFile : "NONAME";
+                // 必须都存在
+                if (logMd5 == null || logMd5.isEmpty() || 
+                    alarmMd5 == null || alarmMd5.isEmpty() ||
+                    logFile == null || logFile.isEmpty() || 
+                    alarmFile == null || alarmFile.isEmpty()) {
+                    return false;
+                }
                 
-                // 组合键必须完全相同
-                String logCompositeKey = logMd5Key + "_" + logFileKey;
-                String alarmCompositeKey = alarmMd5Key + "_" + alarmFileKey;
-                
-                return logCompositeKey.equals(alarmCompositeKey);
+                // fileMd5 和 targetFilename 必须都匹配
+                return logMd5.equals(alarmMd5) && logFile.equals(alarmFile);
                 
             case "domain":
+                // ✅ 严格按照 determineEntityTypeFromAlarm 的 domain 判断逻辑
                 String logDomain = log.getRequestDomain();
                 String alarmDomain = alarm.getRequestDomain();
                 
-                // 规范化 null 值
-                String logDomainKey = (logDomain != null && !logDomain.isEmpty()) ? logDomain : "NODOMAIN";
-                String alarmDomainKey = (alarmDomain != null && !alarmDomain.isEmpty()) ? alarmDomain : "NODOMAIN";
+                // 必须都存在且匹配
+                if (logDomain == null || logDomain.isEmpty() || 
+                    alarmDomain == null || alarmDomain.isEmpty()) {
+                    return false;
+                }
                 
-                return logDomainKey.equals(alarmDomainKey);
+                return logDomain.equals(alarmDomain);
                 
             case "network":
+                // ✅ 严格按照 determineEntityTypeFromAlarm 的 network 判断逻辑
+                // destAddress 存在且匹配，且都不等于各自的 hostAddress
                 String logDest = log.getDestAddress();
                 String alarmDest = alarm.getDestAddress();
+                String logHost = log.getHostAddress();
+                String alarmHost = alarm.getHostAddress();
                 
-                // 规范化 null 值
-                String logDestKey = (logDest != null && !logDest.isEmpty()) ? logDest : "NOADDR";
-                String alarmDestKey = (alarmDest != null && !alarmDest.isEmpty()) ? alarmDest : "NOADDR";
+                // 必须都存在
+                if (logDest == null || logDest.isEmpty() || 
+                    alarmDest == null || alarmDest.isEmpty()) {
+                    return false;
+                }
                 
-                return logDestKey.equals(alarmDestKey);
+                // 必须都不等于各自的 hostAddress（排除本机地址）
+                if (logDest.equals(logHost) || alarmDest.equals(alarmHost)) {
+                    return false;
+                }
+                
+                // destAddress 必须匹配
+                return logDest.equals(alarmDest);
                 
             case "registry":
+                // ✅ 严格按照 determineEntityTypeFromAlarm 的 registry 判断逻辑
                 String logTarget = log.getTargetObject();
                 String alarmTarget = alarm.getTargetObject();
                 
-                // 规范化 null 值
-                String logTargetKey = (logTarget != null && !logTarget.isEmpty()) ? logTarget : "NOOBJ";
-                String alarmTargetKey = (alarmTarget != null && !alarmTarget.isEmpty()) ? alarmTarget : "NOOBJ";
+                // 必须都存在且匹配
+                if (logTarget == null || logTarget.isEmpty() || 
+                    alarmTarget == null || alarmTarget.isEmpty()) {
+                    return false;
+                }
                 
-                return logTargetKey.equals(alarmTargetKey);
+                return logTarget.equals(alarmTarget);
                 
             default:
                 return false;
