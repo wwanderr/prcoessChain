@@ -1506,7 +1506,7 @@ public class ProcessChainBuilder {
      * 
      * @param result 进程链构建结果
      * @param associatedEventIds 告警关联的 eventId 集合
-     * @param startLogEventIds 日志关联的 eventId 集合
+     * @param startLogEventIds 日志关联的 eventId 集合（端侧日志的 eventId）
      * @return 需要标记的实体节点 ID 集合
      */
     private Set<String> findEntityNodesToMark(
@@ -1522,7 +1522,7 @@ public class ProcessChainBuilder {
             networkAssociatedEventIds.addAll(associatedEventIds);  // 告警关联
         }
         if (startLogEventIds != null) {
-            networkAssociatedEventIds.addAll(startLogEventIds);    // 日志关联
+            networkAssociatedEventIds.addAll(startLogEventIds);    // 日志关联（端侧日志）
         }
         
         log.info("【网端关联标记】开始查找需标记的节点, networkAssociatedEventIds={}", networkAssociatedEventIds);
@@ -1532,6 +1532,23 @@ public class ProcessChainBuilder {
             log.warn("【网端关联标记】网端关联eventId为空或节点列表为空，跳过标记");
             return nodesToMark;
         }
+        
+        // ✅ 调试：统计所有节点的日志 eventId
+        log.info("【网端关联标记】节点总数={}, 开始检查每个节点的日志...", result.getNodes().size());
+        int totalLogs = 0;
+        for (ChainBuilderNode node : result.getNodes()) {
+            if (node.getLogs() != null && !node.getLogs().isEmpty()) {
+                totalLogs += node.getLogs().size();
+                log.debug("【网端关联标记】节点 {} 有 {} 条日志", node.getProcessGuid(), node.getLogs().size());
+                for (RawLog rawLog : node.getLogs()) {
+                    if (rawLog.getEventId() != null && networkAssociatedEventIds.contains(rawLog.getEventId())) {
+                        log.info("【网端关联标记】✅ 找到匹配的日志！节点={}, eventId={}", 
+                                node.getProcessGuid(), rawLog.getEventId());
+                    }
+                }
+            }
+        }
+        log.info("【网端关联标记】所有节点的日志总数={}", totalLogs);
         
         //  简化逻辑：直接根据 createdByEventId 标记实体节点
         // EntityExtractor 已经正确设置了 createdByEventId
@@ -1576,16 +1593,24 @@ public class ProcessChainBuilder {
                     if (alarm.getEventId() != null && 
                         networkAssociatedEventIds.contains(alarm.getEventId())) {
                         hasNetworkAssociation = true;
+                        log.debug("【网端关联标记】✅ 进程节点匹配告警: processGuid={}, alarmEventId={}", 
+                                processGuid, alarm.getEventId());
                         break;
                     }
                 }
             }
             
             if (!hasNetworkAssociation && node.getLogs() != null) {
+                log.debug("【网端关联标记】检查进程节点日志: processGuid={}, 日志数={}", 
+                        processGuid, node.getLogs().size());
                 for (RawLog rawLog : node.getLogs()) {
+                    log.debug("【网端关联标记】  日志 eventId={}, logType={}", 
+                            rawLog.getEventId(), rawLog.getLogType());
                     if (rawLog.getEventId() != null && 
                         networkAssociatedEventIds.contains(rawLog.getEventId())) {
                         hasNetworkAssociation = true;
+                        log.debug("【网端关联标记】✅ 进程节点匹配日志: processGuid={}, logEventId={}", 
+                                processGuid, rawLog.getEventId());
                         break;
                     }
                 }
