@@ -186,7 +186,7 @@ public class ProcessChainGraphBuilder {
                         skippedSelfLoopCount++;
                         // 确保记录自引用节点
                         graph.addSelfReferenceNodeId(childGuid);
-                        log.info("【建图-阶段3】跳过自环: {} -> {}", parentGuid, childGuid);
+                        log.debug("【建图-阶段3】跳过自环: {} -> {}", parentGuid, childGuid);
                         continue;
                     }
                     
@@ -202,7 +202,7 @@ public class ProcessChainGraphBuilder {
                     
                     // ✅ 检查边是否已存在（避免创建重复边）
                     if (!graph.hasEdge(parentGuid, childGuid)) {
-                        log.info("【建图-阶段3】准备添加告警节点边: {} → {} (父→子)", parentGuid, childGuid);
+                        log.debug("【建图-阶段3】准备添加告警节点边: {} → {} (父→子)", parentGuid, childGuid);
                         graph.addEdge(parentGuid, childGuid);
                         addedEdgeCount++;
                         log.debug("【建图-阶段3】添加告警节点边完成: {} → {}", parentGuid, childGuid);

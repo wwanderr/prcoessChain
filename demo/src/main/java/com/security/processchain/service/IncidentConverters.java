@@ -102,7 +102,7 @@ public final class IncidentConverters {
                     // ✅ 从告警中抽取 ProcessEntity
                     chainNode.setProcessEntity(convertToProcessEntityFromAlarm(firstAlarm, isVirtualParent));
                     chainNode.setEntity(null);
-                    log.info("场景4：nodeType:{}, logType:{}, opType:{}, isVirtualParent={}", 
+                    log.debug("场景4：nodeType:{}, logType:{}, opType:{}, isVirtualParent={}", 
                             nodeType, finalNode.getLogType(), finalNode.getOpType(), isVirtualParent);
 
                 } else if (nodeType != null && nodeType.endsWith("_entity")) {
@@ -113,7 +113,7 @@ public final class IncidentConverters {
                     // ✅ 从告警中抽取对应的实体
                     chainNode.setProcessEntity(null);
                     chainNode.setEntity(convertToEntityFromAlarm(firstAlarm, entityType));
-                    log.info("场景5：nodeType={}, logType={}, opType={}", 
+                    log.debug("场景5：nodeType={}, logType={}, opType={}", 
                             nodeType, finalNode.getLogType(), finalNode.getOpType());
                     
                 } else {
@@ -132,7 +132,7 @@ public final class IncidentConverters {
                 chainNode.setProcessEntity(convertToProcessEntityFromAlarm(firstAlarm, true));
                 chainNode.setEntity(null);
                 
-                log.info("场景6-虚拟父节点：nodeType={}, logType={}, opType={}, processEntity={}", 
+                log.debug("场景6-虚拟父节点：nodeType={}, logType={}, opType={}, processEntity={}", 
                         nodeType, finalNode.getLogType(), finalNode.getOpType(), 
                         chainNode.getProcessEntity() != null ? "已设置" : "null");
             }
@@ -373,7 +373,7 @@ public final class IncidentConverters {
                 break;
         }
         
-        log.info("【opType设定】nodeType={}, 返回opType={}", nodeType, result);
+        log.debug("【opType设定】nodeType={}, 返回opType={}", nodeType, result);
         return result;
     }
     

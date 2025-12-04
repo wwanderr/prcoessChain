@@ -63,6 +63,12 @@ public class EntityFilterUtil {
         
         // 2. 对每个processGuid的实体节点进行过滤
         Set<String> nodesToRemove = new HashSet<>();
+        
+        // 统计信息
+        int totalEntityCount = 0;
+        int totalNetworkAssociated = 0;
+        int totalNormal = 0;
+        Map<String, Integer> typeStats = new HashMap<>();
 
         // generateEntityNodeId  这个函数中不同实体唯一nodeId
         // entityNodesByProcess = {
@@ -106,7 +112,13 @@ public class EntityFilterUtil {
                     }
                 }
                 
-                log.info("【实体过滤】processGuid={}, type={}, 总数={}, 网端关联={}, 普通={}", 
+                // 更新统计信息
+                totalEntityCount += uniqueNodes.size();
+                totalNetworkAssociated += networkAssociatedNodes.size();
+                totalNormal += normalNodes.size();
+                typeStats.put(entityType, typeStats.getOrDefault(entityType, 0) + uniqueNodes.size());
+                
+                log.debug("【实体过滤】processGuid={}, type={}, 总数={}, 网端关联={}, 普通={}", 
                         processGuid, entityType, uniqueNodes.size(), 
                         networkAssociatedNodes.size(), normalNodes.size());
                 
@@ -131,8 +143,14 @@ public class EntityFilterUtil {
             graph.removeCutNode(nodeId);
         }
         
-        log.info("【实体过滤】过滤完成，移除 {} 个实体节点，剩余节点数={}", 
-                nodesToRemove.size(), graph.getNodeCount());
+        log.info("【实体过滤】过滤完成: 实体总数={}, 网端关联={}, 普通={}, 移除={}, 保留={}, 剩余节点数={}", 
+                totalEntityCount, totalNetworkAssociated, totalNormal, 
+                nodesToRemove.size(), totalEntityCount - nodesToRemove.size(), graph.getNodeCount());
+        log.info("【实体过滤】类型统计: file={}, domain={}, network={}, registry={}", 
+                typeStats.getOrDefault("file", 0),
+                typeStats.getOrDefault("domain", 0),
+                typeStats.getOrDefault("network", 0),
+                typeStats.getOrDefault("registry", 0));
     }
     
     /**
