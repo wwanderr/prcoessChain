@@ -149,14 +149,26 @@ public class NetworkNodeRoleCorrector {
         // 4. 反向修正与修正节点相连的节点
         // 如果 targetIp 节点有问题被修正了，相连的所有 attacker/victim 都要反向修正
         int reverseCorrectCount = 0;
+        Set<String> reverseCorrectedNodeIds = new HashSet<>();  // 记录已被反向修正的节点
         if (!correctedNodeIds.isEmpty()) {
-            reverseCorrectCount = correctConnectedNodes(nodes, edges, correctedNodeIds, targetIpTrimmed);
+            reverseCorrectCount = correctConnectedNodes(nodes, edges, correctedNodeIds, 
+                    targetIpTrimmed, reverseCorrectedNodeIds);
         }
         
-        log.info("【角色修正-完成】焦点节点修正={}个，关联节点反向修正={}个", 
-                correctedCount, reverseCorrectCount);
+        log.info("【角色修正-第二阶段】通过边关系反向修正：{}个节点", reverseCorrectCount);
         
-        // 5. 返回修正后的节点和边
+        // 5. 处理孤立的特殊节点（assetAddress 等无边连接的节点）
+        // 只处理那些没有被第4步修正到的节点
+        int isolatedCorrectCount = 0;
+        if (correctedCount > 0) {
+            isolatedCorrectCount = correctIsolatedSpecialNodes(nodes, edges, focusObject, 
+                    targetIpTrimmed, reverseCorrectedNodeIds);
+        }
+        
+        log.info("【角色修正-完成】焦点节点修正={}个，关联节点反向修正={}个，孤立节点修正={}个", 
+                correctedCount, reverseCorrectCount, isolatedCorrectCount);
+        
+        // 6. 返回修正后的节点和边
         return Pair.of(nodes, edges);
     }
     
@@ -175,13 +187,15 @@ public class NetworkNodeRoleCorrector {
      * @param edges 所有边
      * @param correctedNodeIds 已修正的节点ID集合
      * @param targetIp 目标IP（只排除它自己，避免循环修正）
+     * @param reverseCorrectedNodeIds 输出参数：记录被反向修正的节点ID
      * @return 反向修正的节点数量
      */
     private static int correctConnectedNodes(
             List<ProcessNode> nodes,
             List<ProcessEdge> edges,
             Set<String> correctedNodeIds,
-            String targetIp) {
+            String targetIp,
+            Set<String> reverseCorrectedNodeIds) {
         
         // 1. 找到所有与已修正节点相连的节点ID
         Set<String> connectedNodeIds = new HashSet<>();
@@ -256,12 +270,134 @@ public class NetworkNodeRoleCorrector {
             // 修正节点
             correctNode(connectedNode, reverseRole, nodeIp);
             
+            // 记录已被反向修正的节点ID
+            reverseCorrectedNodeIds.add(connectedNodeId);
+            
             reverseCorrectCount++;
         }
         
         log.info("【反向修正】完成：共反向修正 {} 个节点", reverseCorrectCount);
         
         return reverseCorrectCount;
+    }
+    
+    /**
+     * 修正孤立的特殊节点（没有边连接的节点）
+     * 
+     * 逻辑：
+     * 1. 只处理 assetAddress 等特殊类型的节点
+     * 2. 只处理那些没有被 correctConnectedNodes 修正到的节点（孤立节点）
+     * 3. 只处理没有任何边连接的节点（真正的孤立节点）
+     * 4. 反向修正这些节点的角色
+     * 
+     * 场景：如果 attacker 变成 victim，但原有的 victim 节点是 assetAddress 类型且没有边，
+     * 则应该将这个 victim 反向修正为 attacker
+     * 
+     * @param nodes 所有节点
+     * @param edges 所有边
+     * @param newRole 修正后的角色（attacker 或 victim）
+     * @param targetIp 目标IP
+     * @param alreadyCorrectedNodeIds 已经被修正的节点ID集合（用于排除）
+     * @return 修正的节点数量
+     */
+    private static int correctIsolatedSpecialNodes(
+            List<ProcessNode> nodes,
+            List<ProcessEdge> edges,
+            String newRole,
+            String targetIp,
+            Set<String> alreadyCorrectedNodeIds) {
+        
+        // 确定对立角色
+        String oppositeRole = newRole.equals("attacker") ? "victim" : "attacker";
+        
+        // 1. 找出所有有边连接的节点（有任何边连接就不是孤立节点）
+        Set<String> nodesWithEdges = new HashSet<>();
+        if (edges != null) {
+            for (ProcessEdge edge : edges) {
+                if (edge != null) {
+                    if (edge.getSource() != null) {
+                        nodesWithEdges.add(edge.getSource());
+                    }
+                    if (edge.getTarget() != null) {
+                        nodesWithEdges.add(edge.getTarget());
+                    }
+                }
+            }
+        }
+        
+        log.debug("【孤立节点】有边连接的节点数量：{}", nodesWithEdges.size());
+        
+        int correctedCount = 0;
+        
+        // 2. 遍历节点，找到孤立的特殊节点
+        for (ProcessNode node : nodes) {
+            if (node == null || node.getStoryNode() == null) {
+                continue;
+            }
+            
+            String nodeId = node.getNodeId();
+            if (nodeId == null) {
+                continue;
+            }
+            
+            // ✅ 关键检查1：如果节点已经被反向修正过，跳过
+            if (alreadyCorrectedNodeIds != null && alreadyCorrectedNodeIds.contains(nodeId)) {
+                log.debug("【孤立节点】跳过已修正节点：nodeId={}", nodeId);
+                continue;
+            }
+            
+            // ✅ 关键检查2：如果节点有边连接，跳过（不是孤立节点）
+            if (nodesWithEdges.contains(nodeId)) {
+                log.debug("【孤立节点】跳过有边连接的节点：nodeId={}", nodeId);
+                continue;
+            }
+            
+            // 检查节点类型（只处理 assetAddress 等特殊类型）
+            String storyNodeType = node.getStoryNode().getType();
+            if (!"assetAddress".equals(storyNodeType)) {
+                continue;
+            }
+            
+            // 检查当前角色
+            String currentLogType = node.getLogType();
+            if (currentLogType == null) {
+                continue;
+            }
+            
+            String currentRole = currentLogType.trim().toLowerCase();
+            
+            // 只处理 attacker 和 victim
+            if (!currentRole.equals("attacker") && !currentRole.equals("victim")) {
+                continue;
+            }
+            
+            // 只处理当前角色是 oppositeRole 的节点
+            if (!currentRole.equals(oppositeRole)) {
+                log.debug("【孤立节点】跳过角色不匹配的节点：nodeId={}, currentRole={}, oppositeRole={}", 
+                        nodeId, currentRole, oppositeRole);
+                continue;
+            }
+            
+            // 提取 IP
+            String nodeIp = extractIpFromNode(node);
+            
+            // 排除 targetIp 本身
+            if (nodeIp != null && targetIp != null && targetIp.equalsIgnoreCase(nodeIp.trim())) {
+                log.debug("【孤立节点】跳过目标IP节点：nodeId={}, ip={}", nodeId, nodeIp);
+                continue;
+            }
+            
+            // ✅ 找到了孤立的 assetAddress 节点，进行反向修正
+            log.info("【孤立节点修正】修正无边连接的 {} 节点：nodeId={}, {} -> {}", 
+                    storyNodeType, nodeId, currentRole, newRole);
+            
+            correctNode(node, newRole, nodeIp);
+            correctedCount++;
+        }
+        
+        log.info("【孤立节点修正】完成：共修正 {} 个孤立节点", correctedCount);
+        
+        return correctedCount;
     }
     
     /**
