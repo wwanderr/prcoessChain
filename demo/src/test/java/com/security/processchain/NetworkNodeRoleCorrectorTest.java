@@ -271,6 +271,95 @@ public class NetworkNodeRoleCorrectorTest {
         assertEquals("server", serverNode.getLogType(), "server 节点不应该被修改");
     }
     
+    @Test
+    @DisplayName("场景9：孤立的 assetAddress 节点应该被反向修正")
+    public void testIsolatedAssetAddressNodeCorrection() {
+        // 准备数据
+        RiskIncident incident = new RiskIncident();
+        incident.setFocusIp("10.50.86.136");
+        incident.setFocusObject("victim");
+        
+        // 创建节点
+        List<ProcessNode> nodes = new ArrayList<>();
+        
+        // 焦点节点（attacker -> victim）
+        ProcessNode attackerNode = createNode("attacker", "attacker", "10.50.86.136", "攻击者");
+        attackerNode.getStoryNode().setType("srcNode");
+        nodes.add(attackerNode);
+        
+        // server 节点
+        ProcessNode serverNode = createNode("server", "server", null, "矿池");
+        serverNode.getStoryNode().setType("destNode");
+        nodes.add(serverNode);
+        
+        // 孤立的 victim 节点（assetAddress 类型，无边连接）
+        ProcessNode victimNode = createNode("victim", "victim", null, "受害者");
+        victimNode.getStoryNode().setType("assetAddress");
+        Map<String, Object> victimNodeData = victimNode.getStoryNode().getNode();
+        victimNodeData.put("ips", Arrays.asList("1.1.1.1"));
+        nodes.add(victimNode);
+        
+        // 创建边（只连接 attacker 和 server，victim 是孤立的）
+        List<ProcessEdge> edges = new ArrayList<>();
+        ProcessEdge edge = new ProcessEdge();
+        edge.setSource("attacker");
+        edge.setTarget("server");
+        edge.setVal("访问恶意IP：10.50.86.136");
+        edges.add(edge);
+        
+        // 执行修正
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.86.136");
+        
+        // 验证焦点节点被修正
+        assertEquals("victim", attackerNode.getLogType(), "attacker 应该被修正为 victim");
+        assertEquals("victim", attackerNode.getStoryNode().getNode().get("type"), "type 应该被修正");
+        
+        // 验证 server 节点未被修改
+        assertEquals("server", serverNode.getLogType(), "server 节点不应该被修改");
+        
+        // ✅ 验证孤立的 victim 节点被反向修正为 attacker
+        assertEquals("attacker", victimNode.getLogType(), "孤立的 victim 节点应该被反向修正为 attacker");
+        assertEquals("attacker", victimNode.getStoryNode().getNode().get("type"), "type 应该被反向修正");
+    }
+    
+    @Test
+    @DisplayName("场景10：有边连接的 assetAddress 节点不应被孤立节点逻辑修正")
+    public void testConnectedAssetAddressNodeNotCorrectedAsIsolated() {
+        // 准备数据
+        RiskIncident incident = new RiskIncident();
+        incident.setFocusIp("10.50.86.136");
+        incident.setFocusObject("victim");
+        
+        // 创建节点
+        List<ProcessNode> nodes = new ArrayList<>();
+        
+        // 焦点节点（attacker -> victim）
+        ProcessNode attackerNode = createNode("attacker", "attacker", "10.50.86.136", "攻击者");
+        attackerNode.getStoryNode().setType("srcNode");
+        nodes.add(attackerNode);
+        
+        // victim 节点（assetAddress 类型，但有边连接）
+        ProcessNode victimNode = createNode("victim", "victim", null, "受害者");
+        victimNode.getStoryNode().setType("assetAddress");
+        nodes.add(victimNode);
+        
+        // 创建边（连接 attacker 和 victim）
+        List<ProcessEdge> edges = new ArrayList<>();
+        ProcessEdge edge = new ProcessEdge();
+        edge.setSource("attacker");
+        edge.setTarget("victim");
+        edges.add(edge);
+        
+        // 执行修正
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.86.136");
+        
+        // 验证焦点节点被修正
+        assertEquals("victim", attackerNode.getLogType(), "attacker 应该被修正为 victim");
+        
+        // ✅ 验证有边连接的 victim 节点被反向修正（通过边关系，不是孤立节点逻辑）
+        assertEquals("attacker", victimNode.getLogType(), "有边连接的 victim 应该通过边关系被反向修正");
+    }
+    
     /**
      * 创建测试节点
      */
