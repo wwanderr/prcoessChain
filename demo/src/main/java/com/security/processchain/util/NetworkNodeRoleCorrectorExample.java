@@ -78,7 +78,7 @@ public class NetworkNodeRoleCorrectorExample {
         printNodesAndEdges(nodes, edges);
         
         // 5. 执行修正
-        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.86.136");
         
         // 6. 打印修正后的状态
         log.info("修正后：");
@@ -148,7 +148,7 @@ public class NetworkNodeRoleCorrectorExample {
         printNodesAndEdges(nodes, edges);
         
         // 5. 执行修正
-        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.109.192");
         
         // 6. 打印修正后的状态
         log.info("修正后：");
@@ -169,8 +169,16 @@ public class NetworkNodeRoleCorrectorExample {
         // 2. 构建节点列表
         List<ProcessNode> nodes = new ArrayList<>();
         
+        // 解析 focusIp 为列表
+        String[] ipArray = incident.getFocusIp().split(",");
+        
         // 添加多个错误标记的节点
-        for (String ip : incident.getFocusIpList()) {
+        for (String ipStr : ipArray) {
+            String ip = ipStr.trim();
+            if (ip.isEmpty()) {
+                continue;
+            }
+            
             ProcessNode node = new ProcessNode();
             node.setLogType("attacker"); // 错误：应该是 victim
             node.setNodeId(ip);
@@ -193,8 +201,8 @@ public class NetworkNodeRoleCorrectorExample {
         log.info("修正前：");
         printNodesAndEdges(nodes, edges);
         
-        // 4. 执行修正
-        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+        // 4. 执行修正（只修正第一个 IP）
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.20.152.227");
         
         // 5. 打印修正后的状态
         log.info("修正后：");

@@ -5,6 +5,7 @@ import com.security.processchain.model.ProcessNode;
 import com.security.processchain.model.RiskIncident;
 import com.security.processchain.service.StoryNode;
 import com.security.processchain.util.NetworkNodeRoleCorrector;
+import com.security.processchain.util.Pair;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
@@ -45,7 +46,7 @@ public class NetworkNodeRoleCorrectorTest {
         edges.add(edge);
         
         // 执行修正
-        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.86.136");
         
         // 验证节点修正
         assertEquals("victim", attackerNode.getLogType(), "logType 应该被修正为 victim");
@@ -88,7 +89,7 @@ public class NetworkNodeRoleCorrectorTest {
         edges.add(edge);
         
         // 执行修正
-        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.109.192");
         
         // 验证节点修正
         assertEquals("attacker", victimNode.getLogType(), "logType 应该被修正为 attacker");
@@ -123,12 +124,15 @@ public class NetworkNodeRoleCorrectorTest {
         ProcessNode victim2 = createNode("victim", "10.50.109.192", "10.50.109.192", "受害者");
         nodes.add(victim2);
         
-        // 执行修正
-        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+        List<ProcessEdge> edges = new ArrayList<>();
         
-        // 验证两个节点都被修正
+        // 执行修正（只修正第一个 IP）
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.86.197");
+        
+        // 验证第一个节点被修正
         assertEquals("attacker", victim1.getLogType(), "第一个节点应该被修正");
-        assertEquals("attacker", victim2.getLogType(), "第二个节点应该被修正");
+        // 第二个节点不应该被修正（因为 targetIp 不是它）
+        assertEquals("victim", victim2.getLogType(), "第二个节点不应该被修正");
     }
     
     @Test
@@ -147,7 +151,7 @@ public class NetworkNodeRoleCorrectorTest {
         List<ProcessEdge> edges = new ArrayList<>();
         
         // 执行修正
-        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.86.136");
         
         // 验证节点未被修改
         assertEquals("victim", victimNode.getLogType(), "角色正确的节点不应该被修改");
@@ -170,7 +174,7 @@ public class NetworkNodeRoleCorrectorTest {
         List<ProcessEdge> edges = new ArrayList<>();
         
         // 执行修正
-        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.86.136");
         
         // 验证服务器节点未被修改
         assertEquals("server", serverNode.getLogType(), "server 节点不应该被修改");
@@ -184,15 +188,15 @@ public class NetworkNodeRoleCorrectorTest {
         
         // 不应该抛出异常
         assertDoesNotThrow(() -> {
-            NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, null);
+            NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, null, "10.50.86.136");
         });
     }
     
     @Test
-    @DisplayName("场景7：focusIp 为空 - 应安全返回")
-    public void testEmptyFocusIp() {
+    @DisplayName("场景7：targetIp 为空 - 应安全返回")
+    public void testEmptyTargetIp() {
         RiskIncident incident = new RiskIncident();
-        incident.setFocusIp("");
+        incident.setFocusIp("10.50.86.136");
         incident.setFocusObject("victim");
         
         List<ProcessNode> nodes = new ArrayList<>();
@@ -200,8 +204,71 @@ public class NetworkNodeRoleCorrectorTest {
         
         // 不应该抛出异常
         assertDoesNotThrow(() -> {
-            NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident);
+            NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "");
         });
+    }
+    
+    @Test
+    @DisplayName("场景8：反向修正相连节点 - victim变attacker时，相连的attacker应变victim")
+    public void testReverseCorrectConnectedNodes() {
+        // 准备数据
+        RiskIncident incident = new RiskIncident();
+        incident.setFocusIp("10.50.109.192");
+        incident.setFocusObject("attacker");
+        
+        // 创建节点
+        List<ProcessNode> nodes = new ArrayList<>();
+        
+        // 焦点节点（victim -> attacker）
+        ProcessNode focusNode = createNode("victim", "10.50.109.192", "10.50.109.192", "受害者");
+        nodes.add(focusNode);
+        
+        // 相连节点1（attacker -> 应该变为 victim）
+        ProcessNode connectedNode1 = createNode("attacker", "10.50.86.46", "10.50.86.46", "攻击者");
+        nodes.add(connectedNode1);
+        
+        // 相连节点2（attacker -> 应该变为 victim）
+        ProcessNode connectedNode2 = createNode("attacker", "10.50.86.112", "10.50.86.112", "攻击者");
+        nodes.add(connectedNode2);
+        
+        // server 节点（不应该变化）
+        ProcessNode serverNode = createNode("server", "server", null, "服务器");
+        nodes.add(serverNode);
+        
+        // 创建边
+        List<ProcessEdge> edges = new ArrayList<>();
+        
+        ProcessEdge edge1 = new ProcessEdge();
+        edge1.setSource("10.50.109.192");
+        edge1.setTarget("10.50.86.46");
+        edges.add(edge1);
+        
+        ProcessEdge edge2 = new ProcessEdge();
+        edge2.setSource("10.50.109.192");
+        edge2.setTarget("10.50.86.112");
+        edges.add(edge2);
+        
+        ProcessEdge edge3 = new ProcessEdge();
+        edge3.setSource("10.50.109.192");
+        edge3.setTarget("server");
+        edges.add(edge3);
+        
+        // 执行修正
+        NetworkNodeRoleCorrector.correctNodeRoles(nodes, edges, incident, "10.50.109.192");
+        
+        // 验证焦点节点被修正
+        assertEquals("attacker", focusNode.getLogType(), "焦点节点应该从 victim 修正为 attacker");
+        assertEquals("attacker", focusNode.getStoryNode().getNode().get("type"), "焦点节点 type 应该被修正");
+        
+        // 验证相连节点被反向修正
+        assertEquals("victim", connectedNode1.getLogType(), "相连节点1应该从 attacker 反向修正为 victim");
+        assertEquals("victim", connectedNode1.getStoryNode().getNode().get("type"), "相连节点1 type 应该被修正");
+        
+        assertEquals("victim", connectedNode2.getLogType(), "相连节点2应该从 attacker 反向修正为 victim");
+        assertEquals("victim", connectedNode2.getStoryNode().getNode().get("type"), "相连节点2 type 应该被修正");
+        
+        // 验证 server 节点未被修改
+        assertEquals("server", serverNode.getLogType(), "server 节点不应该被修改");
     }
     
     /**
