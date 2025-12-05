@@ -402,6 +402,24 @@ public class ProcessChainBuilder {
             
             log.info("【实体过滤完成】最终节点数={}", subgraph.getNodeCount());
             
+            // ===== 阶段7.5：强制裁剪（兜底机制）=====
+            // 如果实体过滤后节点数仍然超过100，触发强制裁剪到30个节点
+            final int FORCE_PRUNE_THRESHOLD = 100;
+            if (subgraph.getNodeCount() > FORCE_PRUNE_THRESHOLD) {
+                log.warn("【强制裁剪】节点数={} 超过阈值={}，触发强制裁剪到 MAX_NODE_COUNT={}",
+                        subgraph.getNodeCount(), FORCE_PRUNE_THRESHOLD, MAX_NODE_COUNT);
+                
+                ForcePruner.ForcePruneResult forcePruneResult = 
+                        ForcePruner.forcePrune(subgraph, networkAssociatedEventIds, traceIds);
+                
+                log.info("【强制裁剪完成】保留节点数={}, 移除节点数={}, traceId分组={}",
+                        forcePruneResult.getKeptNodeCount(),
+                        forcePruneResult.getRemovedNodeCount(),
+                        forcePruneResult.getTraceIdQuotas());
+            }
+            
+            log.info("【最终节点数】{}", subgraph.getNodeCount());
+            
             // ===== 阶段8：转换为输出格式 =====
             ProcessChainResult result = convertGraphToResult(subgraph, traceIds);
             
