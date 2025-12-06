@@ -369,6 +369,12 @@ public class ProcessChainGraphBuilder {
             return;
         }
         
+        // ✅ 性能优化：如果节点已达上限，直接返回，避免重复检查和日志打印
+        // 场景：当有7000+条日志属于同一个节点时，避免7000次无效调用和日志打印
+        if (targetNode.isLogLimitReached()) {
+            return;  // 快速返回，避免后续6999+次无效调用
+        }
+        
         // ⚠️ 非告警节点：应用数量限制
         int currentLogCount = targetNode.getLogs().size();
         int addedCount = 0;
@@ -381,16 +387,19 @@ public class ProcessChainGraphBuilder {
                 addedCount++;
             } else {
                 skippedCount++;
-                // 只在第一次达到上限时记录警告
-                if (skippedCount == 1) {
+                // ✅ 只在首次达到上限时记录警告并设置标志位
+                if (!targetNode.isLogLimitReached()) {
                     log.warn("【建图-日志累积优化】非告警节点 {} 的日志数已达上限({}), 后续日志将被忽略", 
                              targetNode.getNodeId(), MAX_LOGS_PER_NODE);
+                    targetNode.setLogLimitReached(true);  // 设置标志位，后续调用将快速返回
                 }
+                break;  // 已达上限，不再继续遍历
             }
         }
         
-        if (skippedCount > 0) {
-            log.info("【建图-日志累积优化】节点 {} 合并完成: 新增={}, 跳过={}, 当前总数={}", 
+        // ✅ 只在有实际操作时才打印DEBUG日志
+        if (addedCount > 0) {
+            log.debug("【建图-日志累积优化】节点 {} 合并完成: 新增={}, 跳过={}, 当前总数={}", 
                      targetNode.getNodeId(), addedCount, skippedCount, targetNode.getLogs().size());
         }
     }

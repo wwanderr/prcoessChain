@@ -41,6 +41,12 @@ public class GraphNode {
     private boolean isAlarm;
     private boolean isVirtual;  // 是否是虚拟节点（拆分产生的）
     
+    /**
+     * 日志数量是否已达上限（性能优化标志位）
+     * 用于避免在建图阶段重复检查和打印警告
+     */
+    private boolean logLimitReached = false;
+    
     private String nodeType;  // process/file/domain/network/registry/entity
     
     /**
