@@ -365,7 +365,12 @@ public class ForcePruner {
     }
     
     /**
-     * 选择网端关联的实体节点
+     * 选择网端关联的实体节点及其到根节点的单链
+     * 
+     * 策略：
+     * 1. 找到所有网端关联的实体节点（按 GUID 排序）
+     * 2. 保留实体节点本身
+     * 3. 追溯实体节点的父进程到根节点的单链
      */
     private static Set<String> selectAssociatedEntities(
             TraceGroup group,
@@ -393,14 +398,64 @@ public class ForcePruner {
         // ✅ 按 GUID 排序（确定性）
         Collections.sort(associatedEntities);
         
-        // 保留前 N 个
-        int count = Math.min(maxQuota, associatedEntities.size());
-        for (int i = 0; i < count; i++) {
-            result.add(associatedEntities.get(i));
+        log.debug("【强制裁剪】找到 {} 个网端关联实体节点", associatedEntities.size());
+        
+        // ✅ 修复：保留实体节点 + 父进程到根节点的单链
+        for (String entityNodeId : associatedEntities) {
+            if (result.size() >= maxQuota) {
+                log.warn("【强制裁剪】配额已满，停止保留网端关联实体链");
+                break;
+            }
+            
+            // 1. 保留实体节点本身
+            result.add(entityNodeId);
+            log.debug("【强制裁剪】保留网端关联实体: {}", entityNodeId);
+            
+            // 2. 找到实体节点的父进程节点
+            List<String> parents = graph.getParents(entityNodeId);
+            
+            // 实体节点应该只有一个父进程节点
+            String parentProcessId = null;
+            for (String parentId : parents) {
+                GraphNode parentNode = graph.getNode(parentId);
+                if (parentNode != null && parentNode.getNodeType() == NodeType.PROCESS) {
+                    parentProcessId = parentId;
+                    break;
+                }
+            }
+            
+            // 3. 如果找到父进程，追溯到根节点
+            if (parentProcessId != null) {
+                List<String> chain = traceToRootProcessOnly(parentProcessId, graph);
+                
+                // 检查配额
+                int available = maxQuota - result.size();
+                if (available >= chain.size()) {
+                    // 配额足够，保留完整链
+                    result.addAll(chain);
+                    log.debug("【强制裁剪】保留实体 {} 的完整链: {} -> 根节点，长度={}", 
+                            entityNodeId, parentProcessId, chain.size());
+                } else if (available > 0) {
+                    // 配额不足，从根节点开始保留部分链
+                    Collections.reverse(chain);  // 反转：根节点在前
+                    for (int i = 0; i < available && i < chain.size(); i++) {
+                        result.add(chain.get(i));
+                    }
+                    log.warn("【强制裁剪】实体链被截断: entityId={}, 完整长度={}, 保留={}", 
+                            entityNodeId, chain.size(), available);
+                    break;
+                } else {
+                    // 配额已满
+                    log.warn("【强制裁剪】配额已满，无法保留实体 {} 的父进程链", entityNodeId);
+                    break;
+                }
+            } else {
+                log.warn("【强制裁剪】实体节点 {} 没有找到父进程节点", entityNodeId);
+            }
         }
         
-        log.debug("【强制裁剪】找到 {} 个网端关联实体节点，保留 {} 个", 
-                associatedEntities.size(), count);
+        log.debug("【强制裁剪】网端关联实体节点处理完成，共保留 {} 个节点（含单链）", 
+                result.size());
         
         return result;
     }
@@ -438,7 +493,12 @@ public class ForcePruner {
     }
     
     /**
-     * DFS 选择进程节点
+     * DFS 选择进程节点（单链模式）
+     * 
+     * 策略：
+     * 1. 对子节点按 GUID 升序排序
+     * 2. 只选择第一个子节点（GUID 最小的）
+     * 3. 继续向下，形成单链，避免树杈
      */
     private static void dfsSelectProcessNodes(
             String currentNodeId,
@@ -463,25 +523,33 @@ public class ForcePruner {
             }
         }
         
-        // ✅ 按 GUID 字典序排序（确定性）
+        if (processChildren.isEmpty()) {
+            return;
+        }
+        
+        // ✅ 按 GUID 字典序排序（升序，确定性）
         Collections.sort(processChildren);
         
-        // DFS 遍历
+        // ✅ 修复：只选择第一个子节点（GUID 最小的），形成单链
         for (String childId : processChildren) {
             if (result.size() >= quota) {
-                break;
+                return;
             }
             
             // 跳过已排除的节点
             if (excludeNodes.contains(childId) || result.contains(childId)) {
-                continue;
+                continue;  // 如果被排除，尝试下一个子节点
             }
             
             result.add(childId);
-            log.debug("【强制裁剪】DFS 添加节点: {}", childId);
+            log.debug("【强制裁剪】DFS 添加节点（单链）: {} (GUID 最小)", childId);
             
-            // 递归
+            // 递归处理这个子节点
             dfsSelectProcessNodes(childId, graph, excludeNodes, result, quota);
+            
+            // ✅ 关键：只选择一个子节点后就返回，不再遍历其他兄弟节点
+            // 这样确保形成单链，避免树杈
+            return;
         }
     }
     
