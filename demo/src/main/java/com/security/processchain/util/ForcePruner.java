@@ -254,7 +254,10 @@ public class ForcePruner {
     }
     
     /**
-     * 选择网端关联的进程节点及其向上单链
+     * 选择网端关联的进程节点及其向上单链（单链模式）
+     * 
+     * 说明：一个 traceId 通常只对应一个网端关联的进程节点
+     * 策略：只保留第一个网端关联进程节点（GUID 最小的）的向上单链
      */
     private static Set<String> selectAssociatedProcessChains(
             TraceGroup group,
@@ -283,33 +286,42 @@ public class ForcePruner {
         
         log.debug("【强制裁剪】找到 {} 个网端关联进程节点", associatedProcessNodes.size());
         
-        // 2. 为每个网端关联进程保留向上单链
-        for (String processNodeId : associatedProcessNodes) {
-            if (result.size() >= maxQuota) {
-                log.warn("【强制裁剪】配额已满，停止保留网端关联链");
-                break;
+        // ✅ 修复：只保留第一个网端关联进程节点的向上单链（避免树杈）
+        String firstAssociatedProcess = associatedProcessNodes.get(0);
+        
+        log.info("【强制裁剪】选择第一个网端关联进程（GUID最小）: {}", firstAssociatedProcess);
+        
+        // 向上追溯到根节点（只保留进程节点）
+        List<String> chain = traceToRootProcessOnly(firstAssociatedProcess, graph);
+        
+        // 检查是否超出配额
+        if (chain.size() <= maxQuota) {
+            result.addAll(chain);
+            log.info("【强制裁剪】保留网端关联进程单链: {} -> 根节点，长度={}", 
+                    firstAssociatedProcess, chain.size());
+        } else {
+            // 配额不足，从根节点开始保留部分链
+            int available = maxQuota;
+            Collections.reverse(chain);  // 反转：根节点在前
+            for (int i = 0; i < available && i < chain.size(); i++) {
+                result.add(chain.get(i));
             }
+            log.warn("【强制裁剪】网端关联链被截断: 完整长度={}, 保留={}", 
+                    chain.size(), available);
+        }
+        
+        // ✅ 检查其他网端关联进程（异常情况）
+        if (associatedProcessNodes.size() > 1) {
+            log.warn("【强制裁剪】发现多个网端关联进程（异常）: 总数={}, 只保留第一个", 
+                    associatedProcessNodes.size());
             
-            // 向上追溯到根节点（只保留进程节点）
-            List<String> chain = traceToRootProcessOnly(processNodeId, graph);
-            
-            // 检查是否超出配额
-            if (result.size() + chain.size() <= maxQuota) {
-                result.addAll(chain);
-                log.debug("【强制裁剪】保留网端关联进程链: {} -> 根节点，长度={}", 
-                        processNodeId, chain.size());
-            } else {
-                // 只保留部分链（从根节点开始）
-                int available = maxQuota - result.size();
-                if (available > 0) {
-                    Collections.reverse(chain);  // 反转：根节点在前
-                    for (int i = 0; i < available && i < chain.size(); i++) {
-                        result.add(chain.get(i));
-                    }
-                    log.warn("【强制裁剪】网端关联链被截断: 完整长度={}, 保留={}", 
-                            chain.size(), available);
+            for (int i = 1; i < associatedProcessNodes.size(); i++) {
+                String otherProcess = associatedProcessNodes.get(i);
+                if (result.contains(otherProcess)) {
+                    log.info("【强制裁剪】其他网端关联进程 {} 已在主链上，已覆盖", otherProcess);
+                } else {
+                    log.warn("【强制裁剪】其他网端关联进程 {} 不在主链上，已跳过（避免树杈）", otherProcess);
                 }
-                break;
             }
         }
         
