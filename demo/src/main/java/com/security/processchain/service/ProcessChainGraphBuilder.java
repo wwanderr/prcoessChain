@@ -40,12 +40,14 @@ public class ProcessChainGraphBuilder {
      * @param alarms 告警列表
      * @param logs 日志列表
      * @param traceIds traceId集合
+     * @param networkAssociatedEventIds 网端关联的eventId集合（用于判断是否不受日志数量限制）
      * @return 完整的进程链图
      */
     public ProcessChainGraph buildGraph(
             List<RawAlarm> alarms,
             List<RawLog> logs,
-            Set<String> traceIds) {
+            Set<String> traceIds,
+            Set<String> networkAssociatedEventIds) {
         
         ProcessChainGraph graph = new ProcessChainGraph();
         
@@ -134,7 +136,7 @@ public class ProcessChainGraphBuilder {
                 } else {
                     // 节点已存在，合并日志
                     GraphNode existing = graph.getNode(childGuid);
-                    mergeLogsWithLimit(existing, Collections.singletonList(rawLog));
+                    addLogWithLimit(existing, rawLog, networkAssociatedEventIds);
                 }
                 
                 // 2. 处理父进程边（如果有）
@@ -401,6 +403,70 @@ public class ProcessChainGraphBuilder {
         if (addedCount > 0) {
             log.debug("【建图-日志累积优化】节点 {} 合并完成: 新增={}, 跳过={}, 当前总数={}", 
                      targetNode.getNodeId(), addedCount, skippedCount, targetNode.getLogs().size());
+        }
+    }
+    
+    /**
+     * 添加单条日志到节点（带数量限制）- 优化版本
+     * 
+     * 优化说明：
+     * 1. 方法签名简化：从 List<RawLog> 改为单个 RawLog（因为调用时都是单条日志）
+     * 2. 网端关联优先：网端关联的日志不受数量限制，确保高亮功能正常
+     * 3. 性能优化：使用标志位避免重复检查
+     * 
+     * 优先级规则：
+     * - 告警节点的日志：不受限制
+     * - 网端关联的日志：不受限制（避免影响高亮）
+     * - 普通日志：受限制（最多1000条）
+     * 
+     * @param targetNode 目标节点
+     * @param rawLog 要添加的日志
+     * @param networkAssociatedEventIds 网端关联的eventId集合
+     */
+    private void addLogWithLimit(GraphNode targetNode, RawLog rawLog, Set<String> networkAssociatedEventIds) {
+        if (rawLog == null) {
+            return;
+        }
+        
+        // ✅ 优先级1：告警节点 - 直接添加所有日志，不受限制
+        if (targetNode.isAlarm()) {
+            targetNode.addLog(rawLog);
+            return;
+        }
+        
+        // ✅ 优先级2：网端关联日志 - 不受数量限制，确保高亮功能正常
+        // 判断逻辑：检查日志的 eventId 是否在 networkAssociatedEventIds 中
+        boolean isNetworkAssociated = rawLog.getEventId() != null && 
+                                      networkAssociatedEventIds != null &&
+                                      networkAssociatedEventIds.contains(rawLog.getEventId());
+        
+        if (isNetworkAssociated) {
+            targetNode.addLog(rawLog);
+            log.debug("【建图-日志累积优化】网端关联日志不受限制: nodeId={}, eventId={}", 
+                     targetNode.getNodeId(), rawLog.getEventId());
+            return;
+        }
+        
+        // ✅ 优先级3：性能优化 - 如果节点已达上限，直接返回
+        // 场景：当有7000+条普通日志属于同一个节点时，避免7000次无效调用和日志打印
+        if (targetNode.isLogLimitReached()) {
+            return;  // 快速返回，避免后续无效调用
+        }
+        
+        // ⚠️ 普通日志：应用数量限制
+        int currentLogCount = targetNode.getLogs().size();
+        
+        if (currentLogCount < MAX_LOGS_PER_NODE) {
+            targetNode.addLog(rawLog);
+            log.debug("【建图-日志累积优化】普通日志添加成功: nodeId={}, 当前总数={}", 
+                     targetNode.getNodeId(), currentLogCount + 1);
+        } else {
+            // 首次达到上限时记录警告并设置标志位
+            if (!targetNode.isLogLimitReached()) {
+                log.warn("【建图-日志累积优化】非告警节点 {} 的日志数已达上限({}), 后续普通日志将被忽略（网端关联日志除外）", 
+                         targetNode.getNodeId(), MAX_LOGS_PER_NODE);
+                targetNode.setLogLimitReached(true);  // 设置标志位，后续普通日志将快速返回
+            }
         }
     }
 }

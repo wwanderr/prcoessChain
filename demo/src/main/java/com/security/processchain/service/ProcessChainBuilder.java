@@ -134,7 +134,8 @@ public class ProcessChainBuilder {
             ProcessChainGraph fullGraph = graphBuilder.buildGraph(
                     alarms != null ? alarms : Collections.emptyList(),
                     logs != null ? logs : Collections.emptyList(),
-                    traceIds
+                    traceIds,
+                    networkAssociatedEventIds  // 传入网端关联eventId，用于判断日志是否不受数量限制
             );
             
             log.info("【建图完成】节点数={}, 根节点={}, 断链节点={}",
