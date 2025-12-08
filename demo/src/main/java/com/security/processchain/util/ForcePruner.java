@@ -489,7 +489,7 @@ public class ForcePruner {
         if (rootNode == null) {
             log.warn("【强制裁剪】未找到根节点，按 GUID 排序选择: traceId={}", 
                     group.getTraceId());
-            return selectByGuidOrder(group, excludeNodes, quota);
+            return selectByGuidOrder(group, graph, excludeNodes, quota);
         }
         
         // 如果根节点未被排除，先添加
@@ -580,25 +580,80 @@ public class ForcePruner {
     /**
      * 按 GUID 字典序选择节点（兜底策略）
      */
+    /**
+     * 按 GUID 顺序选择单链（用于没有根节点的场景）
+     * 
+     * 策略：
+     * 1. 找到第一个进程节点（GUID 最小的）
+     * 2. 从该节点向下 DFS 选择子节点（单链）
+     * 3. 如果配额未用完，添加关联实体
+     */
     private static Set<String> selectByGuidOrder(
             TraceGroup group,
+            ProcessChainGraph graph,
             Set<String> excludeNodes,
             int quota) {
         
-        List<String> candidates = new ArrayList<>();
+        Set<String> result = new LinkedHashSet<>();
+        
+        // 1. 找出所有进程节点（排除 excludeNodes）
+        List<String> processNodes = new ArrayList<>();
         for (GraphNode node : group.getNodes()) {
-            if (!excludeNodes.contains(node.getNodeId())) {
-                candidates.add(node.getNodeId());
+            if (!excludeNodes.contains(node.getNodeId()) && 
+                node.getNodeType() == NodeType.PROCESS) {
+                processNodes.add(node.getNodeId());
             }
         }
         
-        // ✅ 按 GUID 排序
-        Collections.sort(candidates);
-        
-        Set<String> result = new LinkedHashSet<>();
-        for (int i = 0; i < Math.min(quota, candidates.size()); i++) {
-            result.add(candidates.get(i));
+        if (processNodes.isEmpty()) {
+            log.warn("【强制裁剪】GUID 排序：没有可用的进程节点");
+            return result;
         }
+        
+        // 2. 按 GUID 排序（确定性）
+        Collections.sort(processNodes);
+        
+        // 3. 选择第一个进程节点（GUID 最小的）
+        String firstProcessNode = processNodes.get(0);
+        log.info("【强制裁剪】GUID 排序：选择第一个进程节点: {}", firstProcessNode);
+        
+        // 4. 从该节点开始 DFS 向下选择（单链）
+        result.add(firstProcessNode);
+        
+        dfsSelectProcessNodes(
+                firstProcessNode, 
+                graph, 
+                excludeNodes, 
+                result, 
+                quota);
+        
+        log.info("【强制裁剪】GUID 排序：DFS 选择进程节点完成，数量={}", result.size());
+        
+        // 5. 如果配额未用完，添加关联实体（按 GUID 排序）
+        if (result.size() < quota) {
+            List<String> entities = new ArrayList<>();
+            for (GraphNode node : group.getNodes()) {
+                if (!excludeNodes.contains(node.getNodeId()) && 
+                    node.getNodeType() != NodeType.PROCESS &&
+                    !result.contains(node.getNodeId())) {
+                    entities.add(node.getNodeId());
+                }
+            }
+            
+            // 按 GUID 排序（确定性）
+            Collections.sort(entities);
+            
+            // 添加实体节点直到配额用完
+            for (String entityId : entities) {
+                if (result.size() >= quota) {
+                    break;
+                }
+                result.add(entityId);
+                log.debug("【强制裁剪】GUID 排序：添加实体节点: {}", entityId);
+            }
+        }
+        
+        log.info("【强制裁剪】GUID 排序：最终选择节点数={}", result.size());
         
         return result;
     }
