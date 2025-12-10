@@ -583,10 +583,11 @@ public class ForcePruner {
     /**
      * 按 GUID 顺序选择单链（用于没有根节点的场景）
      * 
-     * 策略：
-     * 1. 找到第一个进程节点（GUID 最小的）
-     * 2. 从该节点向下 DFS 选择子节点（单链）
-     * 3. 如果配额未用完，添加关联实体
+     * 修复策略：
+     * 1. 选择第一个进程节点（GUID最小的）
+     * 2. 向上追溯到断链节点/根节点，形成向上的单链
+     * 3. 向下DFS选择子进程节点（单链，只选第一个子节点）
+     * 4. 添加单链上所有进程节点的直接子实体
      */
     private static Set<String> selectByGuidOrder(
             TraceGroup group,
@@ -617,34 +618,67 @@ public class ForcePruner {
         String firstProcessNode = processNodes.get(0);
         log.info("【强制裁剪】GUID 排序：选择第一个进程节点: {}", firstProcessNode);
         
-        // 4. 从该节点开始 DFS 向下选择（单链）
-        result.add(firstProcessNode);
+        // ✅ 4. 向上追溯到断链节点/根节点（形成向上的单链）
+        List<String> upwardChain = traceToRootProcessOnly(firstProcessNode, graph);
         
-        dfsSelectProcessNodes(
-                firstProcessNode, 
-                graph, 
-                excludeNodes, 
-                result, 
-                quota);
+        // upwardChain 包含从 firstProcessNode 到根节点的所有进程节点
+        // 顺序是：firstProcessNode -> parent -> grandparent -> ... -> root
+        // 需要反转，让根节点在前
+        Collections.reverse(upwardChain);
         
-        log.info("【强制裁剪】GUID 排序：DFS 选择进程节点完成，数量={}", result.size());
+        log.info("【强制裁剪】GUID 排序：向上追溯单链长度={}", upwardChain.size());
         
-        // 5. 如果配额未用完，添加关联实体（按 GUID 排序）
+        // 添加向上的单链
+        for (String nodeId : upwardChain) {
+            if (result.size() >= quota) {
+                break;
+            }
+            result.add(nodeId);
+        }
+        
+        log.info("【强制裁剪】GUID 排序：向上单链添加完成，当前节点数={}", result.size());
+        
+        // ✅ 5. 向下DFS选择子进程节点（单链，只选第一个子节点）
         if (result.size() < quota) {
-            List<String> entities = new ArrayList<>();
-            for (GraphNode node : group.getNodes()) {
-                if (!excludeNodes.contains(node.getNodeId()) && 
-                    node.getNodeType() != NodeType.PROCESS &&
-                    !result.contains(node.getNodeId())) {
-                    entities.add(node.getNodeId());
+            dfsSelectProcessNodes(
+                    firstProcessNode, 
+                    graph, 
+                    excludeNodes, 
+                    result, 
+                    quota);
+            
+            log.info("【强制裁剪】GUID 排序：向下DFS完成，当前节点数={}", result.size());
+        }
+        
+        // ✅ 6. 如果配额未用完，只添加单链上进程节点的直接子实体
+        if (result.size() < quota) {
+            List<String> directChildEntities = new ArrayList<>();
+            
+            // 只遍历已选中的进程节点
+            for (String processNodeId : result) {
+                GraphNode processNode = graph.getNode(processNodeId);
+                if (processNode != null && processNode.getNodeType() == NodeType.PROCESS) {
+                    List<String> children = graph.getChildren(processNodeId);
+                    
+                    for (String childId : children) {
+                        GraphNode childNode = graph.getNode(childId);
+                        if (childNode != null && 
+                            childNode.getNodeType() != NodeType.PROCESS &&  // 只要实体节点
+                            !excludeNodes.contains(childId) &&
+                            !result.contains(childId)) {
+                            directChildEntities.add(childId);
+                        }
+                    }
                 }
             }
             
             // 按 GUID 排序（确定性）
-            Collections.sort(entities);
+            Collections.sort(directChildEntities);
+            
+            log.info("【强制裁剪】GUID 排序：找到单链上的直接子实体数={}", directChildEntities.size());
             
             // 添加实体节点直到配额用完
-            for (String entityId : entities) {
+            for (String entityId : directChildEntities) {
                 if (result.size() >= quota) {
                     break;
                 }
