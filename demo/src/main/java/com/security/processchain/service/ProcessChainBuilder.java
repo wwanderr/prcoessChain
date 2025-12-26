@@ -1698,6 +1698,8 @@ public class ProcessChainBuilder {
     private void createVirtualParentsForSubgraph(ProcessChainGraph subgraph, Set<String> traceIds) {
         Map<String, GraphNode> virtualParentsToAdd = new HashMap<>();
         int createdCount = 0;
+        int brokenNodeCount = 0;  // 新增：统计标记为断链的节点数
+        int skippedRootCount = 0; // 新增：统计跳过的根节点数
         
         // 遍历子图的所有节点
         for (GraphNode node : subgraph.getAllNodes()) {
@@ -1723,9 +1725,10 @@ public class ProcessChainBuilder {
                 }
                 
                 // 优先从日志中提取父进程信息
+                GraphNode virtualParent = null;
                 List<RawLog> nodeLogs = node.getLogs();
                 if (nodeLogs != null && !nodeLogs.isEmpty()) {
-                    GraphNode virtualParent = createVirtualParentNodeFromLog(nodeLogs.get(0), parentGuid);
+                    virtualParent = createVirtualParentNodeFromLog(nodeLogs.get(0), parentGuid);
                     if (virtualParent != null) {
                         virtualParentsToAdd.put(parentGuid, virtualParent);
                         createdCount++;
@@ -1741,15 +1744,50 @@ public class ProcessChainBuilder {
                 //  没有日志或日志信息不足时，从告警中提取父进程信息
                 List<RawAlarm> nodeAlarms = node.getAlarms();
                 if (nodeAlarms != null && !nodeAlarms.isEmpty()) {
-                    GraphNode virtualParent = createVirtualParentNodeFromAlarm(nodeAlarms.get(0), parentGuid);
+                    virtualParent = createVirtualParentNodeFromAlarm(nodeAlarms.get(0), parentGuid);
                     if (virtualParent != null) {
                         virtualParentsToAdd.put(parentGuid, virtualParent);
                         createdCount++;
                         log.debug("【父进程拆分】从告警创建虚拟父节点: parentId={}, childId={}", 
                                 parentGuid, nodeId);
+                        continue;
+                    }
+                }
+                
+                // ✅ 新增：虚拟父节点创建失败，立即标记子节点为断链（根节点除外）
+                if (virtualParent == null) {
+                    // 检查是否是根节点（processGuid == traceId）
+                    String traceId = node.getTraceId();
+                    boolean isRootNode = nodeId.equals(traceId);
+                    
+                    if (isRootNode) {
+                        // 根节点不标记为断链
+                        log.info("【父进程拆分】无法创建虚拟父节点，但节点是根节点，不标记为断链: " +
+                                "parentId={}, childId={}, traceId={}", 
+                                parentGuid, nodeId, traceId);
+                        skippedRootCount++;
+                        
+                        // 清空根节点的 parentProcessGuid（根节点不应该有父节点）
+                        node.setParentProcessGuid(null);
                     } else {
-                        log.warn("【父进程拆分】 无法创建虚拟父节点（日志和告警中都缺少父进程信息）: " +
-                                "parentId={}, childId={}", parentGuid, nodeId);
+                        // 非根节点，标记为断链
+                        log.warn("【父进程拆分】⚠️ 无法创建虚拟父节点（日志和告警中都缺少父进程信息），标记子节点为断链: " +
+                                "parentId={}, childId={}, traceId={}, isRoot={}", 
+                                parentGuid, nodeId, traceId, false);
+                        
+                        // 标记为断链节点
+                        node.setBroken(true);
+                        subgraph.getBrokenNodes().add(nodeId);
+                        
+                        // 记录断链节点到 traceId 的映射
+                        if (traceId != null) {
+                            subgraph.getBrokenNodeToTraceId().put(nodeId, traceId);
+                        }
+                        
+                        // 保持 parentProcessGuid 不变（用于后续 adjustVirtualParentLinks 处理）
+                        // 注意：不清空 parentProcessGuid，让 adjustVirtualParentLinks 来处理
+                        
+                        brokenNodeCount++;
                     }
                 }
             }
@@ -1789,7 +1827,8 @@ public class ProcessChainBuilder {
             }
         }
         
-        log.info("【父进程拆分】创建虚拟父节点数={}, 创建边数={}", createdCount, edgeCount);
+        log.info("【父进程拆分】创建虚拟父节点数={}, 创建边数={}, 标记断链节点数={}, 跳过根节点数={}", 
+                createdCount, edgeCount, brokenNodeCount, skippedRootCount);
     }
 
     /**
